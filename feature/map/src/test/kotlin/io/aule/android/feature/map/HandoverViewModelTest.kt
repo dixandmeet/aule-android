@@ -122,7 +122,7 @@ class HandoverViewModelTest {
             assertEquals(listOf(tram), viewModel.state.value.filteredLines)
 
             viewModel.pickLine("1")
-            assertEquals(listOf("1", "C6"), prefs.readRecentLines())
+            assertEquals(listOf("1", "C6", "ghost"), prefs.readRecentLines())
             assertEquals(HandoverStep.VEHICLE, viewModel.state.value.step)
         } finally {
             Dispatchers.resetMain()
