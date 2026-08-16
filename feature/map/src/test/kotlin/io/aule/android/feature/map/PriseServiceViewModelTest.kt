@@ -147,6 +147,15 @@ class PriseServiceViewModelTest {
             directionId: Int,
         ) = error("unused")
 
+        override suspend fun nearestActiveTrip(
+            session: AuthSession,
+            lineId: String,
+            directionId: Int,
+            destinationHint: String?,
+            near: io.aule.android.core.geo.Coordinate,
+            at: java.time.Instant,
+        ) = null
+
         override suspend fun fetchActiveService(session: AuthSession) = null
 
         override suspend fun startService(

@@ -28,6 +28,8 @@ import io.aule.android.core.model.distinctStops
 import io.aule.android.core.model.fallbackStopsByProximity
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.HandoverProgress
+import io.aule.android.core.model.HandoverProgressEngine
+import io.aule.android.core.model.ScheduledTrip
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.measureHandoverProgress
 import io.aule.android.core.model.normalizeStopName
@@ -107,6 +109,8 @@ data class HandoverUiState(
     val progress: HandoverProgress? = null,
     val travelToRelief: Duration? = null,
     val neighbourPassages: Map<String, List<Instant>> = emptyMap(),
+    /** Course GTFS du jour, quand le calage a réussi. */
+    val activeTrip: ScheduledTrip? = null,
 ) {
     val leaveBy: Instant? get() = progress?.leaveBy(travelToRelief)
     val selectedLine: ServiceLine?
@@ -209,6 +213,7 @@ class HandoverViewModel(
     private var travelJob: Job? = null
     private var neighbourJob: Job? = null
     private var alertEngine: HandoverAlertEngine? = null
+    private var progressEngine: HandoverProgressEngine? = null
     private var lastTravelFetchAt: Instant = Instant.EPOCH
 
     init {
@@ -525,6 +530,7 @@ class HandoverViewModel(
                     travelToRelief = null,
                 )
                 lastTravelFetchAt = Instant.EPOCH
+                armProgressEngine(stop)
                 armAlerts()
             } catch (cancelled: CancellationException) {
                 _state.value = _state.value.copy(isBusy = false)
@@ -583,6 +589,7 @@ class HandoverViewModel(
                 )
                 if (hasStop) {
                     lastTravelFetchAt = Instant.EPOCH
+                    armProgressEngine(selected)
                     armAlerts()
                 }
             } catch (cancelled: CancellationException) {
@@ -603,6 +610,7 @@ class HandoverViewModel(
                         abortedReason = null,
                     )
                     lastTravelFetchAt = Instant.EPOCH
+                    armProgressEngine(_state.value.selectedLiveStop)
                     armAlerts()
                 } else {
                     logger.warn(LogDomain.NET, "Reprise de relève : desserte indisponible.", failure)
@@ -620,6 +628,7 @@ class HandoverViewModel(
         val current = _state.value
         if (current.handover == null || current.selectedLiveStop == null) return
         if (alertEngine == null) armAlerts()
+        if (progressEngine == null) armProgressEngine(current.selectedLiveStop)
         lastTravelFetchAt = Instant.EPOCH
         _state.value = current.copy(step = HandoverStep.CONFIRM, failure = null)
     }
@@ -828,6 +837,7 @@ class HandoverViewModel(
     fun dismiss() {
         stopTracking()
         alertEngine = null
+        progressEngine = null
         val engaged = _state.value.handover
         if (engaged != null && engaged.status.isLive) {
             releaseEngaged(reason = "cancelled_by_driver")
@@ -848,12 +858,22 @@ class HandoverViewModel(
             stop != null
         ) {
             val at = now()
-            val measured = measureHandoverProgress(
+            val measured = progressEngine?.update(
+                position = fix.coordinate,
+                recordedAt = at.minusSeconds(fix.ageSeconds.toLong().coerceAtLeast(0L)),
+                now = at,
+                speedMps = fix.speed,
+                fixAgeSeconds = fix.ageSeconds,
+            ) ?: measureHandoverProgress(
                 fix,
                 stop,
                 current.liveStops,
                 at,
-                timetableAt = current.handover?.reliefPlannedAt ?: track.handover.reliefPlannedAt,
+                timetableAt = current.handover?.reliefPlannedAt
+                    ?: track.handover.reliefPlannedAt
+                    ?: current.activeTrip?.stops
+                        ?.find { normalizeStopName(it.name) == normalizeStopName(stop.name) }
+                        ?.passageAt,
             )
             progress = measured
             arrived = measured.arrived
@@ -902,6 +922,23 @@ class HandoverViewModel(
         alertEngine = HandoverAlertEngine(prefs = _state.value.alertPrefs)
     }
 
+    private fun armProgressEngine(stop: LineJourneyStop?) {
+        val trip = _state.value.activeTrip
+        if (stop == null || trip == null) {
+            progressEngine = null
+            return
+        }
+        val index = trip.stops.indexOfFirst { it.stopId == stop.id }.takeIf { it >= 0 }
+            ?: trip.stops.indexOfFirst {
+                normalizeStopName(it.name) == normalizeStopName(stop.name)
+            }.takeIf { it >= 0 }
+        if (index == null) {
+            progressEngine = null
+            return
+        }
+        progressEngine = HandoverProgressEngine(trip, index)
+    }
+
     /**
      * Passages de la ligne à chaque arrêt proposé, chargés en fond.
      *
@@ -925,6 +962,13 @@ class HandoverViewModel(
     }
 
     private suspend fun plannedPassage(stop: LineJourneyStop): Instant? {
+        _state.value.activeTrip?.stops
+            ?.firstOrNull {
+                it.stopId == stop.id ||
+                    normalizeStopName(it.name) == normalizeStopName(stop.name)
+            }
+            ?.passageAt
+            ?.let { return it }
         val cached = _state.value.neighbourPassages[stop.name]
         if (cached != null) return plannedReliefPassage(cached, now())
         val times = fetchNeighbourTimes(stop) ?: return null
@@ -996,7 +1040,7 @@ class HandoverViewModel(
             handover = summary,
             target = target,
             liveStops = remaining,
-            selectedLiveStop = null,
+            selectedLiveStop = remaining.lastOrNull(),
             fallbackAround = around(),
             step = HandoverStep.STOP,
             failure = null,
@@ -1035,6 +1079,32 @@ class HandoverViewModel(
                 handover = track.handover,
             )
         }
+        val near = track?.fix?.coordinate ?: around()
+        val trip = if (near != null) {
+            try {
+                services.nearestActiveTrip(
+                    session = session,
+                    lineId = target.lineId,
+                    directionId = target.directionId ?: 0,
+                    destinationHint = target.terminus,
+                    near = near,
+                    at = now(),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.NET, "Course GTFS de relève introuvable.", failure)
+                null
+            }
+        } else {
+            null
+        }
+        if (trip != null && trip.stops.size >= 2) {
+            _state.value = _state.value.copy(activeTrip = trip)
+            val journeyStops = trip.stops.map { it.toJourneyStop() }
+            return remainingReliefStops(journeyStops, track?.fix?.coordinate)
+        }
+        _state.value = _state.value.copy(activeTrip = null)
         val journey = services.fetchJourney(
             session,
             target.lineId,

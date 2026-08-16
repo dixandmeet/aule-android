@@ -26,9 +26,9 @@ const val HANDOVER_LEAVE_MARGIN_SECONDS = 2 * 60L
 /**
  * L'état de la course relevée, vu depuis le conducteur qui attend.
  *
- * Sans tracé GTFS projeté, [pathMatched] veut dire : on a pu compter les
- * arrêts restants sur la desserte. L'approche et l'arrivée se lisent à
- * la distance, même sans ce décompte.
+ * Avec une course GTFS calée, [pathMatched] veut dire : le véhicule a été
+ * projeté sur le tracé (ou la polyligne arrêt→arrêt). Sans calage,
+ * [measureHandoverProgress] retombe sur le décompte d'arrêts.
  */
 data class HandoverProgress(
     val plannedAt: Instant,

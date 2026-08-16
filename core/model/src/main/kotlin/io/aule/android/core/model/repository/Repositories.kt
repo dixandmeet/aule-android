@@ -17,6 +17,7 @@ import io.aule.android.core.model.HandoverTrack
 import io.aule.android.core.model.LineJourney
 import io.aule.android.core.model.PositionPublishRequest
 import io.aule.android.core.model.ProRegistrationDraft
+import io.aule.android.core.model.ScheduledTrip
 import io.aule.android.core.model.ServiceHeartbeat
 import io.aule.android.core.model.ServiceLine
 import io.aule.android.core.model.ServiceStartRequest
@@ -351,6 +352,19 @@ interface DriverServiceRepository {
         lineId: String,
         directionId: Int,
     ): LineJourney
+
+    /**
+     * Course GTFS du jour la plus proche de [near] : profils, départs actifs
+     * et desserte horodatée. `null` si aucune course ne colle (pas une panne).
+     */
+    suspend fun nearestActiveTrip(
+        session: AuthSession,
+        lineId: String,
+        directionId: Int,
+        destinationHint: String?,
+        near: Coordinate,
+        at: Instant = Instant.now(),
+    ): ScheduledTrip?
 
     suspend fun fetchActiveService(session: AuthSession): ActiveDriverService?
 

@@ -128,3 +128,45 @@ internal data class ServiceHeartbeatDto(
         handover = handover?.toDomain(),
     )
 }
+
+@Serializable
+internal data class GtfsTripProfileDto(
+    @SerialName("profile_id") val profileId: String,
+    @SerialName("direction_id") val directionId: Int = 0,
+    val headsign: String? = null,
+    @SerialName("route_id") val routeId: String? = null,
+)
+
+@Serializable
+internal data class GtfsTripDepartureDto(
+    @SerialName("departure_id") val departureId: String,
+    @SerialName("profile_id") val profileId: String,
+    @SerialName("start_seconds") val startSeconds: Int,
+)
+
+@Serializable
+internal data class GtfsTripProfileStopDto(
+    @SerialName("profile_id") val profileId: String,
+    @SerialName("stop_sequence") val stopSequence: Int = 0,
+    @SerialName("stop_id") val stopId: String,
+    @SerialName("offset_seconds") val offsetSeconds: Int = 0,
+)
+
+@Serializable
+internal data class GtfsStopMetaDto(
+    @SerialName("stop_id") val stopId: String,
+    @SerialName("stop_name") val stopName: String? = null,
+    val geom: JsonElement? = null,
+)
+
+@Serializable
+internal data class GtfsCalendarDto(
+    @SerialName("service_id") val serviceId: String,
+    @SerialName("runs_on") val runsOn: List<Boolean> = emptyList(),
+)
+
+@Serializable
+internal data class GtfsCalendarDateDto(
+    @SerialName("service_id") val serviceId: String,
+    @SerialName("exception_type") val exceptionType: Int = 0,
+)

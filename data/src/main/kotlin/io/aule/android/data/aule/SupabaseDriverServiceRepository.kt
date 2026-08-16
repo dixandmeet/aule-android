@@ -1,26 +1,41 @@
 package io.aule.android.data.aule
 
+import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.ActiveDriverService
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.DriverServiceException
 import io.aule.android.core.model.DriverServiceFailureKind
+import io.aule.android.core.model.LineJourney
 import io.aule.android.core.model.PositionPublishRequest
+import io.aule.android.core.model.ScheduledTrip
+import io.aule.android.core.model.ScheduledTripStop
 import io.aule.android.core.model.ServiceHeartbeat
 import io.aule.android.core.model.ServiceLine
 import io.aule.android.core.model.ServiceStartRequest
-import io.aule.android.core.model.LineJourney
 import io.aule.android.core.model.compareServiceLines
+import io.aule.android.core.model.normalizeStopName
+import io.aule.android.core.model.positionAtElapsed
 import io.aule.android.core.model.repository.DriverServiceRepository
 import io.aule.android.core.network.ApiException
 import io.aule.android.core.network.AuleHttpClient
 import io.aule.android.core.network.RawHttpResponse
 import io.aule.android.data.dto.DriverIdDto
 import io.aule.android.data.dto.DriverServiceRowDto
+import io.aule.android.data.dto.GtfsCalendarDateDto
+import io.aule.android.data.dto.GtfsCalendarDto
 import io.aule.android.data.dto.GtfsRouteDto
+import io.aule.android.data.dto.GtfsStopMetaDto
 import io.aule.android.data.dto.GtfsStopTimeDto
+import io.aule.android.data.dto.GtfsTripDepartureDto
 import io.aule.android.data.dto.GtfsTripDto
+import io.aule.android.data.dto.GtfsTripProfileDto
+import io.aule.android.data.dto.GtfsTripProfileStopDto
 import io.aule.android.data.dto.ServiceHeartbeatDto
+import io.aule.android.data.dto.toCoordinate
 import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
@@ -131,6 +146,280 @@ class SupabaseDriverServiceRepository(
         } catch (_: Throwable) {
             throw DriverServiceException(DriverServiceFailureKind.UNKNOWN)
         }
+    }
+
+    override suspend fun nearestActiveTrip(
+        session: AuthSession,
+        lineId: String,
+        directionId: Int,
+        destinationHint: String?,
+        near: Coordinate,
+        at: Instant,
+    ): ScheduledTrip? {
+        if (!configured) return null
+        val routeId = lineId.trim()
+        if (routeId.isEmpty()) return null
+        return try {
+            resolveNearestActiveTrip(
+                session = session,
+                routeId = routeId,
+                directionId = directionId,
+                destinationHint = destinationHint,
+                near = near,
+                at = at,
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: ApiException.Cancelled) {
+            throw CancellationException()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    private suspend fun resolveNearestActiveTrip(
+        session: AuthSession,
+        routeId: String,
+        directionId: Int,
+        destinationHint: String?,
+        near: Coordinate,
+        at: Instant,
+    ): ScheduledTrip? {
+        val route = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_routes",
+                headers = restHeaders(session),
+                query = mapOf(
+                    "select" to "route_id,route_short_name,route_long_name,route_type,route_color,network_id",
+                    "route_id" to "eq.$routeId",
+                    "limit" to "1",
+                ),
+            ),
+            GtfsRouteDto.serializer(),
+        ).firstOrNull() ?: return null
+        val lineLabel = route.shortName?.trim().orEmpty().ifEmpty { routeId }
+
+        var profiles = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_trip_profiles",
+                headers = restHeaders(session),
+                query = buildMap {
+                    put("select", "profile_id,direction_id,headsign,route_id")
+                    put("route_id", "eq.$routeId")
+                    if (directionId >= 0) put("direction_id", "eq.$directionId")
+                },
+            ),
+            GtfsTripProfileDto.serializer(),
+        )
+        if (profiles.isEmpty()) return null
+
+        val hint = destinationHint?.trim().orEmpty()
+        if (directionId < 0 && hint.isNotEmpty()) {
+            var bestScore = 0
+            for (profile in profiles) {
+                bestScore = maxOf(bestScore, directionScore(profile.headsign, hint))
+            }
+            if (bestScore > 0) {
+                profiles = profiles.filter { directionScore(it.headsign, hint) == bestScore }
+            }
+        }
+
+        val zone = ZoneId.of("Europe/Paris")
+        val local = at.atZone(zone)
+        val serviceDate = local.toLocalDate()
+        val serviceIds = activeServiceIds(session, serviceDate)
+        if (serviceIds.isEmpty()) return null
+        val elapsedBase = local.toLocalTime().toSecondOfDay()
+        val profileIds = profiles.map { it.profileId }
+
+        val departureRows = fetchAllPages { offset, limit ->
+            decodeList(
+                client.getRaw(
+                    url = "$restBase/gtfs_trip_departures",
+                    headers = restHeaders(session),
+                    query = mapOf(
+                        "select" to "departure_id,profile_id,start_seconds",
+                        "profile_id" to "in.(${profileIds.joinToString(",")})",
+                        "service_id" to "in.(${serviceIds.joinToString(",")})",
+                        "and" to "(start_seconds.gte.${elapsedBase - 4 * 3600},start_seconds.lte.$elapsedBase)",
+                        "order" to "start_seconds",
+                        "offset" to "$offset",
+                        "limit" to "$limit",
+                    ),
+                ),
+                GtfsTripDepartureDto.serializer(),
+            )
+        }
+        if (departureRows.isEmpty()) return null
+
+        val usedProfileIds = departureRows.map { it.profileId }.distinct()
+        val profileStopRows = fetchAllPages { offset, limit ->
+            decodeList(
+                client.getRaw(
+                    url = "$restBase/gtfs_trip_profile_stops",
+                    headers = restHeaders(session),
+                    query = mapOf(
+                        "select" to "profile_id,stop_sequence,stop_id,offset_seconds",
+                        "profile_id" to "in.(${usedProfileIds.joinToString(",")})",
+                        "order" to "profile_id,stop_sequence",
+                        "offset" to "$offset",
+                        "limit" to "$limit",
+                    ),
+                ),
+                GtfsTripProfileStopDto.serializer(),
+            )
+        }
+
+        val stopIds = profileStopRows.map { it.stopId }.distinct()
+        val stopMeta = if (stopIds.isEmpty()) {
+            emptyMap()
+        } else {
+            decodeList(
+                client.getRaw(
+                    url = "$restBase/gtfs_stops",
+                    headers = restHeaders(session),
+                    query = mapOf(
+                        "select" to "stop_id,stop_name,geom",
+                        "stop_id" to "in.(${stopIds.joinToString(",")})",
+                    ),
+                ),
+                GtfsStopMetaDto.serializer(),
+            ).associateBy { it.stopId }
+        }
+
+        data class ResolverStop(
+            val name: String,
+            val position: Coordinate?,
+            val offsetSeconds: Int,
+            val stopId: String,
+        )
+
+        val stopsByProfile = mutableMapOf<String, MutableList<ResolverStop>>()
+        for (row in profileStopRows.sortedWith(compareBy({ it.profileId }, { it.stopSequence }))) {
+            val meta = stopMeta[row.stopId]
+            stopsByProfile.getOrPut(row.profileId) { mutableListOf() }.add(
+                ResolverStop(
+                    name = meta?.stopName?.trim().orEmpty(),
+                    position = meta?.geom.toCoordinate(),
+                    offsetSeconds = row.offsetSeconds,
+                    stopId = row.stopId,
+                ),
+            )
+        }
+
+        val headsignByProfile = profiles.associate { it.profileId to it.headsign }
+        var best: GtfsTripDepartureDto? = null
+        var bestDistance = 500.0
+        for (row in departureRows) {
+            val stops = stopsByProfile[row.profileId] ?: continue
+            if (stops.size < 2) continue
+            val elapsed = elapsedBase - row.startSeconds
+            if (elapsed < 0) continue
+            if (elapsed > stops.last().offsetSeconds + 180) continue
+            val position = positionAtElapsed(
+                offsets = stops.map { it.offsetSeconds },
+                positions = stops.map { it.position },
+                elapsedSeconds = elapsed,
+            ) ?: continue
+            val distance = GeoMath.distance(near, position)
+            if (distance >= bestDistance) continue
+            bestDistance = distance
+            best = row
+        }
+        val chosen = best ?: return null
+        val chosenStops = stopsByProfile[chosen.profileId] ?: return null
+        val midnight = serviceDate.atStartOfDay(zone).toInstant()
+        val timedStops = chosenStops.map { stop ->
+            ScheduledTripStop(
+                stopId = stop.stopId,
+                name = stop.name.ifEmpty { "Arrêt" },
+                coordinate = stop.position,
+                passageAt = midnight.plusSeconds(
+                    (chosen.startSeconds + stop.offsetSeconds).toLong(),
+                ),
+            )
+        }
+        val headsign = headsignByProfile[chosen.profileId]?.trim().orEmpty()
+        val terminus = timedStops.lastOrNull()?.name?.trim().orEmpty()
+        return ScheduledTrip(
+            departureId = chosen.departureId,
+            lineId = routeId,
+            lineLabel = lineLabel,
+            directionId = directionId.coerceAtLeast(0),
+            destination = when {
+                terminus.isNotEmpty() && terminus != "Arrêt" -> terminus
+                headsign.isNotEmpty() -> headsign
+                else -> hint
+            },
+            stops = timedStops,
+        )
+    }
+
+    private suspend fun activeServiceIds(session: AuthSession, date: LocalDate): List<String> {
+        val iso = date.toString()
+        val weekday = date.dayOfWeek.value
+        val regular = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_calendar",
+                headers = restHeaders(session),
+                query = mapOf(
+                    "select" to "service_id,runs_on",
+                    "start_date" to "lte.$iso",
+                    "end_date" to "gte.$iso",
+                ),
+            ),
+            GtfsCalendarDto.serializer(),
+        )
+        val exceptions = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_calendar_dates",
+                headers = restHeaders(session),
+                query = mapOf(
+                    "select" to "service_id,exception_type",
+                    "service_date" to "eq.$iso",
+                ),
+            ),
+            GtfsCalendarDateDto.serializer(),
+        )
+        val removed = exceptions.filter { it.exceptionType == 2 }.map { it.serviceId }.toSet()
+        val added = exceptions.filter { it.exceptionType == 1 }.map { it.serviceId }.toSet()
+        val active = mutableSetOf<String>()
+        for (row in regular) {
+            val runsToday = row.runsOn.size >= weekday && row.runsOn[weekday - 1]
+            if (runsToday && row.serviceId !in removed) active += row.serviceId
+        }
+        active += added
+        return active.toList()
+    }
+
+    private fun directionScore(headsign: String?, requested: String): Int {
+        val actual = normalizeStopName(headsign.orEmpty())
+        if (actual.isEmpty()) return 0
+        val expected = normalizeStopName(requested)
+        if (actual == expected) return 100
+        if (actual.contains(expected) || expected.contains(actual)) return 80
+        val aliases = requested.split('/', '|')
+            .map { normalizeStopName(it) }
+            .filter { it.length >= 3 }
+        for (alias in aliases) {
+            if (actual.contains(alias) || alias.contains(actual)) return 70
+        }
+        return 0
+    }
+
+    private suspend fun <T> fetchAllPages(
+        pageSize: Int = 1000,
+        fetch: suspend (offset: Int, limit: Int) -> List<T>,
+    ): List<T> {
+        val all = mutableListOf<T>()
+        var offset = 0
+        while (true) {
+            val page = fetch(offset, pageSize)
+            all += page
+            if (page.size < pageSize) break
+            offset += pageSize
+        }
+        return all
     }
 
     override suspend fun fetchActiveService(session: AuthSession): ActiveDriverService? {
