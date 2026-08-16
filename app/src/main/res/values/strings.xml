@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Aule Pro</string>
+
+    <!-- Écran d'amorçage du lot 1. Il disparaît quand la carte arrive. -->
+    <string name="boot_title">Aule Pro</string>
+    <string name="boot_subtitle">Le socle est en place. La carte arrive au lot 4.</string>
+    <string name="boot_build_label">Binaire : %1$s</string>
+    <string name="boot_supabase_missing">Supabase non configuré — renseignez local.properties</string>
+
+    <!-- Dialogue système de localisation. Android l'affiche tel quel. -->
+    <string name="permission_location_rationale">Aule utilise votre position pour vous situer sur la carte et afficher les arrêts autour de vous.</string>
+
+    <string name="handover_alert_channel_name">Relève de conducteur</string>
+    <string name="handover_alert_channel_detail">Arrivée du véhicule à relever et confirmation de la passation.</string>
+</resources>

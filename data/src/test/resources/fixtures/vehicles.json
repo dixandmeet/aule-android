@@ -1,0 +1,6 @@
+{"vehicles":[{"id":"th-D003871","type":"tram","mode":"scheduled","lat":47.21913,
+"lng":-1.53549,"heading":74,"aheadLat":47.21927,"aheadLng":-1.53474,
+"trajectory":[{"lat":47.21913,"lng":-1.53549},{"lat":47.21927,"lng":-1.53474}],
+"stopProgress":null,"dwellSeconds":5,"speedMps":5.9,"recordedAt":null,"routeId":"1",
+"destination":"Beaujoire / Babinière","nextStop":"Moutonnerie","etaSeconds":38,
+"twinId":null}],"generatedAt":"2026-08-15T23:10:22.347Z","horizonSeconds":10,"degraded":null}

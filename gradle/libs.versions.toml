@@ -1,0 +1,108 @@
+# Catalogue de versions — la seule liste des dépendances du projet.
+#
+# Chaque entrée doit avoir une raison d'être. Une bibliothèque qui double ce que
+# Kotlin ou Android fournit déjà correctement n'entre pas ici.
+
+[versions]
+# Chaîne de build. Vérifiées sur Maven Central et Google Maven le 16/08/2026.
+#
+# AGP 9.2.1 et non 9.3.1 : la 9.3.1 exige Gradle 9.5.0, et seule la distribution
+# 9.4.1 est présente sur cette machine. La 9.2.1 est par ailleurs celle sur
+# laquelle tourne déjà SAE/android. À remonter ensemble le jour où l'on passe le
+# wrapper à 9.5.
+agp = "9.2.1"
+kotlin = "2.4.10"
+ksp = "2.4.10-2.0.4"
+
+# Plancher et cible Android.
+# minSdk 26 : java.time sans desugaring, canaux de notification, icônes adaptatives.
+# targetSdk 36 impose de toute façon les services de premier plan typés.
+minSdk = "26"
+targetSdk = "36"
+compileSdk = "36"
+
+androidxCore = "1.18.0"
+androidxActivity = "1.12.0"
+androidxLifecycle = "2.10.0"
+# BOM 2026.06.01 → Compose 1.11.4. Le BOM 2026.08.00 tire Compose 1.12.0, qui
+# exige compileSdk 37 — non installé sur cette machine. À remonter ensemble le
+# jour où android-37 est installé.
+composeBom = "2026.06.01"
+datastore = "1.2.0"
+
+kotlinxCoroutines = "1.11.0"
+kotlinxSerialization = "1.11.0"
+
+# Aligné sur mockwebserver3-junit5, qui n'existe qu'en 5.4.0. OkHttp arrive de
+# toute façon avec MapLibre : on partage un seul client, donc un seul pool de
+# connexions et un seul point de journalisation pour les tuiles et l'API.
+okhttp = "5.4.0"
+
+# MapLibre Native Android — moteur cartographique.
+#
+# Vérifié sur l'AAR 13.5.0 le 16/08/2026 : `android-sdk` embarque le backend
+# **Vulkan** (62 symboles vkCreate*, aucun symbole GLES) ; `android-sdk-opengl`
+# embarque OpenGL ES. On prend explicitement le second (ADR-002) : dix ans de
+# production derrière lui, et une app de service ne doit pas risquer un écran
+# noir en pleine tournée. L'API Java est identique, la bascule est cette ligne.
+maplibre = "13.5.0"
+
+playServicesLocation = "21.4.0"
+
+junit5 = "6.0.0"
+turbine = "1.2.1"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "androidxActivity" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "androidxLifecycle" }
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "androidxLifecycle" }
+androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "androidxLifecycle" }
+
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
+androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
+androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
+
+kotlinx-coroutines-android = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-android", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-core = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-core", version.ref = "kotlinxCoroutines" }
+kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-test", version.ref = "kotlinxCoroutines" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+
+okhttp = { group = "com.squareup.okhttp3", name = "okhttp", version.ref = "okhttp" }
+okhttp-mockwebserver = { group = "com.squareup.okhttp3", name = "mockwebserver3-junit5", version.ref = "okhttp" }
+
+maplibre-android = { group = "org.maplibre.gl", name = "android-sdk-opengl", version.ref = "maplibre" }
+
+play-services-location = { group = "com.google.android.gms", name = "play-services-location", version.ref = "playServicesLocation" }
+
+kotlin-test = { group = "org.jetbrains.kotlin", name = "kotlin-test", version.ref = "kotlin" }
+junit-jupiter = { group = "org.junit.jupiter", name = "junit-jupiter", version.ref = "junit5" }
+junit-platform-launcher = { group = "org.junit.platform", name = "junit-platform-launcher" }
+turbine = { group = "app.cash.turbine", name = "turbine", version.ref = "turbine" }
+
+# Utilisés par build-logic pour appliquer les plugins depuis les plugins de convention.
+android-gradle-plugin = { group = "com.android.tools.build", name = "gradle", version.ref = "agp" }
+kotlin-gradle-plugin = { group = "org.jetbrains.kotlin", name = "kotlin-gradle-plugin", version.ref = "kotlin" }
+compose-compiler-gradle-plugin = { group = "org.jetbrains.kotlin", name = "compose-compiler-gradle-plugin", version.ref = "kotlin" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+compose-compiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+
+# Plugins de convention du projet (build-logic). Ils portent la configuration
+# partagée pour qu'aucun module ne redéclare un bloc android complet.
+aule-android-application = { id = "aule.android.application" }
+aule-android-library = { id = "aule.android.library" }
+aule-android-compose = { id = "aule.android.compose" }
+aule-jvm-library = { id = "aule.jvm.library" }

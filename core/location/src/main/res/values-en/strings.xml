@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nav_foreground_channel">Immersive map</string>
+    <string name="nav_foreground_title">Navigation in progress</string>
+    <string name="nav_foreground_text">Aule Pro is tracking your position on the map.</string>
+    <string name="duty_foreground_title">On duty</string>
+    <string name="duty_foreground_text">Aule Pro is sharing your position.</string>
+</resources>

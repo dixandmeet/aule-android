@@ -1,0 +1,114 @@
+package io.aule.android.core.model
+
+import io.aule.android.core.geo.Coordinate
+import kotlin.test.assertEquals
+import kotlin.test.assertNull
+import kotlin.test.assertTrue
+import org.junit.jupiter.api.Test
+
+/** Port de `SAE/test/maneuvers_test.dart`. */
+class ManeuversTest {
+
+    private fun at(east: Double, north: Double) = Coordinate(
+        latitude = 47.2184 + north / 111_320,
+        longitude = -1.5536 + east / (111_320 * 0.6785),
+    )
+
+    private fun maneuver(
+        type: String,
+        at: Coordinate,
+        modifier: String? = null,
+        street: String? = null,
+    ) = RoadManeuver(
+        instruction = type,
+        modifier = modifier,
+        streetName = street,
+        location = at,
+        distanceMeters = 0.0,
+        durationSeconds = 0.0,
+    )
+
+    @Test
+    fun `un virage se lit dans son modificateur`() {
+        assertEquals(ManeuverKind.RIGHT, maneuverKindOf("turn", "right"))
+        assertEquals(ManeuverKind.SLIGHT_LEFT, maneuverKindOf("turn", "slight left"))
+        assertEquals(ManeuverKind.SHARP_LEFT, maneuverKindOf("end of road", "sharp left"))
+        assertEquals(ManeuverKind.U_TURN, maneuverKindOf("continue", "uturn"))
+        assertEquals(ManeuverKind.DEPART, maneuverKindOf("depart"))
+        assertEquals(ManeuverKind.ROUNDABOUT, maneuverKindOf("exit roundabout"))
+        assertEquals(ManeuverKind.STRAIGHT, maneuverKindOf("new name"))
+        assertEquals(ManeuverKind.UNKNOWN, maneuverKindOf("turn", "diagonalement"))
+    }
+
+    @Test
+    fun `une manoeuvre sur le trace est retenue`() {
+        val painted = listOf(at(0.0, 0.0), at(500.0, 0.0), at(1000.0, 0.0))
+        val pinned = pinManeuvers(painted, listOf(maneuver("turn", at(500.0, 0.0), "right")))
+        assertEquals(1, pinned.size)
+        assertEquals(ManeuverKind.RIGHT, pinned.single().kind)
+        assertEquals(0.5, pinned.single().t, 1e-3)
+    }
+
+    @Test
+    fun `une manoeuvre d une rue voisine est ecartee`() {
+        val painted = listOf(at(0.0, 0.0), at(500.0, 0.0), at(1000.0, 0.0))
+        val pinned = pinManeuvers(painted, listOf(maneuver("turn", at(500.0, 40.0), "left")))
+        assertTrue(pinned.isEmpty())
+    }
+
+    @Test
+    fun `une position inversee ne s agrafe sur rien`() {
+        val painted = listOf(at(0.0, 0.0), at(500.0, 0.0), at(1000.0, 0.0))
+        val inverted = Coordinate(latitude = -1.5536, longitude = 47.2184)
+        val pinned = pinManeuvers(painted, listOf(maneuver("turn", inverted, "right")))
+        assertTrue(pinned.isEmpty())
+    }
+
+    @Test
+    fun `une manoeuvre ecartee ne fait pas avancer le plancher`() {
+        val painted = listOf(at(0.0, 0.0), at(1000.0, 0.0))
+        val pinned = pinManeuvers(
+            painted,
+            listOf(
+                maneuver("turn", at(800.0, 60.0), "left"),
+                maneuver("turn", at(300.0, 0.0), "right", street = "la bonne"),
+            ),
+        )
+        assertEquals(1, pinned.size)
+        assertEquals("la bonne", pinned.single().streetName)
+        assertEquals(0.3, pinned.single().t, 1e-3)
+    }
+
+    @Test
+    fun `une manoeuvre de la jambe finale ne remonte pas sur la premiere`() {
+        val aller = listOf(at(0.0, 0.0), at(300.0, 0.0))
+        val pinned = pinManeuvers(
+            aller,
+            listOf(maneuver("turn", at(150.0, 0.0), "right")),
+            minT = 0.8,
+        )
+        assertTrue(pinned.isEmpty())
+    }
+
+    @Test
+    fun `partir n est jamais ce qui vient`() {
+        val pinned = listOf(
+            PinnedManeuver(ManeuverKind.DEPART, 0.0),
+            PinnedManeuver(ManeuverKind.RIGHT, 0.25, "Rue de l'Ouche Buron"),
+            PinnedManeuver(ManeuverKind.LEFT, 0.75),
+            PinnedManeuver(ManeuverKind.ARRIVE, 1.0),
+        )
+        val next = nextManeuver(pinned, 0.0, 4000.0)!!
+        assertEquals(ManeuverKind.RIGHT, next.maneuver.kind)
+        assertEquals(1000.0, next.meters, 1e-6)
+    }
+
+    @Test
+    fun `plus rien devant se dit par un rien`() {
+        val sansArrivee = listOf(
+            PinnedManeuver(ManeuverKind.RIGHT, 0.25),
+            PinnedManeuver(ManeuverKind.LEFT, 0.75),
+        )
+        assertNull(nextManeuver(sansArrivee, 0.9, 4000.0))
+    }
+}

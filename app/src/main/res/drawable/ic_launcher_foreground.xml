@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Le « A » d'Aule, tracé dans la zone sûre d'une icône adaptative (66 dp centrés
+  sur 108). minSdk 26 dispense de fournir des PNG de repli : tous les appareils
+  visés savent composer une icône adaptative.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M54,32 L70,76 L61.5,76 L58.2,66.5 L49.8,66.5 L46.5,76 L38,76 Z M54,45.5 L51.8,59.5 L56.2,59.5 Z" />
+    <path
+        android:fillColor="#FF8AC79B"
+        android:pathData="M38.5,80 L69.5,80 A2,2 0 0 1 69.5,84 L38.5,84 A2,2 0 0 1 38.5,80 Z" />
+</vector>

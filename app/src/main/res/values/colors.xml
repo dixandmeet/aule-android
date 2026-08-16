@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Ces deux couleurs doublent volontairement les tokens Kotlin du design
+      system : le système a besoin du fond de fenêtre avant que la moindre ligne
+      de Kotlin ne tourne. Un test du lot 2 vérifie qu'elles ne divergent pas
+      d'AuleTokens.surfaceSolid.
+    -->
+    <color name="aule_surface">#FFFFFFFF</color>
+    <color name="aule_brand_teal">#FF0D595E</color>
+</resources>

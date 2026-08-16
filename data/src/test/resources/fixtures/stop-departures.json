@@ -1,0 +1,5 @@
+{"stopId":"COMM","passages":[
+  {"id":"p1","line":"1","direction":"Beaujoire","destination":"Beaujoire / Babinière","expectedAt":"2026-08-16T06:03:19Z","realtime":true,"lineColor":"#00a754","vehicleType":"tram"},
+  {"id":"p2","line":"1","direction":"Beaujoire","destination":"Beaujoire / Babinière","expectedAt":"2026-08-16T06:07:19.000Z","realtime":true,"lineColor":"#00a754","vehicleType":"tram"},
+  {"id":"p3","line":"2","direction":"Orvault","destination":"Orvault Grand Val","expectedAt":"2026-08-16T06:05:19Z","realtime":false,"lineColor":"#e30613","vehicleType":"tram"}
+],"updatedAt":"2026-08-16T06:02:19Z"}

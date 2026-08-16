@@ -1,0 +1,5 @@
+{"vehicles":[
+  {"id":"a","type":"funiculaire","lat":47.2,"lng":-1.5,"routeId":"X"},
+  {"id":"b","type":"bus","lat":0,"lng":0,"routeId":"Y"},
+  {"id":"c","type":"bus","lat":47.2136,"lng":-1.5573,"routeId":"C3"}
+],"generatedAt":"2026-08-15T23:10:22.347Z","horizonSeconds":10}
