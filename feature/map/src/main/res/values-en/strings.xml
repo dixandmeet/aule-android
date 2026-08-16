@@ -305,6 +305,15 @@
     <string name="handover_alert_arrived_title">The vehicle has arrived</string>
     <string name="handover_alert_arrived_body">Confirm the handover to take over the duty.</string>
     <string name="handover_confirm_title">Driver tracking</string>
+    <string name="handover_done_title">Handover</string>
+    <string name="handover_done_success">Duty taken over.</string>
+    <string name="handover_done_aborted">The handover ended without a transfer.</string>
+    <string name="handover_done_detail">Handover complete · %1$s.</string>
+    <string name="handover_done_detail_stop">Handover complete at %1$s · %2$s.</string>
+    <string name="handover_done_close">Close</string>
+    <string name="handover_notif_taken_title">Duty taken over</string>
+    <string name="handover_notif_taken_body">Handover complete · %1$s.</string>
+    <string name="handover_notif_taken_body_stop">Handover complete at %1$s · %2$s.</string>
     <string name="handover_confirm_detail">Both drivers are side by side. Confirming transfers the duty.</string>
     <string name="handover_confirm_action">Take over duty</string>
     <string name="handover_confirm_action_waiting">Take over duty (vehicle not there yet)</string>

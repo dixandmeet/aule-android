@@ -48,3 +48,15 @@ fun handoverAlertBody(
     HandoverAlertKind.ARRIVED ->
         context.getString(R.string.handover_alert_arrived_body)
 }
+
+fun handoverTakenTitle(context: Context): String =
+    context.getString(R.string.handover_notif_taken_title)
+
+fun handoverTakenBody(context: Context, lineLabel: String, reliefStopName: String?): String {
+    val stop = reliefStopName?.trim().orEmpty()
+    return if (stop.isEmpty()) {
+        context.getString(R.string.handover_notif_taken_body, lineLabel)
+    } else {
+        context.getString(R.string.handover_notif_taken_body_stop, stop, lineLabel)
+    }
+}

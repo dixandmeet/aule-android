@@ -98,9 +98,6 @@ fun HandoverScreen(
         state.step == HandoverStep.ALERTS ||
         state.step == HandoverStep.CONFIRM
 
-    LaunchedEffect(state.started) {
-        state.started?.let(onStarted)
-    }
     LaunchedEffect(overlay, state.handover?.id) {
         if (!overlay || state.handover?.id == null) return@LaunchedEffect
         viewModel.startTracking()
@@ -111,8 +108,17 @@ fun HandoverScreen(
         }
     }
 
+    fun finish() {
+        val started = state.started
+        viewModel.dismiss()
+        if (started != null) onStarted(started)
+        onClose()
+    }
+
     BackHandler {
-        if (viewModel.back()) {
+        if (state.step == HandoverStep.DONE) {
+            finish()
+        } else if (viewModel.back()) {
             viewModel.dismiss()
             onClose()
         }
@@ -171,6 +177,7 @@ fun HandoverScreen(
                     state = state,
                     viewModel = viewModel,
                     onClose = onClose,
+                    onFinish = ::finish,
                     modifier = Modifier.fillMaxSize(),
                 )
             }
@@ -183,6 +190,7 @@ private fun WizardPane(
     state: HandoverUiState,
     viewModel: HandoverViewModel,
     onClose: () -> Unit,
+    onFinish: () -> Unit,
     modifier: Modifier,
 ) {
     val tokens = AuleTheme.tokens
@@ -197,14 +205,19 @@ private fun WizardPane(
             HandoverHeader(
                 title = stringResource(state.step.title()),
                 onBack = {
-                    if (viewModel.back()) {
+                    if (state.step == HandoverStep.DONE) {
+                        onFinish()
+                    } else if (viewModel.back()) {
                         viewModel.dismiss()
                         onClose()
                     }
                 },
                 onClose = {
-                    viewModel.dismiss()
-                    onClose()
+                    if (state.step == HandoverStep.DONE) onFinish()
+                    else {
+                        viewModel.dismiss()
+                        onClose()
+                    }
                 },
             )
             Column(
@@ -214,7 +227,7 @@ private fun WizardPane(
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
             ) {
                 val error = state.failure
-                if (error != null) {
+                if (error != null && state.step != HandoverStep.DONE) {
                     AuleBanner(message = error.label(), tone = AuleTone.ALERT)
                 }
                 when (state.step) {
@@ -253,9 +266,21 @@ private fun WizardPane(
                         onChangeStop = { viewModel.back() },
                         onStart = viewModel::startFallback,
                     )
+                    HandoverStep.DONE -> DoneStep(state = state)
                     HandoverStep.STOP, HandoverStep.ALERTS, HandoverStep.CONFIRM -> Unit
                 }
                 Spacer(modifier = Modifier.height(AuleSpacing.lg))
+            }
+            if (state.step == HandoverStep.DONE) {
+                AuleButton(
+                    title = stringResource(R.string.handover_done_close),
+                    onClick = onFinish,
+                    prominence = AuleButtonProminence.FILLED,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(bottom = AuleSpacing.lg),
+                )
             }
         }
     }
@@ -616,6 +641,51 @@ private fun trackingError(state: HandoverUiState): String {
         )
     }
     return state.failure?.label() ?: ""
+}
+
+@Composable
+private fun DoneStep(state: HandoverUiState) {
+    val tokens = AuleTheme.tokens
+    val success = state.started != null
+    val message = when {
+        success -> stringResource(R.string.handover_done_success)
+        state.abortedReason == "outgoing_service_closed" ->
+            stringResource(R.string.handover_aborted_closed)
+        state.abortedReason != null -> stringResource(R.string.handover_aborted)
+        else -> stringResource(R.string.handover_done_aborted)
+    }
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        verticalAlignment = Alignment.Top,
+    ) {
+        AuleIcon(
+            glyph = if (success) AuleGlyph.CHECK else AuleGlyph.FLAG,
+            tint = if (success) tokens.accent.color else tokens.alert.color,
+        )
+        Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
+            BasicText(
+                text = message,
+                style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurface.color),
+            )
+            if (success) {
+                val stop = state.selectedLiveStop?.name ?: state.handover?.reliefStopName
+                val line = state.started?.lineLabel.orEmpty()
+                val detail = when {
+                    !stop.isNullOrBlank() && line.isNotBlank() ->
+                        stringResource(R.string.handover_done_detail_stop, stop, line)
+                    line.isNotBlank() -> stringResource(R.string.handover_done_detail, line)
+                    else -> null
+                }
+                if (detail != null) {
+                    BasicText(
+                        text = detail,
+                        style = auleTextStyle(AuleRole.BODY)
+                            .copy(color = tokens.onSurfaceMuted.color),
+                    )
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -1354,6 +1424,7 @@ private fun HandoverStep.title(): Int = when (this) {
     HandoverStep.STOP -> R.string.handover_live_stop_title
     HandoverStep.ALERTS -> R.string.handover_alerts_title
     HandoverStep.CONFIRM -> R.string.handover_confirm_title
+    HandoverStep.DONE -> R.string.handover_done_title
 }
 
 @Composable

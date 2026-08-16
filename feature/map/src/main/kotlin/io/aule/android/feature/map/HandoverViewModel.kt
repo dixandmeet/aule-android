@@ -68,6 +68,7 @@ enum class HandoverStep {
     STOP,
     ALERTS,
     CONFIRM,
+    DONE,
 }
 
 data class HandoverUiState(
@@ -197,6 +198,7 @@ class HandoverViewModel(
     private val around: () -> Coordinate? = { null },
     private val alertPrefsStore: HandoverAlertPrefsStore,
     private val onAlert: (HandoverAlert, String) -> Unit = { _, _ -> },
+    private val onServiceTaken: (lineLabel: String, reliefStopName: String?) -> Unit = { _, _ -> },
     private val logger: AuleLogger,
     private val now: () -> Instant = Instant::now,
 ) : ViewModel() {
@@ -437,7 +439,13 @@ class HandoverViewModel(
                         trainNumber = current.query.trim().ifEmpty { null },
                     ),
                 )
-                _state.value = _state.value.copy(isBusy = false, started = started)
+                val stopName = current.fallbackStop?.name
+                _state.value = _state.value.copy(
+                    isBusy = false,
+                    started = started,
+                    step = HandoverStep.DONE,
+                )
+                onServiceTaken(line.label, stopName)
             } catch (cancelled: CancellationException) {
                 _state.value = _state.value.copy(isBusy = false)
                 throw cancelled
@@ -701,7 +709,20 @@ class HandoverViewModel(
                     lineLabel = current.selectedLine?.label ?: target.lineId,
                     startedAt = now(),
                 ) ?: throw HandoverException(HandoverFailureKind.UNKNOWN)
-                _state.value = _state.value.copy(isBusy = false, handover = result, started = started)
+                alertEngine = null
+                progressEngine = null
+                _state.value = _state.value.copy(
+                    isBusy = false,
+                    handover = result,
+                    started = started,
+                    step = HandoverStep.DONE,
+                    progress = null,
+                    trackFix = null,
+                )
+                onServiceTaken(
+                    started.lineLabel,
+                    current.selectedLiveStop?.name ?: result.reliefStopName,
+                )
             } catch (cancelled: CancellationException) {
                 _state.value = _state.value.copy(isBusy = false)
                 throw cancelled
@@ -812,18 +833,22 @@ class HandoverViewModel(
                 }
                 false
             }
+            HandoverStep.DONE -> true
         }
     }
 
     /**
      * Fermeture du panneau. Une relève seulement *proposée* à la reprise
      * n'est pas annulée : le conducteur la retrouvera à la prochaine ouverture.
+     * Une relève déjà soldée (DONE) ne se relâche pas.
      */
     fun dismiss() {
         stopTracking()
         alertEngine = null
         progressEngine = null
-        val engaged = _state.value.handover
+        val current = _state.value
+        if (current.step == HandoverStep.DONE || current.started != null) return
+        val engaged = current.handover
         if (engaged != null && engaged.status.isLive) {
             releaseEngaged(reason = "cancelled_by_driver")
         }
@@ -832,13 +857,28 @@ class HandoverViewModel(
     private fun applyTrack(track: HandoverTrack) {
         val aborted = track.handover.status.isAborted
         val current = _state.value
-        val fix = if (track.handover.status.isLive) track.fix else null
+        if (aborted) {
+            stopTracking()
+            alertEngine = null
+            progressEngine = null
+            _state.value = current.copy(
+                handover = track.handover,
+                trackFix = null,
+                abortedReason = track.handover.cancelReason,
+                failure = null,
+                reliefArrived = false,
+                progress = null,
+                travelToRelief = null,
+                step = HandoverStep.DONE,
+            )
+            return
+        }
+        val fix = track.fix
         val stop = current.selectedLiveStop
         val engine = alertEngine
         var arrived = current.reliefArrived
-        var progress = if (aborted) null else current.progress
-        if (!aborted &&
-            current.step == HandoverStep.CONFIRM &&
+        var progress = current.progress
+        if (current.step == HandoverStep.CONFIRM &&
             fix != null &&
             stop != null
         ) {
@@ -870,11 +910,10 @@ class HandoverViewModel(
         _state.value = current.copy(
             handover = track.handover,
             trackFix = fix,
-            abortedReason = if (aborted) track.handover.cancelReason else null,
-            failure = if (aborted) HandoverFailureKind.CLOSED else current.failure,
-            reliefArrived = if (aborted) false else arrived,
+            abortedReason = null,
+            reliefArrived = arrived,
             progress = progress,
-            travelToRelief = if (aborted) null else current.travelToRelief,
+            travelToRelief = current.travelToRelief,
         )
     }
 

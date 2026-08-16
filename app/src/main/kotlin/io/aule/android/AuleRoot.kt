@@ -47,6 +47,8 @@ import io.aule.android.feature.map.HandoverStep
 import io.aule.android.feature.map.HandoverViewModel
 import io.aule.android.feature.map.handoverAlertBody
 import io.aule.android.feature.map.handoverAlertTitle
+import io.aule.android.feature.map.handoverTakenBody
+import io.aule.android.feature.map.handoverTakenTitle
 import io.aule.android.feature.map.MapScreen
 import io.aule.android.feature.map.MapViewModel
 import io.aule.android.feature.map.PriseServiceScreen
@@ -280,6 +282,16 @@ fun AuleRoot(
                                         title = handoverAlertTitle(context, alert),
                                         body = handoverAlertBody(context, alert, stopName),
                                         kind = alert.kind,
+                                    )
+                                },
+                                onServiceTaken = { lineLabel, reliefStopName ->
+                                    graph.handoverAlerts.showCompleted(
+                                        title = handoverTakenTitle(context),
+                                        body = handoverTakenBody(
+                                            context,
+                                            lineLabel,
+                                            reliefStopName,
+                                        ),
                                     )
                                 },
                                 logger = graph.logger,

@@ -189,6 +189,7 @@ class HandoverViewModelTest {
             val passage = viewModel.state.value.fallbackPassages.first()
             viewModel.startFallback(passage)
             advanceUntilIdle()
+            assertEquals(HandoverStep.DONE, viewModel.state.value.step)
             assertEquals("svc-fb", viewModel.state.value.started?.id)
             assertEquals("999", services.started?.trainNumber)
             assertEquals(0, services.started?.directionId)
@@ -203,7 +204,11 @@ class HandoverViewModelTest {
         Dispatchers.setMain(dispatcher)
         try {
             val handovers = FakeHandovers(candidates = listOf(TARGET))
-            val viewModel = viewModel(handovers = handovers)
+            val taken = mutableListOf<Pair<String, String?>>()
+            val viewModel = viewModel(
+                handovers = handovers,
+                onServiceTaken = { line, stop -> taken += line to stop },
+            )
             advanceUntilIdle()
             viewModel.pickLine("C6")
             viewModel.setQuery("324")
@@ -228,10 +233,12 @@ class HandoverViewModelTest {
             assertEquals(HandoverStep.CONFIRM, viewModel.state.value.step)
             viewModel.confirm()
             advanceUntilIdle()
+            assertEquals(HandoverStep.DONE, viewModel.state.value.step)
             assertEquals("svc-in", viewModel.state.value.started?.id)
             assertEquals("C6", viewModel.state.value.started?.lineLabel)
             assertEquals("Hermeland", viewModel.state.value.started?.terminus)
             assertEquals("hov-1", handovers.confirmed)
+            assertEquals(listOf<Pair<String, String?>>("C6" to "Commerce"), taken)
         } finally {
             Dispatchers.resetMain()
         }
@@ -546,7 +553,8 @@ class HandoverViewModelTest {
             advanceUntilIdle()
             viewModel.startTracking()
             advanceUntilIdle()
-            assertEquals(HandoverFailureKind.CLOSED, viewModel.state.value.failure)
+            assertEquals(HandoverStep.DONE, viewModel.state.value.step)
+            assertEquals(null, viewModel.state.value.started)
             assertEquals("outgoing_service_closed", viewModel.state.value.abortedReason)
             assertEquals(null, viewModel.state.value.trackFix)
         } finally {
@@ -562,6 +570,7 @@ class HandoverViewModelTest {
         roads: RoadRouter = FakeRoads(),
         alertPrefsStore: HandoverAlertPrefsStore = MemoryAlertPrefs(),
         onAlert: (HandoverAlert, String) -> Unit = { _, _ -> },
+        onServiceTaken: (String, String?) -> Unit = { _, _ -> },
     ) = HandoverViewModel(
         session = SESSION,
         networkId = "net-nan",
@@ -573,6 +582,7 @@ class HandoverViewModelTest {
         roads = roads,
         alertPrefsStore = alertPrefsStore,
         onAlert = onAlert,
+        onServiceTaken = onServiceTaken,
         logger = NoopLogger,
         now = { Instant.parse("2026-08-16T16:00:00Z") },
     )

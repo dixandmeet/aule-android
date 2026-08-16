@@ -24,6 +24,15 @@ class HandoverAlertNotifier(
     private val appContext = context.applicationContext
 
     fun show(title: String, body: String, kind: HandoverAlertKind) {
+        show(title = title, body = body, notificationId = NOTIFICATION_BASE + kind.ordinal)
+    }
+
+    /** Confirmation de passation (« Service repris »), hors des seuils d'approche. */
+    fun showCompleted(title: String, body: String) {
+        show(title = title, body = body, notificationId = NOTIFICATION_COMPLETED)
+    }
+
+    private fun show(title: String, body: String, notificationId: Int) {
         try {
             val manager = appContext.getSystemService(NotificationManager::class.java) ?: return
             ensureChannel(manager)
@@ -47,9 +56,9 @@ class HandoverAlertNotifier(
                 .setAutoCancel(true)
                 .setContentIntent(launch)
                 .build()
-            manager.notify(NOTIFICATION_BASE + kind.ordinal, notification)
+            manager.notify(notificationId, notification)
         } catch (_: Throwable) {
-            // Bannière manquante : l'écran de suivi continue.
+            // Bannière manquante : l'écran continue.
         }
     }
 
@@ -72,5 +81,6 @@ class HandoverAlertNotifier(
     private companion object {
         const val CHANNEL_ID = "aule_pro_releve_v1"
         const val NOTIFICATION_BASE = 8100
+        const val NOTIFICATION_COMPLETED = 8199
     }
 }

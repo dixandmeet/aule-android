@@ -305,6 +305,15 @@
     <string name="handover_alert_arrived_title">Le véhicule est arrivé</string>
     <string name="handover_alert_arrived_body">Confirmez la relève pour prendre le service.</string>
     <string name="handover_confirm_title">Suivi conducteur</string>
+    <string name="handover_done_title">Relève</string>
+    <string name="handover_done_success">Service repris.</string>
+    <string name="handover_done_aborted">La relève s\'est terminée sans passation.</string>
+    <string name="handover_done_detail">Relève effectuée · %1$s.</string>
+    <string name="handover_done_detail_stop">Relève effectuée à %1$s · %2$s.</string>
+    <string name="handover_done_close">Fermer</string>
+    <string name="handover_notif_taken_title">Service repris</string>
+    <string name="handover_notif_taken_body">Relève effectuée · %1$s.</string>
+    <string name="handover_notif_taken_body_stop">Relève effectuée à %1$s · %2$s.</string>
     <string name="handover_confirm_detail">Les deux conducteurs sont côte à côte. Confirmer bascule le service.</string>
     <string name="handover_confirm_action">Prendre le service</string>
     <string name="handover_confirm_action_waiting">Prendre le service (véhicule pas encore là)</string>

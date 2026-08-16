@@ -196,5 +196,8 @@ le tram 1). Le suivi cale la course GTFS du jour près du collègue
 quand le véhicule est à l'arrêt ; sans course, le repli distance/vitesse
 reste en place. À la reprise d'une relève engagée, l'arrêt se rattache
 par id, nom, puis position (≤ 120 m) — sinon on redemande le point plutôt
-que d'en inventer un. Le signalement de terrain part du même rail
+que d'en inventer un. Après confirmation (ou repli horaire), l'écran DONE
+affiche « Service repris » et une notification locale confirme la
+passation ; une relève annulée pendant le suivi se solde aussi en DONE,
+sans passation. Le signalement de terrain part du même rail
 (`driver_reports`).
