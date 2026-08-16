@@ -1,7 +1,7 @@
 package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -77,6 +77,7 @@ import io.aule.android.core.model.ServiceLine
 import io.aule.android.core.model.StopDeparture
 import io.aule.android.core.model.Wait
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.awaitCancellation
 
 /**
@@ -115,12 +116,17 @@ fun HandoverScreen(
         onClose()
     }
 
-    BackHandler {
-        if (state.step == HandoverStep.DONE) {
-            finish()
-        } else if (viewModel.back()) {
-            viewModel.dismiss()
-            onClose()
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { }
+            if (state.step == HandoverStep.DONE) {
+                finish()
+            } else if (viewModel.back()) {
+                viewModel.dismiss()
+                onClose()
+            }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         }
     }
 
@@ -669,7 +675,7 @@ private fun DoneStep(state: HandoverUiState) {
             )
             if (success) {
                 val stop = state.selectedLiveStop?.name ?: state.handover?.reliefStopName
-                val line = state.started?.lineLabel.orEmpty()
+                val line = state.started.lineLabel
                 val detail = when {
                     !stop.isNullOrBlank() && line.isNotBlank() ->
                         stringResource(R.string.handover_done_detail_stop, stop, line)
@@ -792,6 +798,12 @@ private fun LineStep(
             } else {
                 // Sans recherche : seulement les lignes qui roulent et les
                 // récentes — le champ dit déjà comment trouver le reste.
+                if (state.activeLines.isEmpty() && state.recentLines.isEmpty()) {
+                    AuleEmptyState(
+                        title = stringResource(R.string.handover_lines_empty_title),
+                        detail = stringResource(R.string.handover_lines_empty_detail),
+                    )
+                }
                 if (state.activeLines.isNotEmpty()) {
                     LineSectionLabel(
                         text = stringResource(R.string.handover_lines_active),
@@ -993,7 +1005,8 @@ private fun CandidatesStep(
 
 @Composable
 private fun FallbackNotice(state: HandoverUiState) {
-    val query = state.query.trim().ifEmpty { "—" }
+    val unknown = stringResource(R.string.value_unknown)
+    val query = state.query.trim().ifEmpty { unknown }
     val line = state.selectedLine?.label ?: state.selectedLineId.orEmpty()
     AuleBanner(
         message = stringResource(R.string.handover_fallback_notice, query, line),

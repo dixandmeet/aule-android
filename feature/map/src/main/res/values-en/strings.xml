@@ -98,8 +98,10 @@
     <string name="vehicle_estimated">Position estimated from the schedule</string>
     <string name="vehicle_next_stop">Next stop</string>
     <string name="vehicle_eta_in">In</string>
-    <string name="vehicle_eta_arriving">arriving</string>
+    <string name="vehicle_eta_arrival">Arrival</string>
+    <string name="vehicle_eta_arriving">now</string>
     <string name="vehicle_eta_minutes">%1$d min</string>
+    <string name="value_unknown">—</string>
     <string name="vehicle_follow">Follow this vehicle</string>
     <string name="vehicle_unfollow">Stop following</string>
 
@@ -260,6 +262,8 @@
     <string name="handover_line_detail">Choose the line of the vehicle you are taking over.</string>
     <string name="handover_lines_active">Running now</string>
     <string name="handover_lines_recent">Recently relieved</string>
+    <string name="handover_lines_empty_title">No recent lines</string>
+    <string name="handover_lines_empty_detail">Search for the line of the vehicle you are taking over.</string>
     <string name="handover_vehicle_title">Which vehicle?</string>
     <string name="handover_vehicle_detail">The number is on your duty sheet.</string>
     <string name="handover_vehicle_field">Train or vehicle number</string>
@@ -308,12 +312,12 @@
     <string name="handover_done_title">Handover</string>
     <string name="handover_done_success">Duty taken over.</string>
     <string name="handover_done_aborted">The handover ended without a transfer.</string>
-    <string name="handover_done_detail">Handover complete · %1$s.</string>
-    <string name="handover_done_detail_stop">Handover complete at %1$s · %2$s.</string>
+    <string name="handover_done_detail">Handover complete · line %1$s.</string>
+    <string name="handover_done_detail_stop">Handover complete at %1$s · line %2$s.</string>
     <string name="handover_done_close">Close</string>
     <string name="handover_notif_taken_title">Duty taken over</string>
-    <string name="handover_notif_taken_body">Handover complete · %1$s.</string>
-    <string name="handover_notif_taken_body_stop">Handover complete at %1$s · %2$s.</string>
+    <string name="handover_notif_taken_body">Handover complete · line %1$s.</string>
+    <string name="handover_notif_taken_body_stop">Handover complete at %1$s · line %2$s.</string>
     <string name="handover_confirm_detail">Both drivers are side by side. Confirming transfers the duty.</string>
     <string name="handover_confirm_action">Take over duty</string>
     <string name="handover_confirm_action_waiting">Take over duty (vehicle not there yet)</string>

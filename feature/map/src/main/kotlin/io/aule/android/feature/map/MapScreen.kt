@@ -516,7 +516,10 @@ fun MapScreen(
                 }
             }
 
-            if (!showingReport && !hideChrome) {
+            // Les rails vivent sur la carte, pas sur les volets. Les garder
+            // compacts au-dessus d'une liste masquait noms et distances sur le
+            // S21 ; le volet fournit déjà son propre retour et ses actions.
+            if (!showingReport && !hideChrome && !state.hasSheet && !state.search.isActive) {
                 val searching = state.search.isActive
                 val leftItems = buildList {
                     if (!navigating && !searching) {
@@ -588,7 +591,7 @@ fun MapScreen(
                 }
                 MapActionChrome(
                     cameraMode = cameraMode,
-                    compact = navigating || state.hasSheet,
+                    compact = navigating,
                     leftItems = leftItems,
                     rightItems = rightItems,
                     onRecenter = { onRecenter(controller, state.selectedVehicle, navigating) },
@@ -598,7 +601,13 @@ fun MapScreen(
                         .fillMaxWidth()
                         .safeDrawingPadding()
                         .padding(horizontal = AuleSpacing.md)
-                        .padding(bottom = AuleSpacing.sm),
+                        .padding(
+                            bottom = if (navigating) {
+                                TripSummaryBarHeight + AuleSpacing.md
+                            } else {
+                                AuleSpacing.sm
+                            },
+                        ),
                 )
             }
             val submitReport = onSubmitReport

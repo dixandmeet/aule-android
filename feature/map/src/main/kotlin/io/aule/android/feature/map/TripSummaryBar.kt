@@ -47,8 +47,9 @@ internal fun TripSummaryBar(
     onHeightPx: (Float) -> Unit = {},
 ) {
     val tokens = AuleTheme.tokens
-    val arrival = summary.arrivalAt?.let { clockFormatter.format(it) } ?: "—"
-    val remaining = summary.remaining?.clockLabel() ?: "—"
+    val unknown = stringResource(R.string.value_unknown)
+    val arrival = summary.arrivalAt?.let { clockFormatter.format(it) } ?: unknown
+    val remaining = summary.remaining?.clockLabel() ?: unknown
     val arrivalLabel = if (summary.estimated) {
         stringResource(R.string.nav_arrival_estimated)
     } else {
@@ -67,7 +68,7 @@ internal fun TripSummaryBar(
                 .onSizeChanged { onHeightPx(it.height.toFloat()) }
                 .auleShadow(AuleElevation.RESTING, shape)
                 .clip(shape)
-                .background(tokens.surface.color)
+                .background(tokens.surfaceSolid.color)
                 .clickable(onClick = onOpen)
                 .defaultMinSize(minHeight = TripSummaryBarHeight)
                 .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md)

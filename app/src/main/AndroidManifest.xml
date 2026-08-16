@@ -3,12 +3,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.CAMERA" />
 
-    <!-- FOREGROUND_SERVICE*, POST_NOTIFICATIONS, VIBRATE, WAKE_LOCK et le
-         service lui-même viennent de :core:location (fusion de manifeste).
+    <!-- ACCESS_*_LOCATION, FOREGROUND_SERVICE*, POST_NOTIFICATIONS, VIBRATE,
+         WAKE_LOCK et le service lui-même viennent de :core:location.
          Ils ne s'activent qu'avec LocationPurpose.NAVIGATING ou ON_DUTY. -->
 
     <uses-feature

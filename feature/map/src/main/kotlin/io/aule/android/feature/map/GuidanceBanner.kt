@@ -61,7 +61,7 @@ internal fun GuidanceBanner(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(AuleRadius.lg))
-            .background(if (alert) tokens.alert.color else tokens.surface.color)
+            .background(if (alert) tokens.alert.color else tokens.surfaceSolid.color)
             .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md)
             .semantics {
                 liveRegion = LiveRegionMode.Polite
@@ -70,7 +70,7 @@ internal fun GuidanceBanner(
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
     ) {
         val titleColor = if (alert) tokens.onAccent.color else tokens.onSurface.color
-        val detailColor = if (alert) tokens.onAccent.color.copy(alpha = 0.85f) else tokens.onSurfaceMuted.color
+        val detailColor = if (alert) tokens.onAccent.color else tokens.onSurfaceMuted.color
         BasicText(
             text = title,
             style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold).copy(color = titleColor),

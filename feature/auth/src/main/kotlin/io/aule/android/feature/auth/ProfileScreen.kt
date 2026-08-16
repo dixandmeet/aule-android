@@ -130,6 +130,7 @@ fun ProfileScreen(
             R.string.profile_preferences_subtitle
         },
     )
+    val traceShareSubject = stringResource(R.string.profile_traces_share_subject)
     val focus = LocalFocusManager.current
     val scope = rememberCoroutineScope()
     var draft by remember { mutableStateOf(ProfileDraft()) }
@@ -368,7 +369,7 @@ fun ProfileScreen(
                                     shareTraceFiles(
                                         context,
                                         tracesList,
-                                        context.getString(R.string.profile_traces_share_subject),
+                                        traceShareSubject,
                                     )
                                 } catch (_: Throwable) {
                                     shareFailed = true

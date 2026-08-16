@@ -97,7 +97,7 @@ internal fun VehicleDetailSheet(
                             .copy(color = tokens.onSurfaceMuted.color),
                     )
                     BasicText(
-                        text = vehicle.nextStop ?: "—",
+                        text = vehicle.nextStop ?: stringResource(R.string.value_unknown),
                         style = auleTextStyle(AuleRole.TITLE, FontWeight.Medium)
                             .copy(color = tokens.onSurface.color),
                         maxLines = 1,
@@ -106,7 +106,13 @@ internal fun VehicleDetailSheet(
                 vehicle.etaSeconds?.let { eta ->
                     Column(horizontalAlignment = Alignment.End) {
                         BasicText(
-                            text = stringResource(R.string.vehicle_eta_in),
+                            text = stringResource(
+                                if (eta < 60) {
+                                    R.string.vehicle_eta_arrival
+                                } else {
+                                    R.string.vehicle_eta_in
+                                },
+                            ),
                             style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
                                 .copy(color = tokens.onSurfaceMuted.color),
                         )

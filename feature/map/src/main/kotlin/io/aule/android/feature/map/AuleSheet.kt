@@ -118,7 +118,11 @@ internal fun BoxScope.AuleSheet(
             .height(heightDp)
             .auleShadow(AuleElevation.LIFTED, shape)
             .clip(shape)
-            .background(tokens.surface.color)
+            // Un volet porte du texte et des lignes denses : sur la carte, une
+            // surface translucide mélange les rues avec les libellés. Les petits
+            // contrôles peuvent laisser deviner la carte ; une surface de lecture
+            // doit rester opaque.
+            .background(tokens.surfaceSolid.color)
             .navigationBarsPadding()
             .focusRequester(focusRequester)
             .focusable()

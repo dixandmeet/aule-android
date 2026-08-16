@@ -52,6 +52,22 @@ class DesignSystemGuardTest {
         )
     }
 
+    @Test
+    fun `aucun ecran n invente une opacite`() {
+        val offenders = screenSources().flatMap { file ->
+            file.readLines()
+                .withIndex()
+                .filterNot { (_, line) -> line.isComment() }
+                .filter { (_, line) -> RAW_ALPHA.containsMatchIn(line) }
+                .map { (index, line) -> "${file.name}:${index + 1} ${line.trim()}" }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "Une opacité d'écran doit venir d'AuleAlpha :\n" +
+                offenders.joinToString("\n"),
+        )
+    }
+
     /**
      * Ni emoji ni glyphe textuel : les premiers changent d'aspect d'un appareil
      * à l'autre, les seconds n'ont ni la graisse ni l'alignement de la famille
@@ -112,6 +128,7 @@ class DesignSystemGuardTest {
         val ZERO_ONLY = Regex("""^[^"]*\b0\.dp\b""")
 
         val RAW_SHADOW = Regex("""\.shadow\(""")
+        val RAW_ALPHA = Regex("""copy\(\s*alpha\s*=\s*\d""")
 
         val FORBIDDEN_GLYPHS = listOf("✕", "✖", "←", "→", "‹", "›", "▸", "▾", "⤓", "📍", "🚋", "🔔")
     }

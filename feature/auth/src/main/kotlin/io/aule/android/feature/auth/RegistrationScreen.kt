@@ -2,7 +2,7 @@ package io.aule.android.feature.auth
 
 import android.content.Intent
 import android.view.HapticFeedbackConstants
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -80,6 +80,7 @@ import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.model.ProfessionalProfile
 import io.aule.android.core.model.ProfessionalTransportMode
 import io.aule.android.core.model.SIGNUP_PROFILES
+import kotlinx.coroutines.CancellationException
 
 /**
  * L'assistant d'inscription professionnelle.
@@ -94,7 +95,14 @@ fun RegistrationScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    BackHandler { viewModel.back(onClose) }
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { }
+            viewModel.back(onClose)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        }
+    }
 
     AuleTheme {
         val tokens = AuleTheme.tokens

@@ -3,7 +3,7 @@ package io.aule.android.feature.map
 import android.Manifest
 import android.app.TimePickerDialog
 import android.text.format.DateFormat
-import androidx.activity.compose.BackHandler
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -75,6 +75,7 @@ import io.aule.android.core.model.ServiceLine
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import android.view.HapticFeedbackConstants
+import kotlinx.coroutines.CancellationException
 
 /**
  * L'assistant de prise de service, posé par-dessus la carte.
@@ -110,8 +111,13 @@ fun PriseServiceScreen(
         }
     }
 
-    BackHandler {
-        if (viewModel.back()) onClose()
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { }
+            if (viewModel.back()) onClose()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        }
     }
 
     AuleTheme {

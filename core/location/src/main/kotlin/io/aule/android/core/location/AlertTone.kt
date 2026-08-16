@@ -77,12 +77,7 @@ class AlertTone(
     private fun vibrate() {
         val vibrator = vibrator() ?: return
         if (!vibrator.hasVibrator()) return
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(PATTERN, -1))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(PATTERN, -1)
-        }
+        vibrator.vibrate(VibrationEffect.createWaveform(PATTERN, -1))
     }
 
     private fun vibrator(): Vibrator? {

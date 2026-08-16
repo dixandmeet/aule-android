@@ -159,7 +159,7 @@ fun AccountMenuScreen(
                 BasicText(
                     text = stringResource(R.string.menu_version, versionLabel),
                     style = auleTextStyle(AuleRole.KICKER)
-                        .copy(color = tokens.onSurfaceMuted.color.copy(alpha = 0.75f)),
+                        .copy(color = tokens.onSurfaceMuted.color),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(bottom = AuleSpacing.lg),

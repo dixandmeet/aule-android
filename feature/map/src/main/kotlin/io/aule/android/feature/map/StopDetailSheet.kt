@@ -26,6 +26,7 @@ import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleButton
 import io.aule.android.core.designsystem.component.AuleEmptyState
+import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.RealtimeDot
 import io.aule.android.core.designsystem.component.TransportBadge
@@ -118,11 +119,8 @@ internal fun StopDetailSheet(
 
         when {
             model.isLoading && model.departures == null -> {
-                BasicText(
-                    text = stringResource(R.string.stop_loading),
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                    modifier = Modifier.padding(vertical = AuleSpacing.lg),
+                AuleLoadingState(
+                    label = stringResource(R.string.stop_loading),
                 )
             }
             model.departures != null -> {

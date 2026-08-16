@@ -28,7 +28,9 @@ import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleButton
 import io.aule.android.core.designsystem.component.AuleEmptyState
+import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.LineBadge
+import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleRadius
 import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
@@ -97,9 +99,8 @@ internal fun RouteSheet(
         }
 
         when (state.status) {
-            RouteLoadStatus.LOADING -> BasicText(
-                text = stringResource(R.string.route_loading),
-                style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
+            RouteLoadStatus.LOADING -> AuleLoadingState(
+                label = stringResource(R.string.route_loading),
             )
             RouteLoadStatus.ERROR -> AuleEmptyState(
                 title = stringResource(R.string.route_error_title),
@@ -154,7 +155,11 @@ private fun RouteEndpoint(label: String, value: String) {
 @Composable
 private fun ModeChip(label: String, selected: Boolean, onClick: () -> Unit) {
     val tokens = AuleTheme.tokens
-    val background = if (selected) tokens.accent.color else tokens.accent.color.copy(alpha = 0.12f)
+    val background = if (selected) {
+        tokens.accent.color
+    } else {
+        tokens.accent.color.copy(alpha = AuleAlpha.TINT)
+    }
     val foreground = if (selected) tokens.onAccent.color else tokens.accentOnSurface.color
     BasicText(
         text = label,
@@ -204,7 +209,13 @@ private fun RouteCandidateRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(AuleRadius.md))
-            .background(if (selected) tokens.accent.color.copy(alpha = 0.12f) else tokens.surface.color)
+            .background(
+                if (selected) {
+                    tokens.accent.color.copy(alpha = AuleAlpha.TINT)
+                } else {
+                    tokens.surfaceSolid.color
+                },
+            )
             .clickable(onClick = onClick)
             .semantics {
                 role = Role.Button

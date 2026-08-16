@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.provider.Settings
 import androidx.core.content.ContextCompat
+import androidx.core.content.edit
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationCallback
 import com.google.android.gms.location.LocationRequest
@@ -123,7 +124,7 @@ class FusedLocationProvider(
     }
 
     override fun markPermissionRequested() {
-        prefs.edit().putBoolean(KEY_HAS_REQUESTED, true).apply()
+        prefs.edit { putBoolean(KEY_HAS_REQUESTED, true) }
         refreshAuthorization()
     }
 

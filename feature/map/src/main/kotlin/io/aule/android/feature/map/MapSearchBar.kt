@@ -49,6 +49,7 @@ import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleIconButton
+import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleRadius
@@ -193,7 +194,7 @@ internal fun SearchResults(
         modifier = modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(AuleRadius.lg))
-            .background(tokens.surface.color)
+            .background(tokens.surfaceSolid.color)
             .verticalScroll(rememberScrollState())
             .padding(horizontal = AuleSpacing.md)
             .padding(vertical = AuleSpacing.sm),
@@ -229,11 +230,8 @@ internal fun SearchResults(
         if (search.places.isNotEmpty() || search.isGeocoding) {
             SearchSection(title = stringResource(R.string.search_section_places)) {
                 if (search.isGeocoding && search.places.isEmpty()) {
-                    BasicText(
-                        text = stringResource(R.string.search_geocoding),
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
-                        modifier = Modifier.padding(vertical = AuleSpacing.sm),
+                    AuleLoadingState(
+                        label = stringResource(R.string.search_geocoding),
                     )
                 }
                 search.places.forEach { place ->

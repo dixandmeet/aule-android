@@ -98,10 +98,9 @@ class MapController(
             // pas une option. Masquer le bouton sans la réafficher serait une faute.
         }
 
-        // On demande l'inclinaison du proto iOS et on **relève ce qu'on obtient**
-        // plutôt que de le supposer. MapLibre Android plafonne à 60° dans son
-        // cœur (`MapLibreConstants.MAXIMUM_PITCH`) et refuse sans lever : la
-        // valeur précédente reste, en silence.
+        // On demande la limite documentée de MapLibre Android et on **relève ce
+        // qu'on obtient** plutôt que de le supposer. Une version native peut
+        // encore appliquer un plafond plus bas sans lever d'exception.
         map.setMaxPitchPreference(MAX_PITCH_REQUESTED)
         measuredMaxPitch = map.maxPitch
         if (measuredMaxPitch < MAX_PITCH_REQUESTED) {
@@ -583,7 +582,7 @@ class MapController(
          * supposition — et pour qu'une version future qui relèverait le plafond
          * en profite sans qu'on touche à ce code.
          */
-        const val MAX_PITCH_REQUESTED = 67.0
+        const val MAX_PITCH_REQUESTED = 60.0
 
         const val HIT_TEST_TOLERANCE_DP = 22f
 

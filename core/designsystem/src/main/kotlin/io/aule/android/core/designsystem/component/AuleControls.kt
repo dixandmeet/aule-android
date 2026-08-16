@@ -161,6 +161,28 @@ fun AuleBusyIndicator(
     }
 }
 
+/** Un chargement lisible et annoncé, commun aux volets et aux écrans. */
+@Composable
+fun AuleLoadingState(
+    label: String,
+    modifier: Modifier = Modifier,
+) {
+    val tokens = AuleTheme.tokens
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = AuleSpacing.lg),
+        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        AuleBusyIndicator(color = tokens.accentOnSurface.color)
+        BasicText(
+            text = label,
+            style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
+        )
+    }
+}
+
 @Composable
 fun AuleSheetHandle(modifier: Modifier = Modifier) {
     Box(
