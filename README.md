@@ -194,5 +194,7 @@ de ligne propose d'abord **En service maintenant** (flotte certifiée) et
 le tram 1). Le suivi cale la course GTFS du jour près du collègue
 (`gtfs_trip_profiles` / départs actifs) : retard et ETA restent justes
 quand le véhicule est à l'arrêt ; sans course, le repli distance/vitesse
-reste en place. Le signalement de terrain part du même rail
+reste en place. À la reprise d'une relève engagée, l'arrêt se rattache
+par id, nom, puis position (≤ 120 m) — sinon on redemande le point plutôt
+que d'en inventer un. Le signalement de terrain part du même rail
 (`driver_reports`).

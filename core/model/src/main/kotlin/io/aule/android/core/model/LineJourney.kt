@@ -62,6 +62,47 @@ fun remainingReliefStops(
     return stops.drop(nearest)
 }
 
+/**
+ * Rayon pour rattacher un arrêt de relève à la course re-résolue.
+ *
+ * De quoi rattraper deux quais du même arrêt, pas le voisin sur la ligne.
+ * Aligné sur Flutter `_restoreReliefStopIndex`.
+ */
+const val HANDOVER_RELIEF_MATCH_METERS = 120.0
+
+/**
+ * Retrouve l'arrêt de relève dans une desserte rechargée.
+ *
+ * Ordre : id → nom → position ≤ [HANDOVER_RELIEF_MATCH_METERS]. Une course
+ * re-résolue peut venir d'un autre profil horaire, où le même quai porte un
+ * autre id. Ne fabrique **pas** d'arrêt inventé : `null` force à redemander.
+ */
+fun matchReliefStop(
+    stops: List<LineJourneyStop>,
+    summary: HandoverSummary,
+): LineJourneyStop? {
+    if (stops.isEmpty()) return null
+    summary.reliefStopId?.let { id ->
+        stops.find { it.id == id }?.let { return it }
+    }
+    val wanted = summary.reliefStopName?.let { normalizeStopName(it) }.orEmpty()
+    if (wanted.isNotEmpty()) {
+        stops.find { normalizeStopName(it.name) == wanted }?.let { return it }
+    }
+    val position = summary.reliefStopCoordinate ?: return null
+    var bestMeters = Double.POSITIVE_INFINITY
+    var best: LineJourneyStop? = null
+    for (stop in stops) {
+        val coordinate = stop.coordinate ?: continue
+        val meters = GeoMath.distance(position, coordinate)
+        if (meters < bestMeters && meters <= HANDOVER_RELIEF_MATCH_METERS) {
+            bestMeters = meters
+            best = stop
+        }
+    }
+    return best
+}
+
 /** Un nom par lieu : deux quais « Commerce » ne se choisissent pas deux fois. */
 fun LineJourney.distinctStops(): List<LineJourneyStop> {
     val seen = mutableSetOf<String>()

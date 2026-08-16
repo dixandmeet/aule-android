@@ -32,6 +32,7 @@ import io.aule.android.core.model.HandoverProgressEngine
 import io.aule.android.core.model.ScheduledTrip
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.measureHandoverProgress
+import io.aule.android.core.model.matchReliefStop
 import io.aule.android.core.model.normalizeStopName
 import io.aule.android.core.model.plannedReliefPassage
 import io.aule.android.core.model.remainingReliefStops
@@ -551,9 +552,6 @@ class HandoverViewModel(
         viewModelScope.launch {
             val summary = pending.handover
             val target = pending.target
-            val hasStop = summary.reliefStopId != null ||
-                summary.reliefStopName != null ||
-                summary.reliefStopCoordinate != null
             try {
                 _state.value = _state.value.copy(handover = summary, target = target)
                 val remaining = resolveLiveStops(target, summary.id)
@@ -561,14 +559,17 @@ class HandoverViewModel(
                     _state.value = _state.value.copy(isBusy = false, pending = null)
                     return@launch
                 }
-                if (!hasStop && remaining.isEmpty()) {
+                if (remaining.isEmpty()) {
                     _state.value = _state.value.copy(
                         isBusy = false,
                         failure = HandoverFailureKind.JOURNEY_UNAVAILABLE,
                     )
                     return@launch
                 }
+                // Id → nom → position ≤ 120 m. Sans match, on redemande l'arrêt
+                // plutôt que de suivre un point inventé (Flutter resumePending).
                 val selected = matchReliefStop(remaining, summary)
+                val restored = selected != null
                 _state.value = _state.value.copy(
                     isBusy = false,
                     pending = null,
@@ -579,7 +580,7 @@ class HandoverViewModel(
                     liveStops = remaining,
                     selectedLiveStop = selected,
                     fallbackAround = around(),
-                    step = if (hasStop) HandoverStep.CONFIRM else HandoverStep.STOP,
+                    step = if (restored) HandoverStep.CONFIRM else HandoverStep.STOP,
                     failure = null,
                     trackFix = _state.value.trackFix,
                     abortedReason = null,
@@ -587,39 +588,23 @@ class HandoverViewModel(
                     progress = null,
                     travelToRelief = null,
                 )
-                if (hasStop) {
+                if (restored) {
                     lastTravelFetchAt = Instant.EPOCH
                     armProgressEngine(selected)
                     armAlerts()
+                } else {
+                    loadNeighbourPassages(remaining)
                 }
             } catch (cancelled: CancellationException) {
                 _state.value = _state.value.copy(isBusy = false)
                 throw cancelled
             } catch (failure: Throwable) {
-                if (hasStop) {
-                    _state.value = _state.value.copy(
-                        isBusy = false,
-                        pending = null,
-                        target = target,
-                        handover = summary,
-                        selectedLineId = target.lineId,
-                        query = target.trainNumber ?: target.vehicleId.orEmpty(),
-                        selectedLiveStop = matchReliefStop(emptyList(), summary),
-                        step = HandoverStep.CONFIRM,
-                        failure = null,
-                        abortedReason = null,
-                    )
-                    lastTravelFetchAt = Instant.EPOCH
-                    armProgressEngine(_state.value.selectedLiveStop)
-                    armAlerts()
-                } else {
-                    logger.warn(LogDomain.NET, "Reprise de relève : desserte indisponible.", failure)
-                    _state.value = _state.value.copy(
-                        isBusy = false,
-                        failure = kindOf(failure).takeUnless { it == HandoverFailureKind.UNKNOWN }
-                            ?: HandoverFailureKind.JOURNEY_UNAVAILABLE,
-                    )
-                }
+                logger.warn(LogDomain.NET, "Reprise de relève : desserte indisponible.", failure)
+                _state.value = _state.value.copy(
+                    isBusy = false,
+                    failure = kindOf(failure).takeUnless { it == HandoverFailureKind.UNKNOWN }
+                        ?: HandoverFailureKind.JOURNEY_UNAVAILABLE,
+                )
             }
         }
     }
@@ -1111,25 +1096,6 @@ class HandoverViewModel(
             target.directionId ?: 0,
         )
         return remainingReliefStops(journey.distinctStops(), track?.fix?.coordinate)
-    }
-
-    private fun matchReliefStop(
-        stops: List<LineJourneyStop>,
-        summary: HandoverSummary,
-    ): LineJourneyStop? {
-        summary.reliefStopId?.let { id ->
-            stops.find { it.id == id }?.let { return it }
-        }
-        val wanted = summary.reliefStopName?.let { normalizeStopName(it) }.orEmpty()
-        if (wanted.isNotEmpty()) {
-            stops.find { normalizeStopName(it.name) == wanted }?.let { return it }
-        }
-        val name = summary.reliefStopName ?: return null
-        return LineJourneyStop(
-            id = summary.reliefStopId ?: name,
-            name = name,
-            coordinate = summary.reliefStopCoordinate,
-        )
     }
 
     private fun journeyFailureOf(failure: Throwable): HandoverFailureKind {

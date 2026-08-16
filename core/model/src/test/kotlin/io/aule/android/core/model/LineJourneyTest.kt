@@ -97,6 +97,34 @@ class LineJourneyTest {
         assertEquals(null, plannedReliefPassage(emptyList(), now))
     }
 
+    @Test
+    fun `un arret de releve se retrouve par position a 120 m`() {
+        val summary = HandoverSummary(
+            id = "hov-1",
+            status = HandoverStatus.ENGAGED,
+            lineId = "C6",
+            outgoingServiceId = "svc",
+            reliefStopId = "ghost",
+            reliefStopName = "Autre nom",
+            reliefStopCoordinate = Coordinate(47.2135, -1.5581),
+        )
+        val found = matchReliefStop(STOPS, summary)
+        assertEquals("Commerce", found?.name)
+        assertEquals("2", found?.id)
+    }
+
+    @Test
+    fun `au dela de 120 m on ne rattache pas l arret`() {
+        val summary = HandoverSummary(
+            id = "hov-1",
+            status = HandoverStatus.ENGAGED,
+            lineId = "C6",
+            outgoingServiceId = "svc",
+            reliefStopCoordinate = Coordinate(48.0, -1.0),
+        )
+        assertEquals(null, matchReliefStop(STOPS, summary))
+    }
+
     private fun departure(line: String, destination: String, at: String) = StopDeparture(
         id = "$line-$destination-$at",
         line = line,

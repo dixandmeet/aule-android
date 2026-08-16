@@ -340,6 +340,58 @@ class HandoverViewModelTest {
     }
 
     @Test
+    fun `a la reprise un arret se retrouve par sa position`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            // Id et nom obsolètes (autre profil horaire), mais le quai est là.
+            val pending = HandoverEngagement(
+                handover = SUMMARY.copy(
+                    reliefStopId = "ghost-id",
+                    reliefStopName = "Commerce Quai A",
+                    reliefStopCoordinate = Coordinate(47.2135, -1.5581),
+                ),
+                target = TARGET,
+            )
+            val handovers = FakeHandovers(pending = pending)
+            val viewModel = viewModel(handovers = handovers)
+            advanceUntilIdle()
+            viewModel.resumePending()
+            advanceUntilIdle()
+            assertEquals(HandoverStep.CONFIRM, viewModel.state.value.step)
+            assertEquals("Commerce", viewModel.state.value.selectedLiveStop?.name)
+            assertEquals("2", viewModel.state.value.selectedLiveStop?.id)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `a la reprise trop loin on redemande l arret`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val pending = HandoverEngagement(
+                handover = SUMMARY.copy(
+                    reliefStopId = "ghost",
+                    reliefStopName = "Inconnu",
+                    reliefStopCoordinate = Coordinate(48.0, -1.0),
+                ),
+                target = TARGET,
+            )
+            val handovers = FakeHandovers(pending = pending)
+            val viewModel = viewModel(handovers = handovers)
+            advanceUntilIdle()
+            viewModel.resumePending()
+            advanceUntilIdle()
+            assertEquals(HandoverStep.STOP, viewModel.state.value.step)
+            assertEquals(null, viewModel.state.value.selectedLiveStop)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
     fun `l arrivee du collegue declenche l alerte sans attendre`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
         Dispatchers.setMain(dispatcher)
