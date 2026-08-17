@@ -264,6 +264,7 @@
     <string name="handover_lines_recent">Recently relieved</string>
     <string name="handover_lines_empty_title">No recent lines</string>
     <string name="handover_lines_empty_detail">Search for the line of the vehicle you are taking over.</string>
+    <string name="handover_lines_loading">Loading lines…</string>
     <string name="handover_vehicle_title">Which vehicle?</string>
     <string name="handover_vehicle_detail">The number is on your duty sheet.</string>
     <string name="handover_vehicle_field">Train or vehicle number</string>
@@ -287,6 +288,7 @@
     <string name="handover_engage">Start handover</string>
     <string name="handover_live_stop_title">Relief stop</string>
     <string name="handover_live_stop_detail">Where are you taking over? Times shown are the trip you are taking over.</string>
+    <string name="handover_live_stop_loading">Loading stops…</string>
     <string name="handover_alerts_title">My alerts</string>
     <string name="handover_alerts_detail">Notify me:</string>
     <string name="handover_alerts_stops">%1$d stops before</string>

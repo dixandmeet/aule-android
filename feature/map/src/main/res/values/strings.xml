@@ -264,6 +264,7 @@
     <string name="handover_lines_recent">Relevées récemment</string>
     <string name="handover_lines_empty_title">Aucune ligne récente</string>
     <string name="handover_lines_empty_detail">Recherchez la ligne du véhicule à relever.</string>
+    <string name="handover_lines_loading">Chargement des lignes…</string>
     <string name="handover_vehicle_title">Quel véhicule ?</string>
     <string name="handover_vehicle_detail">Le numéro figure sur votre feuille de route.</string>
     <string name="handover_vehicle_field">N° de train ou de véhicule</string>
@@ -287,6 +288,7 @@
     <string name="handover_engage">Engager la relève</string>
     <string name="handover_live_stop_title">Point de relève</string>
     <string name="handover_live_stop_detail">Où prenez-vous le service ? Les heures indiquées sont celles du passage que vous reprenez.</string>
+    <string name="handover_live_stop_loading">Chargement des arrêts…</string>
     <string name="handover_alerts_title">Mes alertes</string>
     <string name="handover_alerts_detail">Je souhaite être averti :</string>
     <string name="handover_alerts_stops">%1$d arrêts avant</string>

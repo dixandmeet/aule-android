@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.ButtonColors
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -27,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.hideFromAccessibility
@@ -48,6 +52,19 @@ import io.aule.android.core.designsystem.token.AuleRadius
 import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
+
+/**
+ * Les couleurs d'un bouton rempli HUD.
+ *
+ * Material pose `primary` comme encre sur la surface. De nuit, cet encre
+ * s'éclaircit (`accentOnSurface`) et ne peut plus servir d'aplat. L'action
+ * principale reprend donc [AuleTheme.tokens.accent], l'aplat HUD.
+ */
+@Composable
+fun auleAccentButtonColors(): ButtonColors = ButtonDefaults.buttonColors(
+    containerColor = AuleTheme.tokens.accent.color,
+    contentColor = AuleTheme.tokens.onAccent.color,
+)
 
 /**
  * Le poids d'un bouton.
@@ -212,22 +229,44 @@ fun AuleEmptyState(
     title: String,
     detail: String?,
     modifier: Modifier = Modifier,
+    icon: ImageVector? = null,
 ) {
     val tokens = AuleTheme.tokens
+    val centered = icon != null
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = AuleSpacing.lg),
+            .padding(vertical = if (centered) AuleSpacing.xl else AuleSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+        horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
+        if (icon != null) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                modifier = Modifier
+                    .padding(bottom = AuleSpacing.sm)
+                    .size(AuleControl.avatar),
+                tint = tokens.onSurfaceMuted.color,
+            )
+        }
         BasicText(
             text = title,
-            style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold).copy(color = tokens.onSurface.color),
+            style = auleTextStyle(
+                if (centered) AuleRole.DATA else AuleRole.TITLE,
+                if (centered) FontWeight.Normal else FontWeight.SemiBold,
+            ).copy(
+                color = tokens.onSurface.color,
+                textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+            ),
         )
         if (detail != null) {
             BasicText(
                 text = detail,
-                style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
+                style = auleTextStyle(AuleRole.BODY).copy(
+                    color = tokens.onSurfaceMuted.color,
+                    textAlign = if (centered) TextAlign.Center else TextAlign.Start,
+                ),
             )
         }
     }
