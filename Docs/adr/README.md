@@ -15,7 +15,7 @@ effort, elle n'a pas besoin d'ADR.
 | [007](ADR-007-application-id.md) | `applicationId io.aule.android` | Cohabiter avec Flutter Pro, et le coût d'une bascule Play |
 | [008](ADR-008-minsdk.md) | `minSdk 26` | La raison, et le coût de revenir à 24 |
 | [009](ADR-009-inclinaison.md) | L'inclinaison plafonne à 60°, pas 67° | Mesure, pas supposition |
-| [010](ADR-010-pas-de-material.md) | Pas de Material 3 | L'identité Aule avant le kit Google |
+| [010](ADR-010-pas-de-material.md) | Material 3 sous identité Aule | Le comportement Android, les jetons Aule |
 | [011](ADR-011-localisation.md) | Un modèle ne contient pas de phrase | Où vivent les mots adressés à l'usager |
 
 La 006 est celle qu'il faut lire en premier si l'on touche à la carte : c'est la seule règle

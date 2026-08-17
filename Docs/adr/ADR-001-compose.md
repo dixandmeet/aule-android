@@ -23,8 +23,9 @@ La carte **est** l'écran. Le Flutter du dépôt a payé la leçon inverse : un 
 d'écran qui détruisait le moteur à chaque fois. Compose recomposerait de même si la
 `MapView` n'était pas `remember`ée.
 
-L'UI autour, elle, n'a aucune raison d'être en Views : pas de Material 3 (voir
-[ADR-010](ADR-010-pas-de-material.md)), pas de fragments, une seule activité.
+L'UI autour, elle, n'a aucune raison d'être en Views : Material 3 reste dans
+Compose et sous les jetons Aule (voir [ADR-010](ADR-010-pas-de-material.md)),
+sans fragments, dans une seule activité.
 
 ## Quand la reconsidérer
 

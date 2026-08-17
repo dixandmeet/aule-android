@@ -34,7 +34,7 @@ fun parseLineColor(raw: String?): AuleRgba {
 /** L'encre à poser sur un badge de cette couleur. */
 fun badgeInk(background: AuleRgba): AuleRgba =
     if (background.perceivedLuminance > LINE_BADGE_LUMINANCE_FLIP) {
-        AuleRgba(0x171717)
+        AulePalette.Neutral.ink
     } else {
-        AuleRgba(0xFFFFFF)
+        AulePalette.Teal.T100
     }

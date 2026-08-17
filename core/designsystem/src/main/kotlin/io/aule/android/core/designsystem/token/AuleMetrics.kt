@@ -13,11 +13,24 @@ object AuleSpacing {
     val xxl = 32.dp
 }
 
+/**
+ * Les rayons, sur cinq crans.
+ *
+ * Ils alimentent directement les cinq formes de Material 3 — `extraSmall` à
+ * `extraLarge` — dans l'ordre. Material sait déjà quelle forme va à quel
+ * composant : le menu prend le plus petit cran, le chip le suivant, la carte le
+ * médian, le volet et le dialogue les deux derniers. Renseigner l'échelle
+ * suffit donc à arrondir l'application entière.
+ */
 object AuleRadius {
     val sm = 8.dp
     val md = 12.dp
     val lg = 18.dp
     val xl = 24.dp
+
+    /** Le cran des dialogues et des volets, où Material attend 28 dp. */
+    val xxl = 28.dp
+
     val pill = 999.dp
 }
 
@@ -25,10 +38,14 @@ object AuleTouch {
     /**
      * Le plancher tactile de la maison, tenu partout dans le dépôt.
      *
-     * 44 dp et non les 48 dp de Material : c'est la valeur déjà éprouvée sur les
-     * autres surfaces Aule, et un test balaie les écrans pour la vérifier.
+     * 48 dp : la valeur de Material, et celle que retiennent les
+     * recommandations d'accessibilité Android. Aule tenait 44 dp, hérité des
+     * autres surfaces ; c'est quatre points de moins sous le pouce sur chaque
+     * bouton d'une application qu'on utilise debout, en mouvement, dans un
+     * véhicule. Material fixe par ailleurs ses propres cibles à 48 dp, donc
+     * descendre en dessous ne gagnait même pas la compacité recherchée.
      */
-    val minimum = 44.dp
+    val minimum = 48.dp
 }
 
 /**
@@ -129,6 +146,9 @@ object AuleAlpha {
     /** L'aplat d'un bouton secondaire, d'un bandeau d'alerte. */
     const val TINT = 0.12f
 
+    /** Le lavis de marque sous un glyphe. */
+    const val WASH = 0.14f
+
     /** Le contour d'un aplat teinté. */
     const val OUTLINE = 0.30f
 
@@ -137,6 +157,21 @@ object AuleAlpha {
 
     /** La poignée du volet, l'attribution : présent, jamais lu en premier. */
     const val SUBDUED = 0.35f
+
+    /** Le lavis d'ambiance, de jour. */
+    const val GLOW = 0.16f
+
+    /** Le lavis d'ambiance, de nuit. */
+    const val GLOW_STRONG = 0.34f
+
+    /** Un halo d'angle, de jour. */
+    const val HALO = 0.10f
+
+    /** Un halo d'angle, de nuit. */
+    const val HALO_STRONG = 0.16f
+
+    /** Le halo le plus lointain. */
+    const val HALO_SOFT = 0.08f
 }
 
 /**
@@ -158,7 +193,4 @@ object AuleMotion {
 
     /** La pulsation du point temps réel. */
     const val PULSE_MS = 1800
-
-    /** Un tour du témoin d'attente. */
-    const val SPIN_MS = 900
 }

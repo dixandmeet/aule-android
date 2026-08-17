@@ -7,10 +7,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -18,10 +18,22 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,9 +42,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
@@ -48,22 +60,19 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleBrandMark
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
-import io.aule.android.core.designsystem.component.AuleCard
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIcon
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.component.AuleTextField
 import io.aule.android.core.designsystem.component.AuleTone
+import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.reduceMotionEnabled
+import io.aule.android.core.designsystem.token.AuleControl
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleMotion
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 
 /**
  * L'écran de connexion e-mail + mot de passe.
@@ -128,8 +137,8 @@ fun AuthScreen(
         }
     }
 
-        AuleTheme {
-        val tokens = AuleTheme.tokens
+    AuleTheme {
+        val colors = MaterialTheme.colorScheme
         val imeVisible = WindowInsets.isImeVisible
         val breath = if (imeVisible) AuleSpacing.md else AuleSpacing.xl
         AuleAmbientBackground(modifier = modifier) {
@@ -160,138 +169,204 @@ fun AuthScreen(
                         Spacer(modifier = Modifier.height(AuleSpacing.xl))
                     }
 
-                    AuleCard(
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(
-                            start = AuleSpacing.xl,
-                            top = breath,
-                            end = AuleSpacing.xl,
-                            bottom = breath,
+                        shape = MaterialTheme.shapes.large,
+                        colors = CardDefaults.cardColors(containerColor = colors.surface),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = AuleElevation.OVERLAY.height(AuleTheme.night),
                         ),
                     ) {
-                        BasicText(
-                            text = stringResource(R.string.auth_title),
-                            style = auleTextStyle(
-                                if (imeVisible) AuleRole.TITLE else AuleRole.HERO,
-                                FontWeight.Bold,
-                            ).copy(color = tokens.onSurface.color),
-                            modifier = Modifier.semantics { heading() },
-                        )
-                        if (!imeVisible) {
-                            Spacer(modifier = Modifier.height(AuleSpacing.sm))
-                            BasicText(
-                                text = stringResource(R.string.auth_subtitle),
-                                style = auleTextStyle(AuleRole.BODY)
-                                    .copy(color = tokens.onSurfaceMuted.color),
-                            )
-                            Spacer(modifier = Modifier.height(AuleSpacing.lg))
-                            BasicText(
-                                text = stringResource(R.string.auth_network_note),
-                                style = auleTextStyle(AuleRole.KICKER)
-                                    .copy(color = tokens.onSurfaceMuted.color),
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(breath))
-                        AuleTextField(
-                            label = stringResource(R.string.auth_email),
-                            value = email,
-                            onValueChange = {
-                                email = it
-                                emailError = null
-                                viewModel.clearFailure()
-                            },
-                            leading = AuleGlyph.MAIL,
-                            error = emailError,
-                            enabled = !state.isSubmitting,
-                            keyboardType = KeyboardType.Email,
-                            contentType = ContentType.EmailAddress,
-                            imeAction = ImeAction.Next,
-                            onImeAction = { focus.moveFocus(FocusDirection.Down) },
-                            focusRequester = emailFocus,
-                        )
-                        Spacer(modifier = Modifier.height(AuleSpacing.md))
-                        AuleTextField(
-                            label = stringResource(R.string.auth_password),
-                            value = password,
-                            onValueChange = {
-                                password = it
-                                passwordError = null
-                                viewModel.clearFailure()
-                            },
-                            leading = AuleGlyph.LOCK,
-                            error = passwordError,
-                            enabled = !state.isSubmitting,
-                            keyboardType = KeyboardType.Password,
-                            contentType = ContentType.Password,
-                            imeAction = ImeAction.Done,
-                            onImeAction = { if (!state.isSubmitting) submit() },
-                            visualTransformation = if (obscure) {
-                                PasswordVisualTransformation()
-                            } else {
-                                VisualTransformation.None
-                            },
-                            focusRequester = passwordFocus,
-                            trailing = {
-                                AuleIconButton(
-                                    glyph = if (obscure) AuleGlyph.EYE else AuleGlyph.EYE_OFF,
-                                    contentDescription = stringResource(
-                                        if (obscure) {
-                                            R.string.auth_show_password
-                                        } else {
-                                            R.string.auth_hide_password
-                                        },
-                                    ),
-                                    onClick = { obscure = !obscure },
-                                    enabled = !state.isSubmitting,
-                                    tint = tokens.onSurfaceMuted.color,
-                                )
-                            },
-                        )
-
-                        val failure = state.failure
-                        if (failure != null) {
-                            Spacer(modifier = Modifier.height(AuleSpacing.lg))
-                            AuleBanner(message = failure.message(), tone = AuleTone.ALERT)
-                        }
-
-                        Spacer(modifier = Modifier.height(if (imeVisible) AuleSpacing.md else AuleSpacing.xl))
-                        AuleButton(
-                            title = stringResource(
-                                if (state.isSubmitting) R.string.auth_submitting else R.string.auth_submit,
+                        Column(
+                            modifier = Modifier.padding(
+                                start = AuleSpacing.xl,
+                                top = breath,
+                                end = AuleSpacing.xl,
+                                bottom = breath,
                             ),
-                            onClick = { if (!state.isSubmitting) submit() },
-                            enabled = !state.isSubmitting,
-                            loading = state.isSubmitting,
-                        )
+                        ) {
+                            Text(
+                                text = stringResource(R.string.auth_title),
+                                style = if (imeVisible) {
+                                    MaterialTheme.typography.titleMedium
+                                } else {
+                                    MaterialTheme.typography.headlineMedium
+                                },
+                                fontWeight = FontWeight.Bold,
+                                color = colors.onSurface,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            if (!imeVisible) {
+                                Spacer(modifier = Modifier.height(AuleSpacing.sm))
+                                Text(
+                                    text = stringResource(R.string.auth_subtitle),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = colors.onSurfaceVariant,
+                                )
+                                Spacer(modifier = Modifier.height(AuleSpacing.lg))
+                                Text(
+                                    text = stringResource(R.string.auth_network_note),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = colors.onSurfaceVariant,
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(breath))
+                            OutlinedTextField(
+                                value = email,
+                                onValueChange = {
+                                    email = it
+                                    emailError = null
+                                    viewModel.clearFailure()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(emailFocus),
+                                enabled = !state.isSubmitting,
+                                label = { Text(stringResource(R.string.auth_email)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = AuleGlyph.MAIL.asImageVector(),
+                                        contentDescription = null,
+                                    )
+                                },
+                                isError = emailError != null,
+                                supportingText = emailError?.let { { Text(it) } },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Email,
+                                    imeAction = ImeAction.Next,
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onNext = { focus.moveFocus(FocusDirection.Down) },
+                                ),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
+                            )
+                            Spacer(modifier = Modifier.height(AuleSpacing.md))
+                            OutlinedTextField(
+                                value = password,
+                                onValueChange = {
+                                    password = it
+                                    passwordError = null
+                                    viewModel.clearFailure()
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .focusRequester(passwordFocus),
+                                enabled = !state.isSubmitting,
+                                label = { Text(stringResource(R.string.auth_password)) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = AuleGlyph.LOCK.asImageVector(),
+                                        contentDescription = null,
+                                    )
+                                },
+                                trailingIcon = {
+                                    IconButton(
+                                        onClick = { obscure = !obscure },
+                                        enabled = !state.isSubmitting,
+                                    ) {
+                                        Icon(
+                                            imageVector = if (obscure) {
+                                                AuleGlyph.EYE.asImageVector()
+                                            } else {
+                                                AuleGlyph.EYE_OFF.asImageVector()
+                                            },
+                                            contentDescription = stringResource(
+                                                if (obscure) {
+                                                    R.string.auth_show_password
+                                                } else {
+                                                    R.string.auth_hide_password
+                                                },
+                                            ),
+                                            tint = colors.onSurfaceVariant,
+                                        )
+                                    }
+                                },
+                                isError = passwordError != null,
+                                supportingText = passwordError?.let { { Text(it) } },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Password,
+                                    imeAction = ImeAction.Done,
+                                ),
+                                keyboardActions = KeyboardActions(
+                                    onDone = { if (!state.isSubmitting) submit() },
+                                ),
+                                visualTransformation = if (obscure) {
+                                    PasswordVisualTransformation()
+                                } else {
+                                    VisualTransformation.None
+                                },
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
+                            )
+
+                            val failure = state.failure
+                            if (failure != null) {
+                                Spacer(modifier = Modifier.height(AuleSpacing.lg))
+                                AuleBanner(message = failure.message(), tone = AuleTone.ALERT)
+                            }
+
+                            Spacer(
+                                modifier = Modifier.height(
+                                    if (imeVisible) AuleSpacing.md else AuleSpacing.xl,
+                                ),
+                            )
+                            Button(
+                                onClick = { if (!state.isSubmitting) submit() },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = AuleControl.height),
+                                enabled = !state.isSubmitting,
+                                colors = auleAccentButtonColors(),
+                            ) {
+                                if (state.isSubmitting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(AuleControl.icon),
+                                        color = AuleTheme.tokens.onAccent.color,
+                                        strokeWidth = AuleStroke.glyph,
+                                    )
+                                } else {
+                                    Text(
+                                        stringResource(
+                                            if (state.isSubmitting) {
+                                                R.string.auth_submitting
+                                            } else {
+                                                R.string.auth_submit
+                                            },
+                                        ),
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     if (!imeVisible) {
                         Spacer(modifier = Modifier.height(AuleSpacing.md))
-                        AuleButton(
-                            title = stringResource(R.string.auth_create_account),
+                        TextButton(
                             onClick = onCreateAccount,
-                            prominence = AuleButtonProminence.PLAIN,
-                        )
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.auth_create_account))
+                        }
                         Spacer(modifier = Modifier.height(AuleSpacing.xl))
-                        // Pas d'opacité de plus : le jeton discret est déjà
-                        // mesuré à 4,5:1 sur sa surface, l'atténuer une seconde
-                        // fois casse le contraste sans que rien ne le signale.
-                        val secure = tokens.onSurfaceMuted.color
+                        val secure = colors.onSurfaceVariant
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.Center,
                             modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                         ) {
-                            AuleIcon(
-                                glyph = AuleGlyph.SHIELD,
+                            Icon(
+                                imageVector = AuleGlyph.SHIELD.asImageVector(),
+                                contentDescription = null,
                                 tint = secure,
-                                size = AuleSpacing.lg,
+                                modifier = Modifier.size(AuleSpacing.lg),
                             )
-                            BasicText(
+                            Text(
                                 text = stringResource(R.string.auth_secure),
-                                style = auleTextStyle(AuleRole.KICKER, FontWeight.Medium)
-                                    .copy(color = secure),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Medium,
+                                color = secure,
                                 maxLines = 2,
                                 modifier = Modifier.padding(start = AuleSpacing.sm),
                             )

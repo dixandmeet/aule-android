@@ -1,5 +1,6 @@
 package io.aule.android.core.designsystem
 
+import io.aule.android.core.designsystem.ScreenSources.isComment
 import java.io.File
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Assumptions.assumeTrue
@@ -69,6 +70,26 @@ class DesignSystemGuardTest {
     }
 
     /**
+     * Un hex dans un écran est une couleur qui échappe au thème : changer
+     * `AuleTokens` ne la touchera pas, et le HUD finit avec deux verts Aule.
+     */
+    @Test
+    fun `aucun ecran n ecrit une couleur en dur`() {
+        val offenders = screenSources().flatMap { file ->
+            file.readLines()
+                .withIndex()
+                .filterNot { (_, line) -> line.isComment() }
+                .filter { (_, line) -> RAW_HEX.containsMatchIn(line) }
+                .map { (index, line) -> "${file.name}:${index + 1} ${line.trim()}" }
+        }
+        assertTrue(
+            offenders.isEmpty(),
+            "Une couleur d'écran doit venir du thème ou d'un jeton sémantique :\n" +
+                offenders.joinToString("\n"),
+        )
+    }
+
+    /**
      * Ni emoji ni glyphe textuel : les premiers changent d'aspect d'un appareil
      * à l'autre, les seconds n'ont ni la graisse ni l'alignement de la famille
      * d'icônes. Une icône se dessine, elle ne s'écrit pas.
@@ -89,36 +110,14 @@ class DesignSystemGuardTest {
     }
 
     private fun screenSources(): List<File> {
-        val root = repositoryRoot()
-        assumeTrue(root != null, "Racine du dépôt introuvable depuis ${File(".").absolutePath}")
-        return listOf("app", "feature")
-            .map { File(root, it) }
-            .filter { it.isDirectory }
-            .flatMap { module ->
-                module.walkTopDown()
-                    .filter { it.isFile && it.extension == "kt" }
-                    .filter { it.path.contains("${File.separator}main${File.separator}") }
-                    .toList()
-            }
+        val sources = ScreenSources.all()
+        assumeTrue(sources.isNotEmpty(), "Racine du dépôt introuvable depuis ${File(".").absolutePath}")
+        return sources
     }
 
     /** Une mesure nommée reste lisible et se relit d'un endroit unique. */
     private fun String.isNamedConstant(): Boolean =
         NAMED_CONSTANT.containsMatchIn(this) || ZERO_ONLY.containsMatchIn(this)
-
-    /** La prose a le droit d'écrire une flèche ; l'interface, non. */
-    private fun String.isComment(): Boolean = trimStart().let {
-        it.startsWith("*") || it.startsWith("//") || it.startsWith("/*")
-    }
-
-    private fun repositoryRoot(): File? {
-        var candidate: File? = File("").absoluteFile
-        while (candidate != null) {
-            if (File(candidate, "settings.gradle.kts").isFile) return candidate
-            candidate = candidate.parentFile
-        }
-        return null
-    }
 
     private companion object {
         val DP_LITERAL = Regex("""\b\d+(\.\d+)?\.dp\b""")
@@ -129,6 +128,7 @@ class DesignSystemGuardTest {
 
         val RAW_SHADOW = Regex("""\.shadow\(""")
         val RAW_ALPHA = Regex("""copy\(\s*alpha\s*=\s*\d""")
+        val RAW_HEX = Regex("""(?:Color|AuleRgba)\s*\(\s*0x|#(?:[0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})\b""")
 
         val FORBIDDEN_GLYPHS = listOf("✕", "✖", "←", "→", "‹", "›", "▸", "▾", "⤓", "📍", "🚋", "🔔")
     }

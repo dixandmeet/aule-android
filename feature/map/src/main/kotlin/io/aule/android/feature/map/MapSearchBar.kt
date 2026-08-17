@@ -1,66 +1,51 @@
 package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
-import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExpandedFullScreenSearchBar
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SearchBarValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberSearchBarState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleShadow
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIconButton
 import io.aule.android.core.designsystem.component.AuleLoadingState
-import io.aule.android.core.designsystem.token.AuleControl
-import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleStroke
-import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.model.Place
 import io.aule.android.core.model.StopSearchHit
 import io.aule.android.core.model.shortLabel
-import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 /**
  * La barre de recherche de la carte.
@@ -69,114 +54,145 @@ import kotlinx.coroutines.CancellationException
  * du géocodeur. Elles arrivent à leur rythme, jamais fondues — c'est la
  * leçon du web, et elle vaut mot pour mot ici.
  *
- * Entrer dans la recherche prend l'écran : le clavier occupe la moitié basse.
- * Il faut donc une sortie visible, et c'est la flèche de retour qui remplace
- * la loupe dès que la saisie commence. Le geste de retour du système fait
- * la même chose.
+ * Un tap ouvre la recherche en plein écran, style contained de Material 3 :
+ * un conteneur rempli, sans séparateur, le champ gardant sa forme arrondie.
+ * La flèche de retour remplace le menu dès que la vue s'ouvre. Le geste de
+ * retour du système fait la même chose.
  *
  * Un nom d'arrêt n'est pas un mot de la langue : la correction automatique
  * réécrirait « Bouffay » et « Ranzay ».
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MapSearchBar(
     search: MapSearchState,
     onQueryChange: (String) -> Unit,
     onActivate: () -> Unit,
     onCancel: () -> Unit,
+    onSelectStop: (StopSearchHit) -> Unit,
+    onSelectPlace: (Place) -> Unit,
+    onOpenMenu: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
-    val focusRequester = remember { FocusRequester() }
-    val focusManager = LocalFocusManager.current
+    val colors = MaterialTheme.colorScheme
     val keyboard = LocalSoftwareKeyboardController.current
-    val fieldDescription = stringResource(R.string.search_field)
     val hint = stringResource(R.string.search_hint)
     val cancelLabel = stringResource(R.string.search_cancel)
     val clearLabel = stringResource(R.string.search_clear)
-    val active = search.isActive
+    val scope = rememberCoroutineScope()
+    val searchBarState = rememberSearchBarState()
+    val textFieldState = rememberTextFieldState(search.query)
+    val latestQuery = rememberUpdatedState(search.query)
+    val latestOnQueryChange = rememberUpdatedState(onQueryChange)
+    val latestOnActivate = rememberUpdatedState(onActivate)
+    val latestOnCancel = rememberUpdatedState(onCancel)
 
-    if (active) {
-        PredictiveBackHandler { progress ->
-            try {
-                progress.collect { }
-                keyboard?.hide()
-                focusManager.clearFocus()
-                onCancel()
-            } catch (cancelled: CancellationException) {
-                throw cancelled
+    LaunchedEffect(search.query) {
+        if (search.query != textFieldState.text.toString()) {
+            textFieldState.setTextAndPlaceCursorAtEnd(search.query)
+        }
+    }
+    LaunchedEffect(textFieldState) {
+        snapshotFlow { textFieldState.text.toString() }.collect { text ->
+            if (text != latestQuery.value) latestOnQueryChange.value(text)
+        }
+    }
+    LaunchedEffect(search.isActive) {
+        if (search.isActive) {
+            if (searchBarState.currentValue != SearchBarValue.Expanded) {
+                searchBarState.animateToExpanded()
+            }
+        } else if (searchBarState.currentValue != SearchBarValue.Collapsed) {
+            searchBarState.animateToCollapsed()
+        }
+    }
+    LaunchedEffect(searchBarState) {
+        snapshotFlow { searchBarState.currentValue }.collect { value ->
+            when (value) {
+                SearchBarValue.Expanded -> latestOnActivate.value()
+                SearchBarValue.Collapsed -> latestOnCancel.value()
             }
         }
     }
 
-    val shape = RoundedCornerShape(AuleRadius.pill)
-    Column(modifier = modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(AuleControl.height)
-                .auleShadow(AuleElevation.FLOATING, shape)
-                .clip(shape)
-                .background(tokens.surfaceSolid.color)
-                .border(
-                    width = if (active) AuleStroke.emphasis else AuleStroke.hairline,
-                    color = if (active) tokens.accentOnSurface.color else tokens.hairline.color,
-                    shape = shape,
-                )
-                .padding(end = if (search.query.isNotEmpty()) 0.dp else AuleSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            AuleIconButton(
-                glyph = if (active) AuleGlyph.BACK else AuleGlyph.SEARCH,
-                contentDescription = if (active) cancelLabel else fieldDescription,
-                onClick = {
-                    if (active) {
-                        keyboard?.hide()
-                        focusManager.clearFocus()
-                        onCancel()
-                    } else {
-                        focusRequester.requestFocus()
-                    }
-                },
-            )
-            BasicTextField(
-                value = search.query,
-                onValueChange = onQueryChange,
-                modifier = Modifier
-                    .weight(1f)
-                    .focusRequester(focusRequester)
-                    .onFocusChanged { if (it.isFocused) onActivate() }
-                    .semantics { contentDescription = fieldDescription },
-                textStyle = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurface.color),
-                singleLine = true,
-                cursorBrush = SolidColor(tokens.accentOnSurface.color),
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Sentences,
-                    autoCorrectEnabled = false,
-                    imeAction = ImeAction.Search,
-                ),
-                keyboardActions = KeyboardActions(onSearch = { keyboard?.hide() }),
-                decorationBox = { inner ->
-                    Box(contentAlignment = Alignment.CenterStart) {
-                        if (search.query.isEmpty()) {
-                            BasicText(
-                                text = hint,
-                                style = auleTextStyle(AuleRole.BODY)
-                                    .copy(color = tokens.onSurfaceMuted.color),
+    val inputFieldColors = SearchBarDefaults.inputFieldColors()
+
+    // Repliée, la barre est posée sur la carte : c'est le verre d'Aule, le seul
+    // endroit où il tienne. Déployée, elle prend l'écran et redevient une
+    // surface pleine — laisser voir la carte derrière une liste de résultats
+    // ne la rend pas plus lisible.
+    val collapsedColors = SearchBarDefaults.colors(
+        containerColor = AuleTheme.tokens.surface.color,
+        inputFieldColors = inputFieldColors,
+    )
+    val expandedColors = SearchBarDefaults.colors(
+        containerColor = colors.surfaceContainerLow,
+        dividerColor = Color.Transparent,
+        inputFieldColors = inputFieldColors,
+    )
+    val expanded = searchBarState.currentValue == SearchBarValue.Expanded
+    val inputField =
+        @Composable {
+            SearchBarDefaults.InputField(
+                textFieldState = textFieldState,
+                searchBarState = searchBarState,
+                onSearch = { keyboard?.hide() },
+                placeholder = { Text(hint) },
+                colors = inputFieldColors,
+                leadingIcon = {
+                    if (expanded) {
+                        IconButton(
+                            onClick = { scope.launch { searchBarState.animateToCollapsed() } },
+                        ) {
+                            Icon(
+                                imageVector = AuleGlyph.BACK.asImageVector(),
+                                contentDescription = cancelLabel,
+                                tint = colors.onSurface,
                             )
                         }
-                        inner()
+                    } else {
+                        IconButton(onClick = { onOpenMenu?.invoke() }) {
+                            Icon(
+                                imageVector = AuleGlyph.MENU.asImageVector(),
+                                contentDescription = null,
+                                tint = colors.onSurface,
+                            )
+                        }
+                    }
+                },
+                trailingIcon = {
+                    if (search.query.isNotEmpty()) {
+                        IconButton(
+                            onClick = { textFieldState.setTextAndPlaceCursorAtEnd("") },
+                        ) {
+                            Icon(
+                                imageVector = AuleGlyph.CLOSE.asImageVector(),
+                                contentDescription = clearLabel,
+                                tint = colors.onSurfaceVariant,
+                            )
+                        }
                     }
                 },
             )
-            if (search.query.isNotEmpty()) {
-                AuleIconButton(
-                    glyph = AuleGlyph.CLOSE,
-                    contentDescription = clearLabel,
-                    onClick = { onQueryChange("") },
-                    tint = tokens.onSurfaceMuted.color,
-                )
-            }
         }
+
+    SearchBar(
+        state = searchBarState,
+        inputField = inputField,
+        colors = collapsedColors,
+        modifier = modifier.fillMaxWidth(),
+    )
+    ExpandedFullScreenSearchBar(
+        state = searchBarState,
+        inputField = inputField,
+        colors = expandedColors,
+    ) {
+        SearchResults(
+            search = search,
+            onSelectStop = onSelectStop,
+            onSelectPlace = onSelectPlace,
+            modifier = Modifier.fillMaxWidth(),
+        )
     }
 }
 
@@ -187,19 +203,16 @@ internal fun SearchResults(
     onSelectPlace: (Place) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     val view = LocalView.current
     val keyboard = LocalSoftwareKeyboardController.current
     Column(
         modifier = modifier
             .fillMaxSize()
-            .clip(RoundedCornerShape(AuleRadius.lg))
-            .background(tokens.surfaceSolid.color)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.md)
-            .padding(vertical = AuleSpacing.sm),
+            .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
     ) {
+        if (search.query.trim().isEmpty()) return
+
         if (search.isEmpty) {
             AuleEmptyState(
                 title = stringResource(R.string.search_empty_title),
@@ -258,13 +271,17 @@ private fun SearchSection(
     title: String,
     content: @Composable () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-        BasicText(
+    Column {
+        Text(
             text = title,
-            style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                .copy(color = tokens.onSurfaceMuted.color),
-            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            // 16 dp, comme la gouttière d'un `ListItem` Material : à 12 dp,
+            // l'intitulé de section était décalé de quatre points à gauche des
+            // résultats qu'il annonce.
+            modifier = Modifier
+                .padding(horizontal = AuleSpacing.lg)
+                .semantics { heading() },
         )
         content()
     }
@@ -278,30 +295,14 @@ private fun SearchRow(
     clickLabel: String,
     onClick: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    Column(
+    ListItem(
+        headlineContent = { Text(title, maxLines = 1) },
+        supportingContent = { Text(subtitle, maxLines = 2) },
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
             .clickable(onClickLabel = clickLabel, onClick = onClick)
-            .semantics {
-                role = Role.Button
-                this.contentDescription = contentDescription
-            }
-            .padding(vertical = AuleSpacing.sm),
-    ) {
-        BasicText(
-            text = title,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.Medium)
-                .copy(color = tokens.onSurface.color),
-            maxLines = 1,
-        )
-        BasicText(
-            text = subtitle,
-            style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-            maxLines = 2,
-        )
-    }
+            .semantics { this.contentDescription = contentDescription },
+    )
 }
 
 @Composable

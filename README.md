@@ -1,7 +1,7 @@
 # Aule Android — l'application native
 
-La version officielle d'Aule Pro sur Android : Kotlin, Jetpack Compose (sans
-Material 3), MapLibre Native OpenGL, cliente du backend Aule existant.
+La version officielle d'Aule Pro sur Android : Kotlin, Jetpack Compose avec
+Material 3 thémé Aule, MapLibre Native OpenGL, cliente du backend Aule existant.
 
 **Ce n'est plus un prototype.** Aule part sur deux applications natives : celle-ci
 et l'iOS (`../Native`). L'app Flutter (`../SAE`) reste la source de référence pour
@@ -27,7 +27,7 @@ d'émulateur dans le flux de travail — la fluidité se juge sur cet écran.
 |---|---|
 | Cible | `minSdk 26`, `targetSdk 36` |
 | Carte | MapLibre Native Android 13.5.0, artefact **OpenGL** |
-| UI | Compose Foundation, pas Material 3 |
+| UI | Compose Material 3 + Animation, jetons Aule |
 
 ## Les trois environnements
 
@@ -67,7 +67,7 @@ core/
   geo/               Coordinate, GeoMath, projection sur polyligne
   model/             TransportVehicle, TransitStop, Auth, contrats de repository
   network/           OkHttp, ApiException, endpoints
-  designsystem/      tokens + composants (pas de Material 3)
+  designsystem/      jetons Aule + thème et composants Material 3
   location/          Fused, HeadingStabilizer, MotionAnchor, FGS, AlertTone
   map/               MapController, couches, caméra, icônes
 data/                implémentations BFF + GoTrue — seul module qui voie OkHttp

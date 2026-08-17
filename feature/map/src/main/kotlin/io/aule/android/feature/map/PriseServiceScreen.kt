@@ -1,19 +1,18 @@
 package io.aule.android.feature.map
 
 import android.Manifest
-import android.app.TimePickerDialog
 import android.text.format.DateFormat
+import android.view.HapticFeedbackConstants
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,23 +20,43 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TimePicker
+import androidx.compose.material3.TimePickerDialog
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberTimePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -47,22 +66,15 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
 import io.aule.android.core.designsystem.component.AuleBanner
-import io.aule.android.core.designsystem.component.AuleBusyIndicator
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIcon
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.component.AuleTextField
 import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.LineBadge
-import io.aule.android.core.designsystem.token.AuleAlpha
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
+import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.designsystem.token.AuleTouch
@@ -73,8 +85,8 @@ import io.aule.android.core.model.DriverServiceFailureKind
 import io.aule.android.core.model.ServiceDirection
 import io.aule.android.core.model.ServiceLine
 import java.time.ZoneId
+import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
-import android.view.HapticFeedbackConstants
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -83,6 +95,7 @@ import kotlinx.coroutines.CancellationException
  * Six étapes, comme Flutter. L'heure, le train et le véhicule restent
  * facultatifs ; le GPS, non. La carte n'est pas démontée pendant ce temps.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun PriseServiceScreen(
     viewModel: PriseServiceViewModel,
@@ -121,53 +134,67 @@ fun PriseServiceScreen(
     }
 
     AuleTheme {
-        val tokens = AuleTheme.tokens
+        val colors = MaterialTheme.colorScheme
         AuleAmbientBackground(modifier = modifier.fillMaxSize()) {
+            // La gouttière appartient au contenu, pas à l'écran : posée ici,
+            // elle enfermait la barre d'application dans une carte flottante
+            // large de deux marges — là où Material la veut bord à bord.
             Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .safeDrawingPadding()
-                    .imePadding()
-                    .padding(horizontal = AuleSpacing.lg),
+                    .imePadding(),
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = AuleSpacing.sm, bottom = AuleSpacing.md),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AuleIconButton(
-                        glyph = AuleGlyph.BACK,
-                        contentDescription = stringResource(R.string.service_back),
-                        onClick = { if (viewModel.back()) onClose() },
-                    )
-                    Column(modifier = Modifier.padding(start = AuleSpacing.sm)) {
-                        BasicText(
-                            text = stringResource(R.string.service_title),
-                            style = auleTextStyle(AuleRole.TITLE, FontWeight.Bold)
-                                .copy(color = tokens.onSurface.color),
-                            modifier = Modifier.semantics { heading() },
-                        )
-                        BasicText(
-                            text = stringResource(
-                                R.string.service_step,
-                                state.step.index + 1,
-                                PriseServiceStep.entries.size,
-                            ),
-                            style = auleTextStyle(AuleRole.KICKER)
-                                .copy(color = tokens.onSurfaceMuted.color),
-                        )
-                    }
-                }
+                TopAppBar(
+                    title = {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.service_title),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.semantics { heading() },
+                            )
+                            Text(
+                                text = stringResource(
+                                    R.string.service_step,
+                                    state.step.index + 1,
+                                    PriseServiceStep.entries.size,
+                                ),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = colors.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    navigationIcon = {
+                        IconButton(onClick = { if (viewModel.back()) onClose() }) {
+                            Icon(
+                                imageVector = AuleGlyph.BACK.asImageVector(),
+                                contentDescription = stringResource(R.string.service_back),
+                            )
+                        }
+                    },
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                    // Transparente, comme la relève : le fond d'ambiance passe
+                    // dessous d'un bout à l'autre au lieu d'être coupé net par
+                    // un bandeau blanc.
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                        titleContentColor = colors.onSurface,
+                        navigationIconContentColor = colors.onSurface,
+                    ),
+                )
                 StepMarks(
                     current = state.step.index,
                     total = PriseServiceStep.entries.size,
+                    modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                 )
                 Spacer(modifier = Modifier.height(AuleSpacing.lg))
                 Column(
                     modifier = Modifier
                         .weight(1f)
-                        .verticalScroll(rememberScrollState()),
+                        .verticalScroll(rememberScrollState())
+                        .padding(horizontal = AuleSpacing.lg),
                     verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
                 ) {
                     when (state.step) {
@@ -188,24 +215,35 @@ fun PriseServiceScreen(
                         )
                         PriseServiceStep.TRAIN -> {
                             StepIntro(R.string.service_train_title, R.string.service_train_detail)
-                            AuleTextField(
-                                label = stringResource(R.string.service_train_field),
+                            OutlinedTextField(
                                 value = state.trainNumber,
                                 onValueChange = viewModel::setTrainNumber,
-                                capitalization = KeyboardCapitalization.Characters,
-                                imeAction = ImeAction.Next,
                                 modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.service_train_field)) },
+                                keyboardOptions = KeyboardOptions(
+                                    capitalization = KeyboardCapitalization.Characters,
+                                    imeAction = ImeAction.Next,
+                                ),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
                             )
                         }
                         PriseServiceStep.VEHICLE -> {
-                            StepIntro(R.string.service_vehicle_title, R.string.service_vehicle_detail)
-                            AuleTextField(
-                                label = stringResource(R.string.service_vehicle_field),
+                            StepIntro(
+                                R.string.service_vehicle_title,
+                                R.string.service_vehicle_detail,
+                            )
+                            OutlinedTextField(
                                 value = state.vehicleId,
                                 onValueChange = viewModel::setVehicleId,
-                                keyboardType = KeyboardType.Number,
-                                imeAction = ImeAction.Next,
                                 modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(R.string.service_vehicle_field)) },
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Number,
+                                    imeAction = ImeAction.Next,
+                                ),
+                                singleLine = true,
+                                shape = MaterialTheme.shapes.medium,
                             )
                         }
                         PriseServiceStep.GPS -> GpsStep(
@@ -226,14 +264,32 @@ fun PriseServiceScreen(
                         if (error != null) {
                             AuleBanner(message = error.label(), tone = AuleTone.ALERT)
                         }
-                        AuleButton(
-                            title = stringResource(
-                                if (state.step.isLast) R.string.service_start else R.string.service_continue,
-                            ),
+                        Button(
                             onClick = viewModel::continueOrStart,
-                            enabled = state.canContinue,
-                            loading = state.isStarting,
-                        )
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = AuleControl.height),
+                            enabled = state.canContinue && !state.isStarting,
+                            colors = auleAccentButtonColors(),
+                        ) {
+                            if (state.isStarting) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(AuleControl.icon),
+                                    color = AuleTheme.tokens.onAccent.color,
+                                    strokeWidth = AuleStroke.glyph,
+                                )
+                            } else {
+                                Text(
+                                    stringResource(
+                                        if (state.step.isLast) {
+                                            R.string.service_start
+                                        } else {
+                                            R.string.service_continue
+                                        },
+                                    ),
+                                )
+                            }
+                        }
                     }
                     Spacer(modifier = Modifier.height(AuleSpacing.lg))
                 }
@@ -244,23 +300,26 @@ fun PriseServiceScreen(
 
 @Composable
 private fun StepIntro(title: Int, detail: Int) {
-    val tokens = AuleTheme.tokens
-    BasicText(
+    val colors = MaterialTheme.colorScheme
+    Text(
         text = stringResource(title),
-        style = auleTextStyle(AuleRole.TITLE, FontWeight.Bold).copy(color = tokens.onSurface.color),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = colors.onSurface,
         modifier = Modifier.semantics { heading() },
     )
-    BasicText(
+    Text(
         text = stringResource(detail),
-        style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
+        style = MaterialTheme.typography.bodyMedium,
+        color = colors.onSurfaceVariant,
     )
 }
 
 @Composable
-private fun StepMarks(current: Int, total: Int) {
-    val tokens = AuleTheme.tokens
+private fun StepMarks(current: Int, total: Int, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(STEP_MARK_GAP),
     ) {
         repeat(total) { index ->
@@ -268,9 +327,9 @@ private fun StepMarks(current: Int, total: Int) {
                 modifier = Modifier
                     .weight(1f)
                     .height(STEP_MARK_HEIGHT)
-                    .clip(RoundedCornerShape(AuleRadius.pill))
+                    .clip(CircleShape)
                     .background(
-                        if (index <= current) tokens.accent.color else tokens.hairline.color,
+                        if (index <= current) colors.primary else colors.outlineVariant,
                     ),
             )
         }
@@ -284,7 +343,7 @@ private fun LineStep(
     onPick: (String) -> Unit,
     onRetry: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     StepIntro(R.string.service_line_title, R.string.service_line_detail)
     when {
         state.isLoadingLines -> {
@@ -294,7 +353,11 @@ private fun LineStep(
                     .padding(vertical = AuleSpacing.xxl),
                 contentAlignment = Alignment.Center,
             ) {
-                AuleBusyIndicator(color = tokens.accent.color)
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    color = colors.primary,
+                    strokeWidth = AuleStroke.glyph,
+                )
             }
         }
         state.loadFailure != null -> Column(
@@ -304,29 +367,40 @@ private fun LineStep(
                 title = stringResource(R.string.service_lines_error_title),
                 detail = state.loadFailure.label(),
             )
-            AuleButton(
-                title = stringResource(R.string.issue_retry),
+            FilledTonalButton(
                 onClick = onRetry,
-                prominence = AuleButtonProminence.TINTED,
-            )
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = AuleControl.height),
+            ) {
+                Text(stringResource(R.string.issue_retry))
+            }
         }
         else -> {
-            AuleTextField(
-                label = stringResource(R.string.service_line_search),
+            OutlinedTextField(
                 value = state.search,
                 onValueChange = onSearch,
-                leading = AuleGlyph.SEARCH,
-                imeAction = ImeAction.Search,
                 modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.service_line_search)) },
+                leadingIcon = {
+                    Icon(
+                        imageVector = AuleGlyph.SEARCH.asImageVector(),
+                        contentDescription = null,
+                    )
+                },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
             )
             if (state.filteredLines.isEmpty()) {
-                BasicText(
+                Text(
                     text = if (state.search.isBlank()) {
                         stringResource(R.string.service_lines_empty)
                     } else {
                         stringResource(R.string.service_lines_none, state.search)
                     },
-                    style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
                 )
             }
             state.filteredLines.forEach { line ->
@@ -346,54 +420,58 @@ private fun LineChoice(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val view = LocalView.current
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
+    Card(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            onClick()
+        },
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(
-                if (selected) tokens.accent.color.copy(alpha = AuleAlpha.TINT) else tokens.surface.color,
-            )
-            .border(
-                AuleStroke.hairline,
-                if (selected) tokens.accent.color else tokens.hairline.color,
-                shape,
-            )
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                onClick()
-            }
-            .padding(AuleSpacing.md)
             .semantics {
-                role = Role.Button
-                this.selected = selected
                 contentDescription = line.label
+                this.selected = selected
             },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) colors.primaryContainer else colors.surface,
+        ),
     ) {
-        LineBadge(
-            line = line.label,
-            colorHex = line.colorHex,
-            contentDescription = stringResource(R.string.line_badge, line.label),
-        )
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                text = line.label,
-                style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                    .copy(color = tokens.onSurface.color),
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        ) {
+            LineBadge(
+                line = line.label,
+                colorHex = line.colorHex,
+                contentDescription = stringResource(R.string.line_badge, line.label),
             )
-            BasicText(
-                text = line.description,
-                style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-                maxLines = 2,
-            )
-        }
-        if (selected) {
-            AuleIcon(glyph = AuleGlyph.CHECK, tint = tokens.accent.color)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = line.label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                )
+                Text(
+                    text = line.description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 2,
+                )
+            }
+            if (selected) {
+                Icon(
+                    imageVector = AuleGlyph.CHECK.asImageVector(),
+                    contentDescription = null,
+                    tint = colors.primary,
+                )
+            }
         }
     }
 }
@@ -420,60 +498,65 @@ private fun DirectionChoice(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val view = LocalView.current
     val label = if (direction.terminus.isBlank()) {
         stringResource(R.string.service_direction_other)
     } else {
         stringResource(R.string.service_direction, direction.terminus)
     }
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
+    Card(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            onClick()
+        },
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(
-                if (selected) tokens.accent.color.copy(alpha = AuleAlpha.TINT) else tokens.surface.color,
-            )
-            .border(
-                AuleStroke.hairline,
-                if (selected) tokens.accent.color else tokens.hairline.color,
-                shape,
-            )
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                onClick()
-            }
-            .padding(AuleSpacing.md)
             .semantics {
-                role = Role.Button
-                this.selected = selected
                 contentDescription = label
+                this.selected = selected
             },
-        verticalAlignment = Alignment.CenterVertically,
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(
+            containerColor = if (selected) colors.primaryContainer else colors.surface,
+        ),
     ) {
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                .copy(color = tokens.onSurface.color),
-            modifier = Modifier.weight(1f),
-            maxLines = 2,
-        )
-        if (selected) {
-            AuleIcon(glyph = AuleGlyph.CHECK, tint = tokens.accent.color)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+                modifier = Modifier.weight(1f),
+                maxLines = 2,
+            )
+            if (selected) {
+                Icon(
+                    imageVector = AuleGlyph.CHECK.asImageVector(),
+                    contentDescription = null,
+                    tint = colors.primary,
+                )
+            }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TimeStep(
     departure: java.time.Instant?,
     onPick: (Int, Int) -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     val view = LocalView.current
+    var showPicker by remember { mutableStateOf(false) }
     StepIntro(R.string.service_time_title, R.string.service_time_detail)
     val label = if (departure == null) {
         stringResource(R.string.service_time_choose)
@@ -482,67 +565,91 @@ private fun TimeStep(
             .withZone(ZoneId.systemDefault())
             .format(departure)
     }
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
+    Card(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            showPicker = true
+        },
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(tokens.surface.color)
-            .border(
-                AuleStroke.hairline,
-                if (departure == null) tokens.hairline.color else tokens.accent.color,
-                shape,
-            )
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                val zone = ZoneId.systemDefault()
-                val base = departure?.atZone(zone) ?: java.time.ZonedDateTime.now(zone)
-                TimePickerDialog(
-                    context,
-                    { _, hour, minute -> onPick(hour, minute) },
-                    base.hour,
-                    base.minute,
-                    DateFormat.is24HourFormat(context),
-                ).show()
-            }
-            .padding(AuleSpacing.md)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            .semantics { contentDescription = label },
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(containerColor = colors.surface),
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                text = label,
-                style = auleTextStyle(
-                    if (departure == null) AuleRole.BODY else AuleRole.TITLE,
-                    FontWeight.Bold,
-                ).copy(color = tokens.onSurface.color),
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = label,
+                    style = if (departure == null) {
+                        MaterialTheme.typography.bodyMedium
+                    } else {
+                        MaterialTheme.typography.titleMedium
+                    },
+                    fontWeight = FontWeight.Bold,
+                    color = colors.onSurface,
+                )
+                if (departure != null) {
+                    Text(
+                        text = stringResource(R.string.service_time_edited),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
+            }
             if (departure != null) {
-                BasicText(
-                    text = stringResource(R.string.service_time_edited),
-                    style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
+                Text(
+                    text = stringResource(R.string.service_time_change),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.primary,
                 )
             }
         }
-        if (departure != null) {
-            BasicText(
-                text = stringResource(R.string.service_time_change),
-                style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                    .copy(color = tokens.accentOnSurface.color),
-            )
-        }
     }
-    BasicText(
+    Text(
         text = stringResource(
             if (departure == null) R.string.service_time_missing else R.string.service_time_hint,
         ),
-        style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
+        style = MaterialTheme.typography.labelSmall,
+        color = colors.onSurfaceVariant,
     )
+    if (showPicker) {
+        val zone = ZoneId.systemDefault()
+        val base = departure?.atZone(zone) ?: ZonedDateTime.now(zone)
+        val pickerState = rememberTimePickerState(
+            initialHour = base.hour,
+            initialMinute = base.minute,
+            is24Hour = DateFormat.is24HourFormat(context),
+        )
+        TimePickerDialog(
+            onDismissRequest = { showPicker = false },
+            title = { Text(stringResource(R.string.service_time_title)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        onPick(pickerState.hour, pickerState.minute)
+                        showPicker = false
+                    },
+                ) {
+                    Text(stringResource(android.R.string.ok))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showPicker = false }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        ) {
+            TimePicker(state = pickerState)
+        }
+    }
 }
 
 @Composable
@@ -551,49 +658,53 @@ private fun GpsStep(
     authorization: LocationAuthorization,
     onEnable: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val view = LocalView.current
     StepIntro(R.string.service_gps_title, R.string.service_gps_detail)
     val label = stringResource(
         if (ready) R.string.service_gps_on else R.string.service_gps_off,
     )
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
+    Card(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+            onEnable()
+        },
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(
-                if (ready) tokens.accent.color.copy(alpha = AuleAlpha.TINT) else tokens.surface.color,
-            )
-            .border(
-                AuleStroke.hairline,
-                if (ready) tokens.accent.color else tokens.hairline.color,
-                shape,
-            )
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                onEnable()
-            }
-            .padding(AuleSpacing.md)
             .semantics {
-                role = Role.Button
-                selected = ready
                 contentDescription = label
+                this.selected = ready
             },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        shape = MaterialTheme.shapes.small,
+        colors = CardDefaults.cardColors(
+            containerColor = if (ready) colors.primaryContainer else colors.surface,
+        ),
     ) {
-        AuleIcon(
-            glyph = if (ready) AuleGlyph.CHECK else AuleGlyph.PIN,
-            tint = if (ready) tokens.accent.color else tokens.onSurface.color,
-        )
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                .copy(color = tokens.onSurface.color),
-            modifier = Modifier.weight(1f),
-        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        ) {
+            Icon(
+                imageVector = if (ready) {
+                    AuleGlyph.CHECK.asImageVector()
+                } else {
+                    AuleGlyph.PIN.asImageVector()
+                },
+                contentDescription = null,
+                tint = if (ready) colors.primary else colors.onSurface,
+            )
+            Text(
+                text = label,
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.onSurface,
+                modifier = Modifier.weight(1f),
+            )
+        }
     }
     if (!ready) {
         val notice = when (authorization) {

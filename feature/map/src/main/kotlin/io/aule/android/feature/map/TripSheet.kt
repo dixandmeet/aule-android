@@ -6,21 +6,18 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
 import io.aule.android.core.designsystem.component.LineBadge
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.JourneyLeg
@@ -33,64 +30,69 @@ internal fun TripSheet(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     Column(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.lg)
-            .padding(bottom = AuleSpacing.xl),
+            .padding(bottom = AuleSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
     ) {
-        BasicText(
+        Text(
             text = stringResource(R.string.nav_trip),
-            style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                .copy(color = tokens.onSurface.color),
-            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier
+                .padding(horizontal = AuleSpacing.lg)
+                .semantics { heading() },
         )
-        Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
+        Column {
             state.plan.legs.forEachIndexed { index, leg ->
                 TripLegRow(leg, current = index == state.progress.legIndex)
             }
         }
-        AuleButton(
-            title = stringResource(R.string.nav_stop),
+        FilledTonalButton(
             onClick = onStop,
-            prominence = AuleButtonProminence.TINTED,
-        )
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AuleSpacing.lg),
+        ) {
+            Text(stringResource(R.string.nav_stop))
+        }
     }
 }
 
 @Composable
 private fun TripLegRow(leg: JourneyLeg, current: Boolean) {
-    val tokens = AuleTheme.tokens
-    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-        val color = if (current) tokens.accentOnSurface.color else tokens.onSurface.color
-        BasicText(
-            text = leg.title,
-            style = auleTextStyle(AuleRole.BODY, if (current) FontWeight.SemiBold else FontWeight.Medium)
-                .copy(color = color),
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            leg.line?.let { line ->
-                LineBadge(
-                    line = line,
-                    colorHex = leg.lineColor,
-                    contentDescription = stringResource(R.string.line_badge, line),
-                )
+    val colors = MaterialTheme.colorScheme
+    ListItem(
+        headlineContent = {
+            Text(
+                text = leg.title,
+                color = if (current) colors.primary else colors.onSurface,
+            )
+        },
+        supportingContent = {
+            Row(horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
+                leg.line?.let { line ->
+                    LineBadge(
+                        line = line,
+                        colorHex = leg.lineColor,
+                        contentDescription = stringResource(R.string.line_badge, line),
+                    )
+                }
+                if (leg.mode != LegMode.TRANSIT) {
+                    Text(
+                        text = GeoMath.formatDistance(
+                            leg.distanceMeters,
+                            DecimalFormatSymbols.getInstance().decimalSeparator,
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                    )
+                }
             }
-            if (leg.mode != LegMode.TRANSIT) {
-                BasicText(
-                    text = GeoMath.formatDistance(
-                        leg.distanceMeters,
-                        DecimalFormatSymbols.getInstance().decimalSeparator,
-                    ),
-                    style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-                )
-            }
-        }
-    }
+        },
+        colors = ListItemDefaults.colors(
+            containerColor = if (current) colors.primaryContainer else colors.surface,
+        ),
+    )
 }

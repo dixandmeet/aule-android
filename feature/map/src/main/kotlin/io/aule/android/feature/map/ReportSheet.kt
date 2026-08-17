@@ -1,57 +1,49 @@
 package io.aule.android.feature.map
 
-import androidx.activity.compose.PredictiveBackHandler
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleShadow
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleBanner
-import io.aule.android.core.designsystem.component.AuleButton
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.component.AuleTextField
 import io.aule.android.core.designsystem.component.AuleTone
-import io.aule.android.core.designsystem.token.AuleAlpha
-import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
+import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleTouch
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.DriverReportException
 import io.aule.android.core.model.DriverReportFailureKind
@@ -68,54 +60,29 @@ import kotlinx.coroutines.launch
  * recevoir. Rien ne se referme sans confirmation d'envoi — un signalement
  * qu'on croit parti et qui n'est pas parti est pire que pas de bouton.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ReportSheetHost(
     onSubmit: suspend (DriverReport) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    PredictiveBackHandler { progress ->
-        try {
-            progress.collect { }
-            onClose()
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        }
-    }
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(topStart = AuleRadius.xl, topEnd = AuleRadius.xl)
-    val dismiss = stringResource(R.string.sheet_dismiss)
-    Box(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(tokens.onSurface.color.copy(alpha = AuleAlpha.OUTLINE))
-                .clickable(onClick = onClose)
-                .semantics { contentDescription = dismiss },
-        )
-        ReportSheet(
-            onSubmit = onSubmit,
-            onClose = onClose,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .fillMaxWidth()
-                .imePadding()
-                .navigationBarsPadding()
-                .auleShadow(AuleElevation.OVERLAY, shape)
-                .clip(shape)
-                .background(tokens.surfaceSolid.color),
-        )
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onClose,
+        modifier = modifier,
+        sheetState = sheetState,
+    ) {
+        ReportSheet(onSubmit = onSubmit, onClose = onClose)
     }
 }
 
-@OptIn(ExperimentalLayoutApi::class)
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ReportSheet(
     onSubmit: suspend (DriverReport) -> Unit,
     onClose: () -> Unit,
-    modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     val scope = rememberCoroutineScope()
     var type by remember { mutableStateOf<DriverReportType?>(null) }
     var urgency by remember { mutableStateOf(DriverReportUrgency.MEDIUM) }
@@ -128,159 +95,151 @@ private fun ReportSheet(
     )
 
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md),
+            .padding(bottom = AuleSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicText(
-                text = title,
-                style = auleTextStyle(AuleRole.TITLE, FontWeight.Bold)
-                    .copy(color = tokens.onSurface.color),
-                modifier = Modifier
-                    .weight(1f)
-                    .semantics { heading() },
-                maxLines = 1,
-            )
-            AuleIconButton(
-                glyph = AuleGlyph.CLOSE,
-                contentDescription = stringResource(R.string.sheet_dismiss),
-                onClick = onClose,
-                tint = tokens.onSurfaceMuted.color,
-            )
-        }
+        TopAppBar(
+            title = { Text(title) },
+            actions = {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = Icons.Outlined.Close,
+                        contentDescription = stringResource(R.string.sheet_dismiss),
+                    )
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+            ),
+        )
 
-        if (sent) {
-            BasicText(
-                text = stringResource(R.string.report_sent_detail),
-                style = auleTextStyle(AuleRole.BODY).copy(color = tokens.onSurfaceMuted.color),
-                maxLines = 2,
-            )
-        } else {
-            BasicText(
-                text = stringResource(R.string.report_hint),
-                style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-                maxLines = 1,
-            )
-            FlowRow(
-                horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-                verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-            ) {
-                DriverReportType.entries.forEach { candidate ->
-                    ReportChip(
-                        label = candidate.label(),
-                        selected = type == candidate,
-                        onClick = if (sending) null else ({ type = candidate }),
-                    )
-                }
-            }
-            BasicText(
-                text = stringResource(R.string.report_urgency),
-                style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-                maxLines = 1,
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
-                DriverReportUrgency.entries.forEach { candidate ->
-                    ReportChip(
-                        label = candidate.label(),
-                        selected = urgency == candidate,
-                        onClick = if (sending) null else ({ urgency = candidate }),
-                    )
-                }
-            }
-            AuleTextField(
-                label = stringResource(R.string.report_message),
-                value = message,
-                onValueChange = { message = it },
-                enabled = !sending,
-                capitalization = KeyboardCapitalization.Sentences,
-                modifier = Modifier.fillMaxWidth(),
-            )
-            val error = failure
-            if (error != null) {
-                AuleBanner(
-                    message = error.label(),
-                    tone = AuleTone.ALERT,
+        Column(
+            modifier = Modifier.padding(horizontal = AuleSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        ) {
+            if (sent) {
+                Text(
+                    text = stringResource(R.string.report_sent_detail),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-            }
-            AuleButton(
-                title = stringResource(R.string.report_send),
-                onClick = {
-                    val chosen = type ?: return@AuleButton
-                    if (sending) return@AuleButton
-                    sending = true
-                    failure = null
-                    scope.launch {
-                        try {
-                            onSubmit(
-                                DriverReport(
-                                    type = chosen,
-                                    urgency = urgency,
-                                    message = message,
-                                ),
-                            )
-                            sent = true
-                        } catch (cancelled: CancellationException) {
-                            sending = false
-                            throw cancelled
-                        } catch (thrown: DriverReportException) {
-                            sending = false
-                            failure = thrown.kind
-                        } catch (_: Throwable) {
-                            sending = false
-                            failure = DriverReportFailureKind.UNKNOWN
-                        }
+            } else {
+                Text(
+                    text = stringResource(R.string.report_hint),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                    verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                ) {
+                    DriverReportType.entries.forEach { candidate ->
+                        val chosen = type == candidate
+                        FilterChip(
+                            selected = chosen,
+                            onClick = { if (!sending) type = candidate },
+                            label = { Text(candidate.label()) },
+                            enabled = !sending,
+                            leadingIcon = if (chosen) selectedChipIcon else null,
+                        )
                     }
-                },
-                enabled = type != null,
-                loading = sending,
-            )
+                }
+                Text(
+                    text = stringResource(R.string.report_urgency),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
+                    DriverReportUrgency.entries.forEach { candidate ->
+                        val chosen = urgency == candidate
+                        FilterChip(
+                            selected = chosen,
+                            onClick = { if (!sending) urgency = candidate },
+                            label = { Text(candidate.label()) },
+                            enabled = !sending,
+                            leadingIcon = if (chosen) selectedChipIcon else null,
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = message,
+                    onValueChange = { message = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = !sending,
+                    label = { Text(stringResource(R.string.report_message)) },
+                    keyboardOptions = KeyboardOptions(
+                        capitalization = KeyboardCapitalization.Sentences,
+                    ),
+                    singleLine = true,
+                )
+                val error = failure
+                if (error != null) {
+                    AuleBanner(message = error.label(), tone = AuleTone.ALERT)
+                }
+                Button(
+                    onClick = {
+                        val chosen = type ?: return@Button
+                        if (sending) return@Button
+                        sending = true
+                        failure = null
+                        scope.launch {
+                            try {
+                                onSubmit(
+                                    DriverReport(
+                                        type = chosen,
+                                        urgency = urgency,
+                                        message = message,
+                                    ),
+                                )
+                                sent = true
+                            } catch (cancelled: CancellationException) {
+                                sending = false
+                                throw cancelled
+                            } catch (thrown: DriverReportException) {
+                                sending = false
+                                failure = thrown.kind
+                            } catch (_: Throwable) {
+                                sending = false
+                                failure = DriverReportFailureKind.UNKNOWN
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = type != null,
+                    colors = auleAccentButtonColors(),
+                ) {
+                    if (sending) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(AuleControl.icon),
+                            strokeWidth = AuleStroke.glyph,
+                            color = AuleTheme.tokens.onAccent.color,
+                        )
+                    } else {
+                        Text(stringResource(R.string.report_send))
+                    }
+                }
+            }
         }
     }
 }
 
-@Composable
-private fun ReportChip(
-    label: String,
-    selected: Boolean,
-    onClick: (() -> Unit)?,
-) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.sm)
-    val fill = if (selected) {
-        tokens.accent.color
-    } else {
-        tokens.onSurface.color.copy(alpha = AuleAlpha.TINT)
-    }
-    val ink = if (selected) tokens.onAccent.color else tokens.onSurface.color
-    Box(
-        modifier = Modifier
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(fill)
-            .clickable(enabled = onClick != null, onClick = { onClick?.invoke() })
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-                this.selected = selected
-            },
-        contentAlignment = Alignment.Center,
-    ) {
-        BasicText(
-            text = label,
-            style = auleTextStyle(
-                AuleRole.BODY,
-                if (selected) FontWeight.Bold else FontWeight.Medium,
-            ).copy(color = ink),
-            maxLines = 1,
-        )
-    }
+/**
+ * La coche du chip retenu.
+ *
+ * Material la prévoit, Compose ne la pose pas tout seul. Sans elle, un chip
+ * sélectionné ne se distingue que par sa teinte — et un daltonien deutan ne
+ * voit aucune différence entre « Normal » et « Urgent » sur une pastille verte
+ * de 12 % d'opacité.
+ */
+private val selectedChipIcon: @Composable () -> Unit = {
+    Icon(
+        imageVector = AuleGlyph.CHECK.asImageVector(),
+        contentDescription = null,
+        modifier = Modifier.size(FilterChipDefaults.IconSize),
+    )
 }
 
 @Composable

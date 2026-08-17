@@ -10,8 +10,7 @@ android {
 dependencies {
     api(projects.core.model)
 
-    // Aucune dépendance Material 3, et c'est une décision (ADR-010) : le produit
-    // doit se reconnaître comme Aule, pas comme une démonstration Material. Les
-    // fondations viennent de compose.foundation, apportée par le plugin de
-    // convention Compose.
+    // Material 3 et Animation viennent du plugin de convention Compose.
+    // `AuleTheme` leur fournit exclusivement les jetons de la marque : le kit
+    // porte les comportements système, pas l'identité visuelle (ADR-010).
 }

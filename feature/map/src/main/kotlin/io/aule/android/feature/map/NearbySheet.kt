@@ -4,30 +4,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.RealtimeDot
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.NearbyDigest
 import io.aule.android.core.model.TransitStop
@@ -49,35 +43,36 @@ internal fun NearbySheet(
     onSelectVehicle: (TransportVehicle) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     Column(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.lg)
-            .padding(bottom = AuleSpacing.xl),
+            .padding(bottom = AuleSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
     ) {
-        BasicText(
+        Text(
             text = stringResource(R.string.nearby_title),
-            style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                .copy(color = tokens.onSurface.color),
-            modifier = Modifier.semantics { heading() },
+            style = MaterialTheme.typography.titleLarge,
+            modifier = Modifier
+                .padding(horizontal = AuleSpacing.lg)
+                .semantics { heading() },
         )
 
         if (digest.isEmpty) {
             AuleEmptyState(
                 title = stringResource(R.string.nearby_empty_title),
                 detail = stringResource(R.string.nearby_empty_detail),
+                modifier = Modifier.padding(horizontal = AuleSpacing.lg),
             )
         }
 
         if (digest.stops.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-                BasicText(
+            Column {
+                Text(
                     text = stringResource(R.string.nearby_section_stops),
-                    style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                 )
                 digest.stops.forEach { entry ->
                     val distance = GeoMath.formatDistance(
@@ -98,24 +93,33 @@ internal fun NearbySheet(
                             append(wheelchair)
                         }
                     }
-                    NearbyRow(
-                        title = entry.stop.departuresKey,
-                        subtitle = modeLabel,
-                        distance = distance,
-                        contentDescription = label,
-                        clickLabel = stringResource(R.string.nearby_hint_stop),
-                        onClick = { onSelectStop(entry.stop) },
+                    ListItem(
+                        headlineContent = { Text(entry.stop.departuresKey) },
+                        supportingContent = { Text(modeLabel) },
+                        trailingContent = {
+                            Text(
+                                text = distance,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
+                        modifier = Modifier
+                            .clickable(
+                                onClickLabel = stringResource(R.string.nearby_hint_stop),
+                                onClick = { onSelectStop(entry.stop) },
+                            )
+                            .semantics { contentDescription = label },
                     )
                 }
             }
         }
 
         if (digest.vehicles.isNotEmpty()) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-                BasicText(
+            Column {
+                Text(
                     text = stringResource(R.string.nearby_section_vehicles),
-                    style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                 )
                 digest.vehicles.forEach { entry ->
                     val distance = GeoMath.formatDistance(
@@ -143,93 +147,58 @@ internal fun NearbySheet(
                         append(", ")
                         append(feedLabel)
                     }
-                    Row(
+                    ListItem(
+                        headlineContent = {
+                            Text(
+                                text = entry.vehicle.destination
+                                    ?: stringResource(R.string.vehicle_unknown_destination),
+                            )
+                        },
+                        supportingContent = {
+                            // Le point seul ne dit rien : posé sous un nom de
+                            // destination, il se lit comme une puce de liste.
+                            // Le détail d'arrêt l'accompagne déjà de son
+                            // libellé — c'est la même information, elle
+                            // s'écrit pareil.
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RealtimeDot(
+                                    isLive = entry.vehicle.isLive,
+                                    liveDescription = stringResource(R.string.vehicle_live),
+                                    scheduledDescription = stringResource(
+                                        R.string.vehicle_estimated,
+                                    ),
+                                )
+                                Text(text = feedLabel)
+                            }
+                        },
+                        leadingContent = {
+                            LineBadge(
+                                line = entry.vehicle.lineName,
+                                colorHex = null,
+                                contentDescription = stringResource(
+                                    R.string.line_badge,
+                                    entry.vehicle.lineName,
+                                ),
+                            )
+                        },
+                        trailingContent = {
+                            Text(
+                                text = distance,
+                                style = MaterialTheme.typography.labelSmall,
+                            )
+                        },
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = AuleTouch.minimum)
                             .clickable(
                                 onClickLabel = stringResource(R.string.nearby_hint_vehicle),
                                 onClick = { onSelectVehicle(entry.vehicle) },
                             )
-                            .semantics {
-                                role = Role.Button
-                                contentDescription = label
-                            }
-                            .padding(vertical = AuleSpacing.sm),
-                        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        LineBadge(
-                            line = entry.vehicle.lineName,
-                            colorHex = null,
-                            contentDescription = stringResource(
-                                R.string.line_badge,
-                                entry.vehicle.lineName,
-                            ),
-                        )
-                        Column(modifier = Modifier.weight(1f)) {
-                            BasicText(
-                                text = entry.vehicle.destination
-                                    ?: stringResource(R.string.vehicle_unknown_destination),
-                                style = auleTextStyle(AuleRole.BODY, FontWeight.Medium)
-                                    .copy(color = tokens.onSurface.color),
-                                maxLines = 1,
-                            )
-                            RealtimeDot(
-                                isLive = entry.vehicle.isLive,
-                                liveDescription = stringResource(R.string.vehicle_live),
-                                scheduledDescription = stringResource(R.string.vehicle_estimated),
-                            )
-                        }
-                        BasicText(
-                            text = distance,
-                            style = auleTextStyle(AuleRole.KICKER)
-                                .copy(color = tokens.onSurfaceMuted.color),
-                        )
-                    }
+                            .semantics { contentDescription = label },
+                    )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun NearbyRow(
-    title: String,
-    subtitle: String,
-    distance: String,
-    contentDescription: String,
-    clickLabel: String,
-    onClick: () -> Unit,
-) {
-    val tokens = AuleTheme.tokens
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clickable(onClickLabel = clickLabel, onClick = onClick)
-            .semantics {
-                role = Role.Button
-                this.contentDescription = contentDescription
-            }
-            .padding(vertical = AuleSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            BasicText(
-                text = title,
-                style = auleTextStyle(AuleRole.BODY, FontWeight.Medium)
-                    .copy(color = tokens.onSurface.color),
-            )
-            BasicText(
-                text = subtitle,
-                style = auleTextStyle(AuleRole.KICKER)
-                    .copy(color = tokens.onSurfaceMuted.color),
-            )
-        }
-        BasicText(
-            text = distance,
-            style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
-        )
     }
 }

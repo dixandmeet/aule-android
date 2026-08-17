@@ -4,16 +4,13 @@ import android.content.Intent
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -23,10 +20,24 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,14 +47,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
@@ -56,27 +66,17 @@ import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleBrandMark
-import io.aule.android.core.designsystem.component.AuleBusyIndicator
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
-import io.aule.android.core.designsystem.component.AuleCard
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIcon
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.component.AuleTextField
 import io.aule.android.core.designsystem.component.AuleTone
-import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
-import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.model.ProfessionalProfile
 import io.aule.android.core.model.ProfessionalTransportMode
 import io.aule.android.core.model.SIGNUP_PROFILES
@@ -105,7 +105,7 @@ fun RegistrationScreen(
     }
 
     AuleTheme {
-        val tokens = AuleTheme.tokens
+        val colors = MaterialTheme.colorScheme
         AuleAmbientBackground(modifier = modifier) {
             if (!state.isHydrated) {
                 Box(
@@ -114,7 +114,11 @@ fun RegistrationScreen(
                         .safeDrawingPadding(),
                     contentAlignment = Alignment.Center,
                 ) {
-                    AuleBusyIndicator(color = tokens.accent.color)
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(AuleControl.icon),
+                        color = colors.primary,
+                        strokeWidth = AuleStroke.glyph,
+                    )
                 }
                 return@AuleAmbientBackground
             }
@@ -132,9 +136,13 @@ fun RegistrationScreen(
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = AuleSpacing.xl, vertical = AuleSpacing.xl),
                 ) {
-                    AuleCard(
+                    Card(
                         modifier = Modifier.fillMaxWidth(),
-                        contentPadding = PaddingValues(0.dp),
+                        shape = MaterialTheme.shapes.large,
+                        colors = CardDefaults.cardColors(containerColor = colors.surface),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = AuleElevation.OVERLAY.height(AuleTheme.night),
+                        ),
                     ) {
                         if (state.step != RegistrationStep.WELCOME) {
                             RegistrationProgress(state = state, onBack = { viewModel.back(onClose) })
@@ -187,37 +195,51 @@ private fun WithFooter(
     viewModel: RegistrationViewModel,
     content: @Composable () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         content()
         Spacer(modifier = Modifier.height(AuleSpacing.xl))
-        AuleButton(
-            title = stringResource(
-                when {
-                    state.step == RegistrationStep.ACCOUNT && state.isSubmitting ->
-                        R.string.register_creating
-                    state.step == RegistrationStep.ACCOUNT -> R.string.register_create
-                    else -> R.string.register_continue
-                },
-            ),
+        Button(
             onClick = viewModel::continueForward,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleControl.height),
             enabled = state.canContinue && !state.isSubmitting,
-            loading = state.isSubmitting,
-        )
+            colors = auleAccentButtonColors(),
+        ) {
+            if (state.isSubmitting) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    color = AuleTheme.tokens.onAccent.color,
+                    strokeWidth = AuleStroke.glyph,
+                )
+            } else {
+                Text(
+                    text = stringResource(
+                        when {
+                            state.step == RegistrationStep.ACCOUNT -> R.string.register_create
+                            else -> R.string.register_continue
+                        },
+                    ),
+                )
+            }
+        }
         Spacer(modifier = Modifier.height(AuleSpacing.md))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center,
         ) {
-            AuleIcon(
-                glyph = AuleGlyph.LOCK,
-                tint = tokens.onSurfaceMuted.color,
-                size = AuleSpacing.md,
+            Icon(
+                imageVector = AuleGlyph.LOCK.asImageVector(),
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+                modifier = Modifier.size(AuleSpacing.md),
             )
-            BasicText(
+            Text(
                 text = stringResource(R.string.register_saved),
-                style = auleTextStyle(AuleRole.KICKER)
-                    .copy(color = tokens.onSurfaceMuted.color, textAlign = TextAlign.Center),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+                textAlign = TextAlign.Center,
                 modifier = Modifier.padding(start = AuleSpacing.xs),
             )
         }
@@ -229,26 +251,19 @@ private fun RegistrationProgress(
     state: RegistrationUiState,
     onBack: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val fraction = when {
         state.step == RegistrationStep.CONFIRMATION -> 1f
         state.actionSteps.size <= 1 -> 0f
         else -> state.actionIndex / (state.actionSteps.size - 1).toFloat()
     }
     Column {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(PROGRESS_HEIGHT)
-                .background(tokens.hairline.color),
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth(fraction)
-                    .fillMaxHeight()
-                    .background(tokens.accent.color),
-            )
-        }
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.fillMaxWidth(),
+            color = colors.primary,
+            trackColor = colors.outlineVariant,
+        )
         if (state.step != RegistrationStep.CONFIRMATION) {
             Row(
                 modifier = Modifier
@@ -256,36 +271,31 @@ private fun RegistrationProgress(
                     .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Row(
-                    modifier = Modifier
-                        .defaultMinSize(minHeight = AuleTouch.minimum)
-                        .clip(RoundedCornerShape(AuleRadius.sm))
-                        .clickable(onClick = onBack)
-                        .padding(horizontal = AuleSpacing.xs)
-                        .semantics { role = Role.Button },
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    AuleIcon(
-                        glyph = AuleGlyph.BACK,
-                        tint = tokens.accentOnSurface.color,
-                        size = AuleSpacing.lg,
+                TextButton(onClick = onBack) {
+                    Icon(
+                        imageVector = AuleGlyph.BACK.asImageVector(),
+                        contentDescription = null,
+                        tint = colors.primary,
+                        modifier = Modifier.size(AuleSpacing.lg),
                     )
-                    BasicText(
+                    Text(
                         text = stringResource(R.string.register_back),
-                        style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                            .copy(color = tokens.accentOnSurface.color),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.primary,
                         modifier = Modifier.padding(start = AuleSpacing.xs),
                     )
                 }
                 Spacer(modifier = Modifier.weight(1f))
-                BasicText(
+                Text(
                     text = stringResource(
                         R.string.register_step,
                         state.actionIndex + 1,
                         state.actionSteps.size,
                     ),
-                    style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurfaceVariant,
                 )
             }
         }
@@ -297,7 +307,7 @@ private fun WelcomeStep(
     onStart: () -> Unit,
     onSignIn: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         AuleBrandMark(contentDescription = stringResource(R.string.auth_logo))
         Spacer(modifier = Modifier.height(AuleSpacing.xl))
@@ -311,70 +321,88 @@ private fun WelcomeStep(
             WelcomeIcon(AuleGlyph.SHIELD)
         }
         Spacer(modifier = Modifier.height(AuleSpacing.xl))
-        BasicText(
+        Text(
             text = stringResource(R.string.register_welcome_title),
-            style = auleTextStyle(AuleRole.HERO, FontWeight.Bold)
-                .copy(color = tokens.onSurface.color, textAlign = TextAlign.Center),
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = colors.onSurface,
+            textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
         Spacer(modifier = Modifier.height(AuleSpacing.sm))
-        BasicText(
+        Text(
             text = stringResource(R.string.register_welcome_subtitle),
-            style = auleTextStyle(AuleRole.BODY)
-                .copy(color = tokens.onSurfaceMuted.color, textAlign = TextAlign.Center),
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.xl))
-        AuleButton(title = stringResource(R.string.register_start), onClick = onStart)
+        Button(
+            onClick = onStart,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleControl.height),
+            colors = auleAccentButtonColors(),
+        ) {
+            Text(text = stringResource(R.string.register_start))
+        }
         Spacer(modifier = Modifier.height(AuleSpacing.md))
-        BasicText(
+        Text(
             text = stringResource(R.string.register_hint),
-            style = auleTextStyle(AuleRole.KICKER)
-                .copy(color = tokens.onSurfaceMuted.color, textAlign = TextAlign.Center),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.sm))
-        AuleButton(
-            title = stringResource(R.string.register_already),
+        TextButton(
             onClick = onSignIn,
-            prominence = AuleButtonProminence.PLAIN,
-        )
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            Text(text = stringResource(R.string.register_already))
+        }
     }
 }
 
 @Composable
 private fun WelcomeIcon(glyph: AuleGlyph) {
-    val tokens = AuleTheme.tokens
-    Box(
-        modifier = Modifier
-            .size(AuleControl.avatar)
-            .clip(CircleShape)
-            .background(tokens.accent.color.copy(alpha = AuleAlpha.TINT))
-            .border(
-                AuleStroke.hairline,
-                tokens.accent.color.copy(alpha = AuleAlpha.OUTLINE),
-                CircleShape,
-            ),
-        contentAlignment = Alignment.Center,
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.size(AuleControl.avatar),
+        shape = CircleShape,
+        color = colors.primaryContainer,
+        contentColor = colors.onPrimaryContainer,
     ) {
-        AuleIcon(glyph = glyph, tint = tokens.accentOnSurface.color)
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = glyph.asImageVector(),
+                contentDescription = null,
+            )
+        }
     }
 }
 
 @Composable
 private fun StepHeader(title: String, subtitle: String) {
-    val tokens = AuleTheme.tokens
-    BasicText(
+    val colors = MaterialTheme.colorScheme
+    Text(
         text = title,
-        style = auleTextStyle(AuleRole.TITLE, FontWeight.Bold)
-            .copy(color = tokens.onSurface.color, textAlign = TextAlign.Center),
+        style = MaterialTheme.typography.titleMedium,
+        fontWeight = FontWeight.Bold,
+        color = colors.onSurface,
+        textAlign = TextAlign.Center,
         modifier = Modifier
             .fillMaxWidth()
             .semantics { heading() },
     )
     Spacer(modifier = Modifier.height(AuleSpacing.sm))
-    BasicText(
+    Text(
         text = subtitle,
-        style = auleTextStyle(AuleRole.BODY)
-            .copy(color = tokens.onSurfaceMuted.color, textAlign = TextAlign.Center),
+        style = MaterialTheme.typography.bodyMedium,
+        color = colors.onSurfaceVariant,
+        textAlign = TextAlign.Center,
         modifier = Modifier.fillMaxWidth(),
     )
     Spacer(modifier = Modifier.height(AuleSpacing.lg))
@@ -385,7 +413,7 @@ private fun ProfilesStep(
     state: RegistrationUiState,
     onToggle: (ProfessionalProfile) -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val exclusive = state.draft.orderedProfiles.filter { !it.isCombinable }
     Column {
         StepHeader(
@@ -399,6 +427,7 @@ private fun ProfilesStep(
                 description = profile.description(),
                 selected = profile in state.draft.profiles,
                 onClick = { onToggle(profile) },
+                multiSelect = true,
             )
             Spacer(modifier = Modifier.height(AuleSpacing.sm))
         }
@@ -407,18 +436,19 @@ private fun ProfilesStep(
                 modifier = Modifier.padding(top = AuleSpacing.xs),
                 verticalAlignment = Alignment.Top,
             ) {
-                AuleIcon(
-                    glyph = AuleGlyph.SHIELD,
-                    tint = tokens.onSurfaceMuted.color,
-                    size = AuleSpacing.md,
+                Icon(
+                    imageVector = AuleGlyph.SHIELD.asImageVector(),
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
+                    modifier = Modifier.size(AuleSpacing.md),
                 )
-                BasicText(
+                Text(
                     text = stringResource(
                         R.string.register_exclusive_hint,
                         exclusive.first().label(),
                     ),
-                    style = auleTextStyle(AuleRole.KICKER)
-                        .copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
                     modifier = Modifier.padding(start = AuleSpacing.xs),
                 )
             }
@@ -432,17 +462,26 @@ private fun NetworkStep(
     onQuery: (String) -> Unit,
     onSelectNaolib: () -> Unit,
 ) {
+    val colors = MaterialTheme.colorScheme
     Column {
         StepHeader(
             title = stringResource(R.string.register_network_title),
             subtitle = stringResource(R.string.register_network_subtitle),
         )
-        AuleTextField(
-            label = stringResource(R.string.register_network_search),
+        OutlinedTextField(
             value = state.networkQuery,
             onValueChange = onQuery,
-            leading = AuleGlyph.SEARCH,
-            imeAction = ImeAction.Done,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.register_network_search)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.SEARCH.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.md))
         if (state.showsNaolib) {
@@ -454,13 +493,11 @@ private fun NetworkStep(
                 onClick = onSelectNaolib,
             )
         } else {
-            BasicText(
+            Text(
                 text = stringResource(R.string.register_network_empty),
-                style = auleTextStyle(AuleRole.BODY)
-                    .copy(
-                        color = AuleTheme.tokens.onSurfaceMuted.color,
-                        textAlign = TextAlign.Center,
-                    ),
+                style = MaterialTheme.typography.bodyMedium,
+                color = colors.onSurfaceVariant,
+                textAlign = TextAlign.Center,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = AuleSpacing.lg),
@@ -479,22 +516,41 @@ private fun IdentityStep(
             title = stringResource(R.string.register_identity_title),
             subtitle = stringResource(R.string.register_identity_subtitle),
         )
-        AuleTextField(
-            label = stringResource(R.string.register_full_name),
+        OutlinedTextField(
             value = state.draft.fullName,
             onValueChange = viewModel::setFullName,
-            leading = AuleGlyph.PERSON,
-            contentType = ContentType.PersonFullName,
-            capitalization = KeyboardCapitalization.Words,
-            imeAction = ImeAction.Next,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.PersonFullName },
+            label = { Text(stringResource(R.string.register_full_name)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.PERSON.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next,
+            ),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.md))
-        AuleTextField(
-            label = stringResource(R.string.register_employee_id),
+        OutlinedTextField(
             value = state.draft.employeeId,
             onValueChange = viewModel::setEmployeeId,
-            leading = AuleGlyph.TICKET,
-            imeAction = ImeAction.Done,
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(R.string.register_employee_id)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.TICKET.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
     }
 }
@@ -527,7 +583,7 @@ private fun AccountStep(
     state: RegistrationUiState,
     viewModel: RegistrationViewModel,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val context = LocalContext.current
     var termsFailed by remember { mutableStateOf(false) }
     val score = passwordScore(state.password)
@@ -536,78 +592,121 @@ private fun AccountStep(
             title = stringResource(R.string.register_account_title),
             subtitle = stringResource(R.string.register_account_subtitle),
         )
-        AuleTextField(
-            label = stringResource(R.string.auth_email),
+        OutlinedTextField(
             value = state.draft.email,
             onValueChange = viewModel::setEmail,
-            leading = AuleGlyph.MAIL,
-            keyboardType = KeyboardType.Email,
-            contentType = ContentType.EmailAddress,
-            imeAction = ImeAction.Next,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.EmailAddress },
+            label = { Text(stringResource(R.string.auth_email)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.MAIL.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Email,
+                imeAction = ImeAction.Next,
+            ),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.md))
-        AuleTextField(
-            label = stringResource(R.string.auth_password),
+        OutlinedTextField(
             value = state.password,
             onValueChange = viewModel::setPassword,
-            leading = AuleGlyph.LOCK,
-            keyboardType = KeyboardType.Password,
-            contentType = ContentType.Password,
-            imeAction = ImeAction.Next,
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.Password },
+            label = { Text(stringResource(R.string.auth_password)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.LOCK.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            trailingIcon = {
+                IconButton(onClick = viewModel::toggleShowPassword) {
+                    Icon(
+                        imageVector = if (state.showPassword) {
+                            AuleGlyph.EYE_OFF.asImageVector()
+                        } else {
+                            AuleGlyph.EYE.asImageVector()
+                        },
+                        contentDescription = stringResource(
+                            if (state.showPassword) {
+                                R.string.auth_hide_password
+                            } else {
+                                R.string.auth_show_password
+                            },
+                        ),
+                        tint = colors.onSurfaceVariant,
+                    )
+                }
+            },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Next,
+            ),
             visualTransformation = if (state.showPassword) {
                 VisualTransformation.None
             } else {
                 PasswordVisualTransformation()
             },
-            trailing = {
-                AuleIconButton(
-                    glyph = if (state.showPassword) AuleGlyph.EYE_OFF else AuleGlyph.EYE,
-                    contentDescription = stringResource(
-                        if (state.showPassword) R.string.auth_hide_password else R.string.auth_show_password,
-                    ),
-                    onClick = viewModel::toggleShowPassword,
-                    tint = tokens.onSurfaceMuted.color,
-                )
-            },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.sm))
         Row(horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
             repeat(3) { index ->
                 val filled = score >= index + 1
                 val color = when {
-                    !filled -> tokens.hairline.color
-                    score == 1 -> tokens.alert.color
-                    score == 2 -> tokens.delay.color
-                    else -> tokens.accent.color
+                    !filled -> colors.outlineVariant
+                    score == 1 -> colors.error
+                    score == 2 -> colors.tertiary
+                    else -> colors.primary
                 }
                 Box(
                     modifier = Modifier
                         .weight(1f)
                         .height(PROGRESS_HEIGHT)
-                        .clip(RoundedCornerShape(AuleRadius.sm))
+                        .clip(MaterialTheme.shapes.extraSmall)
                         .background(color),
                 )
             }
         }
         Spacer(modifier = Modifier.height(AuleSpacing.md))
-        AuleTextField(
-            label = stringResource(R.string.register_confirm_password),
+        OutlinedTextField(
             value = state.confirmPassword,
             onValueChange = viewModel::setConfirmPassword,
-            leading = AuleGlyph.LOCK,
-            error = if (state.passwordMismatch) {
-                stringResource(R.string.register_password_mismatch)
+            modifier = Modifier
+                .fillMaxWidth()
+                .semantics { contentType = ContentType.Password },
+            label = { Text(stringResource(R.string.register_confirm_password)) },
+            leadingIcon = {
+                Icon(
+                    imageVector = AuleGlyph.LOCK.asImageVector(),
+                    contentDescription = null,
+                )
+            },
+            isError = state.passwordMismatch,
+            supportingText = if (state.passwordMismatch) {
+                { Text(stringResource(R.string.register_password_mismatch)) }
             } else {
                 null
             },
-            keyboardType = KeyboardType.Password,
-            contentType = ContentType.Password,
-            imeAction = ImeAction.Done,
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Password,
+                imeAction = ImeAction.Done,
+            ),
             visualTransformation = if (state.showPassword) {
                 VisualTransformation.None
             } else {
                 PasswordVisualTransformation()
             },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
         TermsRow(
@@ -644,7 +743,7 @@ private fun TermsRow(
     onToggle: () -> Unit,
     onOpenTerms: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val view = LocalView.current
     val accept = stringResource(R.string.register_terms_accept)
     val link = stringResource(R.string.register_terms_link)
@@ -653,50 +752,27 @@ private fun TermsRow(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.Top,
     ) {
-        Box(
-            modifier = Modifier
-                .size(AuleTouch.minimum)
-                .clip(RoundedCornerShape(AuleRadius.sm))
-                .clickable {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                    onToggle()
-                }
-                .semantics {
-                    role = Role.Checkbox
-                    contentDescription = "$accept $link"
-                },
-            contentAlignment = Alignment.Center,
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(AuleControl.check)
-                    .clip(RoundedCornerShape(AuleRadius.sm))
-                    .background(if (accepted) tokens.accent.color else Color.Transparent)
-                    .border(
-                        AuleStroke.hairline,
-                        if (accepted) tokens.accent.color else tokens.onSurfaceMuted.color,
-                        RoundedCornerShape(AuleRadius.sm),
-                    ),
-                contentAlignment = Alignment.Center,
-            ) {
-                if (accepted) {
-                    AuleIcon(
-                        glyph = AuleGlyph.CHECK,
-                        tint = tokens.onAccent.color,
-                        size = AuleSpacing.md,
-                    )
-                }
-            }
-        }
+        Checkbox(
+            checked = accepted,
+            onCheckedChange = {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onToggle()
+            },
+            modifier = Modifier.semantics {
+                contentDescription = "$accept $link"
+            },
+        )
         Column(modifier = Modifier.padding(top = AuleSpacing.sm)) {
-            BasicText(
+            Text(
                 text = accept,
-                style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
             )
-            BasicText(
+            Text(
                 text = link,
-                style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                    .copy(color = tokens.accentOnSurface.color),
+                style = MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.SemiBold,
+                color = colors.primary,
                 modifier = Modifier
                     .clickable(onClick = onOpenTerms)
                     .semantics { contentDescription = openTerms },
@@ -711,7 +787,7 @@ private fun ConfirmationStep(
     onResend: () -> Unit,
     onFinish: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val recapKind = stringResource(
         if (state.draft.profiles.size > 1) {
             R.string.register_recap_profiles
@@ -754,72 +830,79 @@ private fun ConfirmationStep(
         add(recapEmployee to state.draft.employeeId)
     }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(
-            modifier = Modifier
-                .size(AuleControl.avatar)
-                .clip(CircleShape)
-                .background(tokens.accent.color.copy(alpha = AuleAlpha.TINT))
-                .border(
-                    AuleStroke.hairline,
-                    tokens.accent.color.copy(alpha = AuleAlpha.OUTLINE),
-                    CircleShape,
-                ),
-            contentAlignment = Alignment.Center,
-        ) {
-            AuleIcon(glyph = AuleGlyph.CHECK, tint = tokens.accentOnSurface.color)
-        }
+        WelcomeIcon(AuleGlyph.CHECK)
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
-        BasicText(
+        Text(
             text = stringResource(R.string.register_confirm_title),
-            style = auleTextStyle(AuleRole.TITLE, FontWeight.Bold)
-                .copy(color = tokens.onSurface.color, textAlign = TextAlign.Center),
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = colors.onSurface,
+            textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
         Spacer(modifier = Modifier.height(AuleSpacing.sm))
-        BasicText(
+        Text(
             text = stringResource(R.string.register_confirm_body),
-            style = auleTextStyle(AuleRole.BODY)
-                .copy(color = tokens.onSurfaceMuted.color, textAlign = TextAlign.Center),
+            style = MaterialTheme.typography.bodyMedium,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
-        AuleCard(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = AuleElevation.RESTING,
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(horizontal = AuleSpacing.lg, vertical = AuleSpacing.sm),
+            shape = MaterialTheme.shapes.large,
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
+            ),
         ) {
-            recap.forEach { (label, value) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = AuleSpacing.sm),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    BasicText(
-                        text = label,
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
-                        modifier = Modifier.weight(1f),
-                    )
-                    BasicText(
-                        text = value,
-                        style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                            .copy(color = tokens.onSurface.color, textAlign = TextAlign.End),
-                        modifier = Modifier.weight(1f),
-                    )
+            Column(
+                modifier = Modifier.padding(
+                    horizontal = AuleSpacing.lg,
+                    vertical = AuleSpacing.sm,
+                ),
+            ) {
+                recap.forEach { (label, value) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = AuleSpacing.sm),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = label,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = value,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = colors.onSurface,
+                            textAlign = TextAlign.End,
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
                 }
             }
         }
         Spacer(modifier = Modifier.height(AuleSpacing.md))
-        AuleButton(
-            title = stringResource(
-                if (state.isResending) R.string.register_resending else R.string.register_resend,
-            ),
+        TextButton(
             onClick = onResend,
+            modifier = Modifier.fillMaxWidth(),
             enabled = !state.isResending,
-            loading = state.isResending,
-            prominence = AuleButtonProminence.PLAIN,
-        )
+        ) {
+            if (state.isResending) {
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    color = colors.primary,
+                    strokeWidth = AuleStroke.glyph,
+                )
+            } else {
+                Text(text = stringResource(R.string.register_resend))
+            }
+        }
         state.notice?.let { notice ->
             Spacer(modifier = Modifier.height(AuleSpacing.sm))
             AuleBanner(
@@ -833,7 +916,15 @@ private fun ConfirmationStep(
             )
         }
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
-        AuleButton(title = stringResource(R.string.register_sign_in), onClick = onFinish)
+        Button(
+            onClick = onFinish,
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleControl.height),
+            colors = auleAccentButtonColors(),
+        ) {
+            Text(text = stringResource(R.string.register_sign_in))
+        }
     }
 }
 
@@ -844,57 +935,91 @@ private fun ChoiceCard(
     description: String,
     selected: Boolean,
     onClick: () -> Unit,
+    multiSelect: Boolean = false,
 ) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.md)
+    val colors = MaterialTheme.colorScheme
     val view = LocalView.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(
-                if (selected) tokens.accent.color.copy(alpha = AuleAlpha.TINT) else tokens.surfaceSolid.color,
-            )
-            .border(
-                if (selected) AuleStroke.emphasis else AuleStroke.hairline,
-                if (selected) tokens.accent.color else tokens.hairline.color,
-                shape,
-            )
-            .clickable {
+    val selectModifier = if (multiSelect) {
+        Modifier.toggleable(
+            value = selected,
+            role = Role.Checkbox,
+            onValueChange = {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
-            }
-            .padding(AuleSpacing.md)
-            .semantics { role = Role.Button },
-        verticalAlignment = Alignment.CenterVertically,
+            },
+        )
+    } else {
+        Modifier.selectable(
+            selected = selected,
+            role = Role.RadioButton,
+            onClick = {
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                onClick()
+            },
+        )
+    }
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(selectModifier),
+        shape = MaterialTheme.shapes.medium,
+        colors = if (selected) {
+            CardDefaults.cardColors(containerColor = colors.primaryContainer)
+        } else {
+            // `surface` posait une carte blanche dans la carte blanche du
+            // formulaire : le choix non retenu disparaissait.
+            CardDefaults.cardColors(containerColor = colors.surfaceContainer)
+        },
     ) {
-        Box(
-            modifier = Modifier
-                .size(AuleControl.avatar)
-                .clip(RoundedCornerShape(AuleRadius.sm))
-                .background(tokens.accent.color.copy(alpha = AuleAlpha.TINT)),
-            contentAlignment = Alignment.Center,
+        Row(
+            modifier = Modifier.padding(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            AuleIcon(glyph = glyph, tint = tokens.accentOnSurface.color, filled = selected)
-        }
-        Column(
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = AuleSpacing.md),
-        ) {
-            BasicText(
-                text = label,
-                style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                    .copy(color = tokens.onSurface.color),
-            )
-            BasicText(
-                text = description,
-                style = auleTextStyle(AuleRole.KICKER)
-                    .copy(color = tokens.onSurfaceMuted.color),
-            )
-        }
-        if (selected) {
-            AuleIcon(glyph = AuleGlyph.CHECK, tint = tokens.accentOnSurface.color)
+            Surface(
+                modifier = Modifier.size(AuleControl.avatar),
+                shape = CircleShape,
+                color = colors.primaryContainer,
+                contentColor = colors.onPrimaryContainer,
+            ) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = glyph.asImageVector(filled = selected),
+                        contentDescription = null,
+                    )
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = AuleSpacing.md),
+            ) {
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
+                )
+                Text(
+                    text = description,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+            if (multiSelect) {
+                Checkbox(
+                    checked = selected,
+                    onCheckedChange = null,
+                )
+            } else if (selected) {
+                Icon(
+                    imageVector = AuleGlyph.CHECK.asImageVector(),
+                    contentDescription = null,
+                    tint = colors.primary,
+                )
+            }
         }
     }
 }

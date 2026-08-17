@@ -5,8 +5,17 @@
       système : sans cela, la fenêtre peint un fond étranger avant que Compose ne
       dessine, et le démarrage clignote.
 
-      Parent framework plutôt qu'AppCompat : l'application est en Compose pur et
-      n'a aucune raison de tirer AppCompat pour un thème.
+      Exception assumée à « tout est Material 3 » : ce thème n'hérite pas de
+      Theme.Material3, qui vit dans la bibliothèque Material Components pour les
+      Vues. L'application est en Compose pur — le design system Material 3 y est
+      fourni par androidx.compose.material3 et posé par AuleTheme. Tirer une
+      dépendance Vues entière pour ce seul héritage ajouterait des milliers de
+      styles inutilisés au paquet sans rien changer à l'écran, puisque ce thème
+      ne sert qu'à peindre la fenêtre avant la première image de Compose.
+
+      Ce que ce thème doit garantir, il le garantit : fond aligné sur
+      MaterialTheme.colorScheme.surface, barres système transparentes pour le
+      bord-à-bord, et bascule clair/sombre par qualificateur de ressource.
     -->
     <style name="Theme.Aule" parent="@android:style/Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/aule_surface</item>

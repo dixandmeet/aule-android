@@ -1,47 +1,48 @@
 package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SmallFloatingActionButton
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import io.aule.android.core.designsystem.AuleCappedFontScale
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleShadow
-import io.aule.android.core.designsystem.auleTextStyle
+import io.aule.android.core.designsystem.reduceMotionEnabled
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.RealtimeDot
-import io.aule.android.core.designsystem.component.drawAuleGlyph
-import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleControl
-import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.token.AuleMotion
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.location.LocationAuthorization
 import io.aule.android.core.map.MAP_ATTRIBUTION
 import io.aule.android.core.map.camera.CameraMode
@@ -107,25 +108,16 @@ internal fun MapHud(
                     GuidanceBanner(state = navigation)
                 }
             } else {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-                ) {
-                    // Le menu s'efface pendant la recherche : la barre a besoin
-                    // de toute la largeur, et sa flèche sert alors de sortie.
-                    if (onOpenMenu != null && !state.search.isActive) {
-                        MenuButton(onClick = onOpenMenu)
-                    }
-                    MapSearchBar(
-                        search = state.search,
-                        onQueryChange = onSearchQuery,
-                        onActivate = onSearchActivate,
-                        onCancel = onSearchCancel,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                if (!state.search.showsResults) {
+                MapSearchBar(
+                    search = state.search,
+                    onQueryChange = onSearchQuery,
+                    onActivate = onSearchActivate,
+                    onCancel = onSearchCancel,
+                    onSelectStop = onSelectSearchStop,
+                    onSelectPlace = onSelectSearchPlace,
+                    onOpenMenu = onOpenMenu,
+                )
+                if (!state.search.isActive) {
                     if (showsDiagnostics) {
                         DiagnosticsPill(diagnosticsLabel)
                     }
@@ -149,18 +141,7 @@ internal fun MapHud(
             }
         }
 
-        if (!navigating && state.search.showsResults) {
-            SearchResults(
-                search = state.search,
-                onSelectStop = onSelectSearchStop,
-                onSelectPlace = onSelectSearchPlace,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxWidth()
-                    .padding(horizontal = AuleSpacing.lg)
-                    .padding(top = AuleSpacing.sm, bottom = AuleSpacing.md),
-            )
-        } else {
+        if (navigating || !state.search.isActive) {
             Box(modifier = Modifier.weight(1f))
 
             val navigation = state.navigation
@@ -175,46 +156,12 @@ internal fun MapHud(
     }
 }
 
-/**
- * L'entrée du compte, à gauche de la recherche.
- *
- * Même hauteur et même ombre que la barre : les deux forment une seule ligne
- * de chrome, pas un bouton posé sur elle.
- */
-@Composable
-private fun MenuButton(onClick: () -> Unit) {
-    val tokens = AuleTheme.tokens
-    val view = LocalView.current
-    val label = stringResource(R.string.menu_open)
-    Box(
-        modifier = Modifier
-            .size(AuleControl.height)
-            .auleShadow(AuleElevation.FLOATING, CircleShape)
-            .clip(CircleShape)
-            .background(tokens.surfaceSolid.color)
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                onClick()
-            }
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            }
-            .drawBehind { drawAuleGlyph(AuleGlyph.MENU, tokens.onSurface.color) },
-    )
-}
-
 @Composable
 private fun DiagnosticsPill(label: String) {
-    val tokens = AuleTheme.tokens
-    BasicText(
+    Text(
         text = label,
-        style = auleTextStyle(AuleRole.KICKER, androidx.compose.ui.text.font.FontWeight.Medium)
-            .copy(color = tokens.onSurfaceMuted.color),
-        modifier = Modifier
-            .clip(RoundedCornerShape(AuleRadius.pill))
-            .background(tokens.surface.color)
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.xs),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
 }
 
@@ -224,33 +171,19 @@ private fun FleetStatusPill(
     isLive: Boolean,
     onClick: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
     val hint = stringResource(R.string.fleet_nearby_hint)
-    Row(
-        modifier = Modifier
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(RoundedCornerShape(AuleRadius.pill))
-            .background(tokens.surface.color)
-            .clickable(onClickLabel = hint, onClick = onClick)
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm)
-            .semantics {
-                role = Role.Button
-                contentDescription = "$label. $hint"
-            },
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        RealtimeDot(
-            isLive = isLive,
-            liveDescription = label,
-            scheduledDescription = label,
-        )
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.KICKER, androidx.compose.ui.text.font.FontWeight.Medium)
-                .copy(color = tokens.onSurface.color),
-        )
-    }
+    AssistChip(
+        onClick = onClick,
+        label = { Text(label) },
+        leadingIcon = {
+            RealtimeDot(
+                isLive = isLive,
+                liveDescription = label,
+                scheduledDescription = label,
+            )
+        },
+        modifier = Modifier.semantics { contentDescription = "$label. $hint" },
+    )
 }
 
 /**
@@ -316,84 +249,161 @@ internal fun RecenterButton(
     modifier: Modifier = Modifier,
 ) {
     val view = LocalView.current
-    val tokens = AuleTheme.tokens
     val active = mode.followsSomething
     val label = stringResource(
         if (active) R.string.map_orient else R.string.map_recenter,
     )
-    val fill = if (active) tokens.accent.color else tokens.surface.color
-    val glyph = if (active) tokens.onAccent.color else tokens.onSurface.color
+    val colors = MaterialTheme.colorScheme
+    val tokens = AuleTheme.tokens
+    val fill = if (active) tokens.accent.color else colors.surfaceContainerHigh
+    val glyph = if (active) tokens.onAccent.color else colors.onSurface
 
-    Box(
-        modifier = modifier
-            .size(AuleTouch.minimum)
-            .auleShadow(AuleElevation.FLOATING, CircleShape)
-            .clip(CircleShape)
-            .background(fill)
-            .clickable {
-                view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-                onClick()
-            }
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            }
-            .drawBehind { drawAuleGlyph(AuleGlyph.HEADING, glyph, filled = active) },
-        contentAlignment = Alignment.Center,
-    ) {}
+    SmallFloatingActionButton(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            onClick()
+        },
+        modifier = modifier,
+        containerColor = fill,
+        contentColor = glyph,
+    ) {
+        Icon(
+            imageVector = AuleGlyph.HEADING.asImageVector(filled = active),
+            contentDescription = label,
+        )
+    }
 }
 
 /**
- * Les rails et le cadrage, posés **au-dessus** des volets.
+ * L'action principale de la carte : ouvrir le calcul d'itinéraire.
  *
- * À gauche, ce qui commence quelque chose ; à droite, ce qu'on demande à
- * la carte ; au centre, le retour au suivi. Les rails se réduisent quand
- * un volet monte — ils ne disparaissent pas.
+ * Un FAB, pas une destination de barre : le guide réserve la barre aux
+ * écrans, et le FAB à **l'action** qu'on veut voir en premier. Taille
+ * ordinaire, couleurs du composant (`primaryContainer`), icône 24 dp,
+ * description pour le lecteur d'écran. Rien d'autre — forme et ombre
+ * viennent de Material.
+ */
+@Composable
+internal fun RouteActionButton(
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val view = LocalView.current
+    val label = stringResource(R.string.rail_route_a11y)
+    FloatingActionButton(
+        onClick = {
+            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            onClick()
+        },
+        modifier = modifier,
+        containerColor = AuleTheme.tokens.accent.color,
+        contentColor = AuleTheme.tokens.onAccent.color,
+    ) {
+        Icon(
+            imageVector = AuleGlyph.ROUTE.asImageVector(),
+            contentDescription = label,
+            modifier = Modifier.size(AuleControl.icon),
+        )
+    }
+}
+
+/**
+ * La barre de navigation et les FAB, collés au bas de la fenêtre.
+ *
+ * Le FAB d'itinéraire est l'action principale : il reste **au-dessus**
+ * de la barre, ancré à droite, à 16 dp du bord et de la barre — c'est
+ * le placement Material 3, et il ne doit pas recouvrir la barre. Il ne
+ * partage pas la ligne de l'attribution : un `Row` laissait le copyright
+ * chasser les boutons hors de l'écran. Le cadrage, action secondaire,
+ * s'empile au-dessus en small FAB.
  */
 @Composable
 internal fun MapActionChrome(
     cameraMode: CameraMode,
-    compact: Boolean,
-    leftItems: List<MapActionItem>,
-    rightItems: List<MapActionItem>,
+    items: List<MapActionItem>,
     onRecenter: () -> Unit,
     showAttribution: Boolean,
+    onRoute: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.Bottom,
-        horizontalArrangement = Arrangement.SpaceBetween,
+    val barVisible = items.isNotEmpty()
+    Column(modifier = modifier.fillMaxWidth()) {
+        MapActionOverlay(
+            cameraMode = cameraMode,
+            onRecenter = onRecenter,
+            onRoute = onRoute,
+            showAttribution = showAttribution,
+            barVisible = barVisible,
+        )
+        MapActionBar(items = items)
+    }
+}
+
+/**
+ * Attribution à gauche, FAB à droite : deux calques, pas une ligne.
+ * Sinon le copyright pousse les boutons hors de l'écran.
+ */
+@Composable
+private fun MapActionOverlay(
+    cameraMode: CameraMode,
+    onRecenter: () -> Unit,
+    onRoute: (() -> Unit)?,
+    showAttribution: Boolean,
+    barVisible: Boolean,
+) {
+    val reduceMotion = reduceMotionEnabled()
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    if (barVisible) {
+                        WindowInsetsSides.Horizontal
+                    } else {
+                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                    },
+                ),
+            )
+            .padding(horizontal = AuleSpacing.lg)
+            .padding(bottom = AuleSpacing.lg),
     ) {
-        MapActionRail(items = leftItems, compact = compact)
-        Column(
+        AnimatedVisibility(
+            visible = showAttribution,
             modifier = Modifier
-                .weight(1f)
-                .padding(horizontal = AuleSpacing.sm),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                .align(Alignment.BottomStart)
+                .fillMaxWidth()
+                .padding(end = AuleControl.height + AuleSpacing.xl),
+            enter = if (reduceMotion) {
+                EnterTransition.None
+            } else {
+                fadeIn(tween(AuleMotion.POP_MS))
+            },
+            exit = if (reduceMotion) {
+                ExitTransition.None
+            } else {
+                fadeOut(tween(AuleMotion.POP_MS))
+            },
         ) {
-            RecenterButton(mode = cameraMode, onClick = onRecenter)
-            if (showAttribution) {
-                val attributionA11y = stringResource(R.string.map_attribution_a11y)
-                AuleCappedFontScale {
-                    BasicText(
-                        text = MAP_ATTRIBUTION,
-                        style = auleTextStyle(AuleRole.KICKER).copy(
-                            color = AuleTheme.tokens.onSurfaceMuted.color,
-                        ),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(AuleRadius.pill))
-                            .background(
-                                AuleTheme.tokens.surface.color.copy(alpha = AuleAlpha.VEIL),
-                            )
-                            .padding(horizontal = AuleSpacing.sm, vertical = AuleSpacing.xs)
-                            .semantics { contentDescription = attributionA11y },
-                    )
-                }
+            val attributionA11y = stringResource(R.string.map_attribution_a11y)
+            AuleCappedFontScale {
+                Text(
+                    text = MAP_ATTRIBUTION,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.semantics { contentDescription = attributionA11y },
+                )
             }
         }
-        MapActionRail(items = rightItems, compact = compact)
+        Column(
+            modifier = Modifier.align(Alignment.BottomEnd),
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
+            horizontalAlignment = Alignment.End,
+        ) {
+            RecenterButton(mode = cameraMode, onClick = onRecenter)
+            if (onRoute != null) {
+                RouteActionButton(onClick = onRoute)
+            }
+        }
     }
 }
 

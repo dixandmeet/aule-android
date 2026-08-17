@@ -7,21 +7,20 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.Button
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.RealtimeDot
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.component.realtimeInk
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.model.TransportVehicle
 
@@ -38,13 +37,13 @@ internal fun VehicleDetailSheet(
     onFollow: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     Column(
         modifier = modifier
             .fillMaxWidth()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.lg)
-            .padding(bottom = AuleSpacing.xl),
+            .padding(horizontal = AuleSpacing.xl)
+            .padding(bottom = AuleSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
     ) {
         Row(
@@ -57,11 +56,10 @@ internal fun VehicleDetailSheet(
                 contentDescription = stringResource(R.string.line_badge, vehicle.lineName),
             )
             Column(modifier = Modifier.weight(1f)) {
-                BasicText(
+                Text(
                     text = vehicle.destination
                         ?: stringResource(R.string.vehicle_unknown_destination),
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
+                    style = MaterialTheme.typography.titleLarge,
                     maxLines = 2,
                     modifier = Modifier.semantics { heading() },
                 )
@@ -74,12 +72,12 @@ internal fun VehicleDetailSheet(
                         liveDescription = stringResource(R.string.vehicle_live),
                         scheduledDescription = stringResource(R.string.vehicle_estimated),
                     )
-                    BasicText(
+                    Text(
                         text = stringResource(
                             if (vehicle.isLive) R.string.vehicle_live else R.string.vehicle_estimated,
                         ),
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = colors.onSurfaceVariant,
                     )
                 }
             }
@@ -91,21 +89,20 @@ internal fun VehicleDetailSheet(
                 verticalAlignment = Alignment.Top,
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    BasicText(
+                    Text(
                         text = stringResource(R.string.vehicle_next_stop),
-                        style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                            .copy(color = tokens.onSurfaceMuted.color),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = colors.onSurfaceVariant,
                     )
-                    BasicText(
+                    Text(
                         text = vehicle.nextStop ?: stringResource(R.string.value_unknown),
-                        style = auleTextStyle(AuleRole.TITLE, FontWeight.Medium)
-                            .copy(color = tokens.onSurface.color),
+                        style = MaterialTheme.typography.titleMedium,
                         maxLines = 1,
                     )
                 }
                 vehicle.etaSeconds?.let { eta ->
                     Column(horizontalAlignment = Alignment.End) {
-                        BasicText(
+                        Text(
                             text = stringResource(
                                 if (eta < 60) {
                                     R.string.vehicle_eta_arrival
@@ -113,38 +110,39 @@ internal fun VehicleDetailSheet(
                                     R.string.vehicle_eta_in
                                 },
                             ),
-                            style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                                .copy(color = tokens.onSurfaceMuted.color),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = colors.onSurfaceVariant,
                         )
-                        BasicText(
+                        Text(
                             text = if (eta < 60) {
                                 stringResource(R.string.vehicle_eta_arriving)
                             } else {
                                 stringResource(R.string.vehicle_eta_minutes, (eta / 60).toInt())
                             },
-                            style = auleTextStyle(AuleRole.DATA, FontWeight.SemiBold).copy(
-                                color = if (vehicle.isLive) {
-                                    tokens.realtime.color
-                                } else {
-                                    tokens.onSurface.color
-                                },
-                            ),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = if (vehicle.isLive) {
+                                realtimeInk()
+                            } else {
+                                colors.onSurface
+                            },
                         )
                     }
                 }
             }
         }
 
-        AuleButton(
-            title = stringResource(
-                if (isFollowing) R.string.vehicle_unfollow else R.string.vehicle_follow,
-            ),
-            onClick = onFollow,
-            prominence = if (isFollowing) {
-                AuleButtonProminence.TINTED
-            } else {
-                AuleButtonProminence.FILLED
-            },
-        )
+        if (isFollowing) {
+            FilledTonalButton(onClick = onFollow, modifier = Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.vehicle_unfollow))
+            }
+        } else {
+            Button(
+                onClick = onFollow,
+                modifier = Modifier.fillMaxWidth(),
+                colors = auleAccentButtonColors(),
+            ) {
+                Text(stringResource(R.string.vehicle_follow))
+            }
+        }
     }
 }

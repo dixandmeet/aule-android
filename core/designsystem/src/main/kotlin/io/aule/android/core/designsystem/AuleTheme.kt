@@ -1,16 +1,16 @@
 package io.aule.android.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.LineHeightStyle
-import androidx.compose.ui.unit.sp
 import io.aule.android.core.model.AppearanceMode
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.token.AuleRadius
 import io.aule.android.core.designsystem.token.AuleTokens
 
 /**
@@ -40,20 +40,36 @@ fun resolvedNight(): Boolean =
 /**
  * Le thème Aule.
  *
- * Il ne s'appuie pas sur Material 3 (ADR-010). Material apporterait une palette,
- * des formes et des ondulations qui donneraient au produit l'air d'une
- * démonstration ; l'identité Aule passe avant.
+ * Material 3 est le design system de l'application ; ce thème est le seul
+ * endroit où l'identité d'Aule y entre. Il ne fait que trois choses, et c'est
+ * volontaire : poser les rôles de couleur, poser l'échelle typographique, poser
+ * les formes. Tout le reste de l'application se sert de `MaterialTheme`.
+ *
+ * Les couleurs dynamiques restent désactivées : l'identité du produit ne dépend
+ * pas du fond d'écran du téléphone.
  */
 @Composable
 fun AuleTheme(
     night: Boolean = resolvedNight(),
     content: @Composable () -> Unit,
 ) {
-    CompositionLocalProvider(
-        LocalAuleTokens provides AuleTokens.of(night),
-        LocalAuleNight provides night,
-        content = content,
-    )
+    val colorScheme = remember(night) {
+        if (night) auleDarkColorScheme() else auleLightColorScheme()
+    }
+    val typography = remember { auleTypography() }
+    val shapes = remember { auleShapes() }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = typography,
+        shapes = shapes,
+    ) {
+        CompositionLocalProvider(
+            LocalAuleTokens provides AuleTokens.of(night),
+            LocalAuleNight provides night,
+            content = content,
+        )
+    }
 }
 
 object AuleTheme {
@@ -65,24 +81,18 @@ object AuleTheme {
 }
 
 /**
- * Le style d'un rôle typographique.
+ * Les cinq formes de Material 3, servies par l'échelle de rayons d'Aule.
  *
- * L'interligne est posé en absolu et **découpé au centre** : sans
- * [LineHeightStyle], Compose ajoute tout l'espace supplémentaire sous la
- * dernière ligne, ce qui décentre un texte d'une ligne dans sa boîte — visible
- * dès qu'on aligne un chiffre à côté d'une icône.
- *
- * Les chiffres à chasse fixe (`tnum`) évitent qu'un compte à rebours fasse
- * danser la ligne à chaque seconde.
+ * Material attribue déjà une forme à chaque composant : `extraSmall` aux menus,
+ * `small` aux chips, `medium` aux cartes, `large` aux volets, `extraLarge` aux
+ * dialogues. Renseigner l'échelle ici suffit donc à arrondir toute
+ * l'application — et dispense les écrans d'écrire leur propre
+ * `RoundedCornerShape`.
  */
-fun auleTextStyle(role: AuleRole, weight: FontWeight = FontWeight.Normal): TextStyle = TextStyle(
-    fontSize = role.sizeSp.sp,
-    lineHeight = role.lineHeightSp.sp,
-    letterSpacing = role.trackingSp.sp,
-    fontWeight = weight,
-    fontFeatureSettings = if (role.usesTabularFigures) "tnum" else null,
-    lineHeightStyle = LineHeightStyle(
-        alignment = LineHeightStyle.Alignment.Center,
-        trim = LineHeightStyle.Trim.None,
-    ),
+private fun auleShapes() = Shapes(
+    extraSmall = RoundedCornerShape(AuleRadius.sm),
+    small = RoundedCornerShape(AuleRadius.md),
+    medium = RoundedCornerShape(AuleRadius.lg),
+    large = RoundedCornerShape(AuleRadius.xl),
+    extraLarge = RoundedCornerShape(AuleRadius.xxl),
 )

@@ -2,59 +2,54 @@ package io.aule.android.feature.auth
 
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
-import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
-import io.aule.android.core.designsystem.component.AuleCard
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIcon
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleStroke
-import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.model.DriverProfile
 import kotlinx.coroutines.CancellationException
 
@@ -67,6 +62,7 @@ import kotlinx.coroutines.CancellationException
  * confirmation qui suit vient de la même décision
  * (`SAE/docs/carte-app/REPRISE.md`, 09/08/2026).
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AccountMenuScreen(
     viewModel: AuthViewModel,
@@ -89,37 +85,39 @@ fun AccountMenuScreen(
     }
 
     AuleTheme {
-        val tokens = AuleTheme.tokens
+        val colors = MaterialTheme.colorScheme
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .background(tokens.surfaceSolid.color)
+                .background(colors.surface)
                 .safeDrawingPadding()
                 .semantics {
                     this.paneTitle = title
                     isTraversalGroup = true
                 },
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AuleSpacing.sm, vertical = AuleSpacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AuleIconButton(
-                    glyph = AuleGlyph.BACK,
-                    contentDescription = stringResource(R.string.menu_close),
-                    onClick = onClose,
-                )
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier
-                        .padding(start = AuleSpacing.xs)
-                        .semantics { heading() },
-                )
-            }
+            TopAppBar(
+                title = {
+                    Text(
+                        text = title,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = AuleGlyph.BACK.asImageVector(),
+                            contentDescription = stringResource(R.string.menu_close),
+                        )
+                    }
+                },
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = colors.surface,
+                    titleContentColor = colors.onSurface,
+                    navigationIconContentColor = colors.onSurface,
+                ),
+            )
 
             Column(
                 modifier = Modifier
@@ -134,17 +132,34 @@ fun AccountMenuScreen(
                     onOpen = onOpenProfile,
                 )
 
-                Spacer(modifier = Modifier.height(AuleSpacing.xl))
-                BasicText(
+                Text(
                     text = stringResource(R.string.menu_group_account).uppercase(),
-                    style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                    modifier = Modifier.padding(start = AuleSpacing.xs, bottom = AuleSpacing.sm),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(
+                        start = AuleSpacing.xs,
+                        top = AuleSpacing.xl,
+                        bottom = AuleSpacing.sm,
+                    ),
                 )
-                MenuRow(
-                    glyph = AuleGlyph.PERSON,
-                    label = stringResource(R.string.menu_my_profile),
-                    onClick = onOpenProfile,
+                ListItem(
+                    headlineContent = { Text(stringResource(R.string.menu_my_profile)) },
+                    leadingContent = {
+                        Icon(
+                            imageVector = AuleGlyph.PERSON.asImageVector(),
+                            contentDescription = null,
+                        )
+                    },
+                    trailingContent = {
+                        Icon(
+                            imageVector = AuleGlyph.CHEVRON.asImageVector(),
+                            contentDescription = null,
+                            tint = colors.onSurfaceVariant,
+                        )
+                    },
+                    colors = ListItemDefaults.colors(containerColor = colors.surface),
+                    modifier = Modifier.clickable(onClick = onOpenProfile),
                 )
 
                 // Le vide, ici, est la mesure de sécurité : la fin de session
@@ -155,14 +170,13 @@ fun AccountMenuScreen(
                     enabled = !state.isSubmitting,
                     onClick = { confirming = true },
                 )
-                Spacer(modifier = Modifier.height(AuleSpacing.lg))
-                BasicText(
+                Text(
                     text = stringResource(R.string.menu_version, versionLabel),
-                    style = auleTextStyle(AuleRole.KICKER)
-                        .copy(color = tokens.onSurfaceMuted.color),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = AuleSpacing.lg),
+                        .padding(top = AuleSpacing.lg, bottom = AuleSpacing.lg),
                 )
             }
         }
@@ -196,7 +210,7 @@ private fun IdentityCard(
     avatarBytes: ByteArray?,
     onOpen: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val fallback = stringResource(R.string.menu_local_session)
     val name = profile?.displayName()
         ?: email?.substringBefore('@')?.takeIf { it.isNotBlank() }
@@ -208,99 +222,53 @@ private fun IdentityCard(
         depotLabel?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
     }
     val openLabel = stringResource(R.string.menu_open_profile)
-    AuleCard(
+    Card(
+        onClick = onOpen,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = AuleSpacing.sm)
-            .clickable(onClick = onOpen)
-            .semantics {
-                role = Role.Button
-                contentDescription = "$name. $openLabel"
-            },
-        elevation = AuleElevation.RESTING,
-        shape = RoundedCornerShape(AuleRadius.lg),
-        contentPadding = PaddingValues(AuleSpacing.lg),
+            .semantics { contentDescription = "$name. $openLabel" },
+        shape = MaterialTheme.shapes.medium,
+        // Une carte de la couleur exacte de la page n'est pas une carte : de
+        // nuit, l'ombre ne se voit pas et il ne restait rien pour la détacher
+        // du fond. C'est le cran de conteneur qui fait ce travail.
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
+        ),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            AvatarPortrait(name = name, bytes = avatarBytes)
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .padding(start = AuleSpacing.md),
-                verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-            ) {
-                BasicText(
-                    text = name,
-                    style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    maxLines = 2,
+        ListItem(
+            headlineContent = { Text(name, maxLines = 2) },
+            supportingContent = email?.let { { Text(it, maxLines = 1) } },
+            leadingContent = { AvatarPortrait(name = name, bytes = avatarBytes) },
+            trailingContent = {
+                Icon(
+                    imageVector = AuleGlyph.CHEVRON.asImageVector(),
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant,
                 )
-                if (email != null) {
-                    BasicText(
-                        text = email,
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
-                        maxLines = 1,
-                    )
-                }
-            }
-            AuleIcon(
-                glyph = AuleGlyph.CHEVRON,
-                tint = tokens.onSurfaceMuted.color,
-            )
-        }
+            },
+            // Transparent : la couleur vient de la carte qui le porte.
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        )
         if (facts.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(AuleSpacing.md))
             FlowRow(
+                modifier = Modifier.padding(
+                    start = AuleSpacing.lg,
+                    end = AuleSpacing.lg,
+                    bottom = AuleSpacing.lg,
+                ),
                 horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
             ) {
                 facts.forEach { fact ->
-                    BasicText(
-                        text = fact,
-                        style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                            .copy(color = tokens.onSurfaceMuted.color),
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(AuleRadius.sm))
-                            .background(tokens.surfaceSolid.color)
-                            .padding(horizontal = AuleSpacing.sm, vertical = AuleSpacing.xs),
+                    AssistChip(
+                        onClick = onOpen,
+                        label = { Text(fact) },
                     )
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun MenuRow(
-    glyph: AuleGlyph,
-    label: String,
-    onClick: () -> Unit,
-) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .clickable(onClick = onClick)
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.md)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-    ) {
-        AuleIcon(glyph = glyph, tint = tokens.onSurface.color)
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                .copy(color = tokens.onSurface.color),
-            modifier = Modifier.weight(1f),
-        )
-        AuleIcon(glyph = AuleGlyph.CHEVRON, tint = tokens.onSurfaceMuted.color)
     }
 }
 
@@ -309,32 +277,34 @@ private fun SignOutRow(
     enabled: Boolean,
     onClick: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val label = stringResource(R.string.menu_sign_out)
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
+    ListItem(
+        headlineContent = {
+            Text(
+                text = label,
+                color = colors.onErrorContainer,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        leadingContent = {
+            Icon(
+                imageVector = AuleGlyph.SIGN_OUT.asImageVector(),
+                contentDescription = null,
+                tint = colors.onErrorContainer,
+            )
+        },
+        colors = ListItemDefaults.colors(containerColor = colors.errorContainer),
         modifier = Modifier
             .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clip(shape)
-            .background(tokens.alert.color.copy(alpha = AuleAlpha.TINT))
-            .border(AuleStroke.hairline, tokens.alert.color.copy(alpha = AuleAlpha.OUTLINE), shape)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.md)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-    ) {
-        AuleIcon(glyph = AuleGlyph.SIGN_OUT, tint = tokens.alert.color)
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                .copy(color = tokens.alert.color),
-        )
-    }
+            // Un aplat teinté à angles vifs, au milieu d'une page où la carte
+            // d'identité et les puces sont arrondies, se lit comme un bandeau
+            // d'erreur et non comme l'action qu'il est. La forme du thème le
+            // remet dans la famille — et borne le ripple au même contour.
+            .clip(MaterialTheme.shapes.medium)
+            .semantics { contentDescription = label }
+            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier),
+    )
 }
 
 /**
@@ -349,46 +319,26 @@ private fun SignOutDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val title = stringResource(R.string.menu_sign_out_confirm_title)
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(AuleSpacing.xl),
-        ) {
-            Column(
-                modifier = Modifier.semantics {
-                    this.paneTitle = title
-                    isTraversalGroup = true
-                },
-                verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.menu_sign_out_confirm_title)) },
+        text = { Text(stringResource(R.string.menu_sign_out_confirm_body)) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.errorContainer,
+                    contentColor = colors.onErrorContainer,
+                ),
             ) {
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier.semantics { heading() },
-                )
-                BasicText(
-                    text = stringResource(R.string.menu_sign_out_confirm_body),
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                )
-                Spacer(modifier = Modifier.height(AuleSpacing.xs))
-                AuleButton(
-                    title = stringResource(R.string.menu_sign_out),
-                    onClick = onConfirm,
-                    prominence = AuleButtonProminence.DANGER,
-                )
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
-                    onClick = onDismiss,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
+                Text(stringResource(R.string.menu_sign_out))
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.menu_cancel))
+            }
+        },
+    )
 }
-
-private val DIALOG_MAX_WIDTH = 360.dp

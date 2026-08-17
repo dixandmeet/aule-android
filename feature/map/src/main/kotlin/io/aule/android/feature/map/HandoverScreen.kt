@@ -62,6 +62,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.bleedHorizontal
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleEmptyState
@@ -300,8 +301,10 @@ private fun WizardPane(
                     modifier = Modifier
                         .fillMaxWidth()
                         .defaultMinSize(minHeight = AuleControl.height)
+                        // La colonne porte déjà `safeDrawingPadding` : y ajouter
+                        // `navigationBarsPadding` décollait le bouton d'une
+                        // seconde barre système qui n'existe pas.
                         .padding(horizontal = AuleSpacing.lg)
-                        .navigationBarsPadding()
                         .padding(bottom = AuleSpacing.lg),
                     colors = auleAccentButtonColors(),
                 ) {
@@ -417,7 +420,7 @@ private fun LiveStopPane(
                 modifier = Modifier
                     .fillMaxWidth()
                     .heightIn(max = LIVE_STOP_LIST_MAX_HEIGHT)
-                    .padding(horizontal = -AuleSpacing.lg)
+                    .bleedHorizontal(AuleSpacing.lg)
                     .verticalScroll(rememberScrollState()),
             ) {
                 if (state.isBusy && state.liveStops.isEmpty()) {
@@ -594,7 +597,7 @@ private fun AlertToggle(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = -AuleSpacing.lg)
+            .bleedHorizontal(AuleSpacing.lg)
             .clickable {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onChecked(!checked)
@@ -927,7 +930,7 @@ private fun LineStep(
                         icon = AuleGlyph.SEARCH.asImageVector(),
                     )
                 } else {
-                    Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+                    Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
                         state.filteredLines.forEach { line ->
                             HandoverLineChoice(
                                 line = line,
@@ -952,7 +955,7 @@ private fun LineStep(
                         text = stringResource(R.string.handover_lines_active),
                         accent = true,
                     )
-                    Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+                    Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
                         state.activeLines.forEach { line ->
                             HandoverLineChoice(
                                 line = line,
@@ -967,7 +970,7 @@ private fun LineStep(
                         text = stringResource(R.string.handover_lines_recent),
                         accent = false,
                     )
-                    Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+                    Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
                         state.recentLines.forEach { line ->
                             HandoverLineChoice(
                                 line = line,
@@ -1105,7 +1108,7 @@ private fun VehicleStep(
             colors = ListItemDefaults.colors(containerColor = Color.Transparent),
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = -AuleSpacing.lg)
+                .bleedHorizontal(AuleSpacing.lg)
                 .clickable {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onChangeLine()
@@ -1194,7 +1197,7 @@ private fun DirectionStep(
     onPick: (ServiceDirection) -> Unit,
 ) {
     FallbackNotice(state)
-    Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+    Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
         state.selectedLine?.directions?.forEach { direction ->
             val label = if (direction.terminus.isBlank()) {
                 stringResource(R.string.service_direction_other)
@@ -1226,7 +1229,7 @@ private fun FallbackStopStep(
     if (state.isBusy) {
         AuleLoadingState(label = stringResource(R.string.handover_live_stop_loading))
     }
-    Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+    Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
         state.visibleFallbackStops.forEach { stop ->
             val distance = stop.coordinate?.let { coordinate ->
                 state.fallbackAround?.let { GeoMath.formatDistance(GeoMath.distance(it, coordinate)) }
@@ -1284,7 +1287,7 @@ private fun FallbackTimeStep(
         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = -AuleSpacing.lg)
+            .bleedHorizontal(AuleSpacing.lg)
             .clickable {
                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onChangeStop()
@@ -1323,7 +1326,7 @@ private fun FallbackTimeStep(
             color = colors.onSurfaceVariant,
         )
         val clock = rememberPassageClock()
-        Column(modifier = Modifier.padding(horizontal = -AuleSpacing.lg)) {
+        Column(modifier = Modifier.bleedHorizontal(AuleSpacing.lg)) {
             state.fallbackPassages.forEach { passage ->
                 val wait = passage.waitMinutes(java.time.Instant.now()).let { minutes ->
                     if (minutes == 0) Wait.Approaching else Wait.Minutes(minutes)

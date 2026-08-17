@@ -1,6 +1,6 @@
 package io.aule.android.feature.map
 
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,28 +8,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleCappedFontScale
-import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleShadow
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.model.TripSummary
 import java.time.Duration
 import java.time.ZoneId
@@ -46,7 +40,6 @@ internal fun TripSummaryBar(
     modifier: Modifier = Modifier,
     onHeightPx: (Float) -> Unit = {},
 ) {
-    val tokens = AuleTheme.tokens
     val unknown = stringResource(R.string.value_unknown)
     val arrival = summary.arrivalAt?.let { clockFormatter.format(it) } ?: unknown
     val remaining = summary.remaining?.clockLabel() ?: unknown
@@ -60,43 +53,44 @@ internal fun TripSummaryBar(
     val thirdLabel = summary.third.labelText()
     val hint = stringResource(R.string.nav_trip_hint)
     val spoken = "$arrivalLabel $arrival. $remainingLabel $remaining. $thirdLabel $thirdValue. $hint"
-    val shape = RoundedCornerShape(topStart = AuleRadius.lg, topEnd = AuleRadius.lg)
     AuleCappedFontScale(maxScale = 1.3f) {
-        Row(
+        Surface(
             modifier = modifier
                 .fillMaxWidth()
                 .onSizeChanged { onHeightPx(it.height.toFloat()) }
-                .auleShadow(AuleElevation.RESTING, shape)
-                .clip(shape)
-                .background(tokens.surfaceSolid.color)
                 .clickable(onClick = onOpen)
-                .defaultMinSize(minHeight = TripSummaryBarHeight)
-                .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md)
                 .semantics {
                     role = Role.Button
                     contentDescription = spoken
                 },
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
+            shape = MaterialTheme.shapes.large,
+            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            border = BorderStroke(AuleStroke.hairline, MaterialTheme.colorScheme.outlineVariant),
         ) {
-            SummaryColumn(value = arrival, label = arrivalLabel)
-            SummaryColumn(value = remaining, label = remainingLabel)
-            SummaryColumn(value = thirdValue, label = thirdLabel)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = TripSummaryBarHeight)
+                    .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SummaryColumn(value = arrival, label = arrivalLabel)
+                SummaryColumn(value = remaining, label = remainingLabel)
+                SummaryColumn(value = thirdValue, label = thirdLabel)
+            }
         }
     }
 }
 
 @Composable
 private fun SummaryColumn(value: String, label: String) {
-    val tokens = AuleTheme.tokens
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        BasicText(
-            text = value,
-            style = auleTextStyle(AuleRole.DATA, FontWeight.SemiBold).copy(color = tokens.onSurface.color),
-        )
-        BasicText(
+        Text(text = value, style = MaterialTheme.typography.titleLarge)
+        Text(
             text = label,
-            style = auleTextStyle(AuleRole.KICKER).copy(color = tokens.onSurfaceMuted.color),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

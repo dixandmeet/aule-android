@@ -81,7 +81,7 @@ fun AuleBrandMark(
                 .size(TILE_SIZE)
                 .auleShadow(AuleElevation.LIFTED, tile, AuleShadowTint.ACCENT)
                 .clip(tile)
-                .background(AuleBrand.teal.color.copy(alpha = 0.14f))
+                .background(AuleBrand.teal.color.copy(alpha = AuleAlpha.WASH))
                 .border(
                     AuleStroke.hairline,
                     AuleBrand.teal.color.copy(alpha = AuleAlpha.OUTLINE),

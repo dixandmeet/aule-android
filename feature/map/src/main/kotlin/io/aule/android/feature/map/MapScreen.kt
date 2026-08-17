@@ -3,13 +3,26 @@ package io.aule.android.feature.map
 import android.Manifest
 import android.os.Build
 import android.view.HapticFeedbackConstants
+import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.BottomSheetDefaults
+import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetScaffoldState
+import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -19,15 +32,22 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.CustomAccessibilityAction
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.traversalIndex
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -60,7 +80,9 @@ import io.aule.android.core.model.StopSearchHit
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.model.shortLabel
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 
 /**
@@ -70,9 +92,11 @@ import kotlinx.coroutines.isActive
  * par-dessus. Les panneaux de détail s'ouvrent en volet au-dessus d'elle,
  * sans jamais la remplacer.
  *
- * Les rails flottent **au-dessus** des volets, pas en dessous : c'est le
- * port de `MapActionRail`. Démarrer, Relève et Signaler y sont branchés.
+ * La barre de navigation est collée au bas de la fenêtre, pleine largeur.
+ * Démarrer, Relève, Signaler et À proximité y sont regroupés. L'itinéraire
+ * est le FAB au-dessus de la barre : c'est l'action, pas une destination.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MapScreen(
     viewModel: MapViewModel,
@@ -295,6 +319,7 @@ fun MapScreen(
     }
 
     val nearbyLabel = stringResource(R.string.nearby_title)
+    val routeLabel = stringResource(R.string.rail_route_a11y)
     val mapDescription = stringResource(R.string.map_content_description)
     val mapHint = stringResource(R.string.map_explore_hint)
     val handleDescription = stringResource(R.string.stop_sheet_handle)
@@ -321,312 +346,442 @@ fun MapScreen(
         null
     }
 
+    // `BottomSheetScaffold` sert un volet **persistant** : contrairement à
+    // `ModalBottomSheet`, il n'installe aucun gestionnaire de retour. Sans
+    // celui-ci, le geste de retour sur un volet ouvert ne le referme pas — il
+    // quitte l'application, en pleine consultation d'un arrêt.
+    PredictiveBackHandler(enabled = state.hasSheet) { progress ->
+        try {
+            progress.collect { }
+            if (showingTrip) viewModel.hideTripSheet() else viewModel.dismissSheet()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        }
+    }
+
     AuleTheme(night = night) {
         BoxWithConstraints(modifier = modifier.fillMaxSize()) {
             val parentHeightPx = constraints.maxHeight
+            val density = LocalDensity.current
+            val maxPeekHeight = with(density) {
+                (parentHeightPx * SHEET_PEEK_FRACTION).toDp()
+            }
+            var sheetHandleHeightPx by remember { mutableFloatStateOf(0f) }
+            var sheetContentHeightPx by remember { mutableFloatStateOf(0f) }
+            val measuredPeek = with(density) {
+                (sheetHandleHeightPx + sheetContentHeightPx).toDp()
+            }
+            val peekHeight = if (state.hasSheet && measuredPeek > 0.dp) {
+                minOf(measuredPeek, maxPeekHeight)
+            } else {
+                maxPeekHeight
+            }
 
-            AuleMap(
-                controller = controller,
-                ambiance = ambiance,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .semantics {
-                        traversalIndex = 0f
-                        contentDescription = "$mapDescription. $mapHint"
-                        customActions = listOf(
-                            CustomAccessibilityAction(nearbyLabel) {
-                                viewModel.showNearby()
-                                true
-                            },
-                        )
-                    },
+            // `BottomSheetScaffold` n'a pas d'encoche pour les insets : déployé,
+            // il monte jusqu'au pixel zéro et sa poignée finit dans l'heure et
+            // les icônes de la barre d'état. On borne donc le contenu — la
+            // liste défile à l'intérieur, et le volet s'arrête sous la barre.
+            // La poignée compte : le volet, c'est elle **plus** le contenu.
+            // L'oublier laisse remonter l'ensemble de sa hauteur dans la barre.
+            val statusBarPx = WindowInsets.statusBars.getTop(density)
+            val maxSheetHeight = with(density) {
+                val available = parentHeightPx - statusBarPx - sheetHandleHeightPx -
+                    SHEET_TOP_INSET.toPx()
+                available.coerceAtLeast(0f).toDp()
+            }
+            val sheetState = rememberStandardBottomSheetState(
+                initialValue = SheetValue.Hidden,
+                skipHiddenState = false,
             )
+            val scaffoldState = rememberBottomSheetScaffoldState(sheetState)
+            val sheetIdentity: Any? = when {
+                showingTrip -> "trip"
+                state.showingNearby -> "nearby"
+                state.selectedStop != null -> state.selectedStop
+                state.selectedVehicle != null -> state.selectedVehicle
+                state.selectedPlace != null -> state.selectedPlace
+                state.route != null && !navigating -> state.route
+                else -> null
+            }
+            val paneTitle = when {
+                showingTrip -> paneTrip
+                state.showingNearby -> paneNearby
+                state.selectedStop != null -> paneStop
+                state.selectedVehicle != null -> paneVehicle
+                state.selectedPlace != null -> panePlace
+                state.route != null && !navigating -> paneRoute
+                else -> ""
+            }
 
-            MapHud(
-                state = state,
-                authorization = authorization,
-                lastLocationError = lastError,
-                showsDiagnostics = config.showsDiagnostics,
-                diagnosticsLabel = stringResource(
-                    R.string.map_diagnostics,
-                    config.environmentLabel,
-                    config.dataSource.id,
-                ),
-                onShowNearby = viewModel::showNearby,
-                onRetryStops = viewModel::retryLoadingStops,
-                onOpenSettings = location::openSettings,
-                onRequestPrecise = { permissionLauncher.launch(LOCATION_PERMISSIONS) },
-                onSearchQuery = viewModel::setSearchQuery,
-                onSearchActivate = viewModel::activateSearch,
-                onSearchCancel = viewModel::cancelSearch,
-                onSelectSearchStop = { hit ->
-                    selectStopFromSearch(view, viewModel, controller, hit)
-                },
-                onSelectSearchPlace = { place ->
-                    startRoute(
-                        view, viewModel, controller, location,
-                        RoutePlace(place.coordinate, place.shortLabel()),
-                        originMine, originMap,
-                    )
-                },
-                onOpenTrip = viewModel::showTripSheet,
-                onSummaryHeightPx = { height ->
-                    if (navigating && !showingTrip) sheetHeightPx = height
-                },
-                onOpenMenu = onOpenMenu,
-                serviceBanner = serviceBanner,
-                serviceBannerAction = serviceBannerAction,
-                onServiceBannerAction = if (handedOver != null) onDismissServiceNotice else null,
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .semantics { traversalIndex = -1f },
-            )
-
-            when {
-                showingTrip && state.navigation != null -> {
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = paneTrip,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::hideTripSheet,
-                        onHeightPx = { sheetHeightPx = it },
-                    ) {
-                        TripSheet(
-                            state = state.navigation!!,
-                            onStop = {
-                                stopGuidance(view, viewModel, controller, location, serviceActive)
-                            },
-                        )
+            LaunchedEffect(sheetIdentity) {
+                if (sheetIdentity == null) {
+                    try {
+                        if (sheetState.currentValue != SheetValue.Hidden) {
+                            sheetState.hide()
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                    }
+                    return@LaunchedEffect
+                }
+                try {
+                    // Le trajet s'ouvre en grand : c'est une lecture, pas un
+                    // aperçu. En cran intermédiaire, ses étapes tenaient à
+                    // peine et « Arrêter » — la seule sortie du guidage —
+                    // finissait sous la barre système.
+                    if (showingTrip) sheetState.expand() else sheetState.partialExpand()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    return@LaunchedEffect
+                }
+                snapshotFlow { sheetState.currentValue }.first { it == SheetValue.Hidden }
+                if (showingTrip) {
+                    viewModel.hideTripSheet()
+                } else {
+                    viewModel.dismissSheet()
+                }
+            }
+            LaunchedEffect(parentHeightPx, state.hasSheet) {
+                if (!state.hasSheet) return@LaunchedEffect
+                snapshotFlow {
+                    runCatching { sheetState.requireOffset() }.getOrNull()
+                }.collect { offset ->
+                    if (offset != null) {
+                        sheetHeightPx = (parentHeightPx - offset).coerceAtLeast(0f)
                     }
                 }
-                state.showingNearby -> {
-                    val around = location.lastFix.value?.coordinate
-                        ?: controller.cameraCenter
-                        ?: viewModel.openingCenter
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = paneNearby,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::dismissSheet,
-                        onHeightPx = { sheetHeightPx = it },
-                    ) {
-                        NearbySheet(
-                            digest = viewModel.nearbyDigest(around),
-                            onSelectStop = { stop -> selectStopFromSheet(view, viewModel, controller, stop) },
-                            onSelectVehicle = { vehicle ->
-                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                viewModel.select(vehicle)
-                            },
-                        )
-                    }
-                }
-                state.selectedStop != null -> {
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = paneStop,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::dismissSheet,
-                        onHeightPx = { sheetHeightPx = it },
-                    ) {
-                        StopDetailSheet(
-                            stop = state.selectedStop!!,
-                            repository = viewModel.stopRepository,
-                            dispatchers = viewModel.dispatchers,
-                            onRoute = {
-                                val stop = state.selectedStop ?: return@StopDetailSheet
-                                startRoute(
-                                    view, viewModel, controller, location,
-                                    RoutePlace(stop.coordinate, stop.departuresKey),
-                                    originMine, originMap,
+            }
+
+            BottomSheetScaffold(
+                sheetContent = {
+                    if (!state.hasSheet) return@BottomSheetScaffold
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = maxSheetHeight)
+                            .onSizeChanged { size ->
+                                val height = size.height.toFloat()
+                                if (height != sheetContentHeightPx) {
+                                    sheetContentHeightPx = height
+                                }
+                            }
+                            .navigationBarsPadding()
+                            .semantics(mergeDescendants = false) {
+                                this.paneTitle = paneTitle
+                                isTraversalGroup = true
+                                traversalIndex = -2f
+                                customActions = listOf(
+                                    CustomAccessibilityAction(dismissLabel) {
+                                        if (showingTrip) {
+                                            viewModel.hideTripSheet()
+                                        } else {
+                                            viewModel.dismissSheet()
+                                        }
+                                        true
+                                    },
                                 )
                             },
-                        )
-                    }
-                }
-                state.selectedVehicle != null -> {
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = paneVehicle,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::dismissSheet,
-                        onHeightPx = { sheetHeightPx = it },
                     ) {
-                        VehicleDetailSheet(
-                            vehicle = state.selectedVehicle!!,
-                            isFollowing = cameraMode == CameraMode.FOLLOW_VEHICLE,
-                            onFollow = {
-                                toggleFollowSelectedVehicle(view, controller, state.selectedVehicle)
-                            },
-                        )
-                    }
-                }
-                state.selectedPlace != null -> {
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = panePlace,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::dismissSheet,
-                        onHeightPx = { sheetHeightPx = it },
-                    ) {
-                        PlaceDetailSheet(
-                            place = state.selectedPlace!!,
-                            onRoute = {
-                                val place = state.selectedPlace ?: return@PlaceDetailSheet
-                                startRoute(
-                                    view, viewModel, controller, location,
-                                    RoutePlace(place.coordinate, place.shortLabel()),
-                                    originMine, originMap,
-                                )
-                            },
-                        )
-                    }
-                }
-                state.route != null && !navigating -> {
-                    AuleSheet(
-                        parentHeightPx = parentHeightPx,
-                        handleDescription = handleDescription,
-                        paneTitle = paneRoute,
-                        dismissLabel = dismissLabel,
-                        onDismiss = viewModel::dismissSheet,
-                        onHeightPx = { sheetHeightPx = it },
-                    ) {
-                        RouteSheet(
-                            state = state.route!!,
-                            onSelect = viewModel::selectRoute,
-                            onMode = viewModel::setRouteMode,
-                            onStart = {
-                                startGuidance(
-                                    view, viewModel, controller, location, followState,
-                                ) {
-                                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                                        notificationPermissionLauncher.launch(
-                                            Manifest.permission.POST_NOTIFICATIONS,
+                        when {
+                            showingTrip && state.navigation != null -> {
+                                TripSheet(
+                                    state = state.navigation!!,
+                                    onStop = {
+                                        stopGuidance(
+                                            view, viewModel, controller, location, serviceActive,
                                         )
-                                    }
+                                    },
+                                )
+                            }
+                            state.showingNearby -> {
+                                val around = location.lastFix.value?.coordinate
+                                    ?: controller.cameraCenter
+                                    ?: viewModel.openingCenter
+                                NearbySheet(
+                                    digest = viewModel.nearbyDigest(around),
+                                    onSelectStop = { stop ->
+                                        selectStopFromSheet(view, viewModel, controller, stop)
+                                    },
+                                    onSelectVehicle = { vehicle ->
+                                        view.performHapticFeedback(
+                                            HapticFeedbackConstants.CLOCK_TICK,
+                                        )
+                                        viewModel.select(vehicle)
+                                    },
+                                )
+                            }
+                            state.selectedStop != null -> {
+                                StopDetailSheet(
+                                    stop = state.selectedStop!!,
+                                    repository = viewModel.stopRepository,
+                                    dispatchers = viewModel.dispatchers,
+                                    onRoute = {
+                                        val stop = state.selectedStop ?: return@StopDetailSheet
+                                        startRoute(
+                                            view, viewModel, controller, location,
+                                            RoutePlace(stop.coordinate, stop.departuresKey),
+                                            originMine, originMap,
+                                        )
+                                    },
+                                )
+                            }
+                            state.selectedVehicle != null -> {
+                                VehicleDetailSheet(
+                                    vehicle = state.selectedVehicle!!,
+                                    isFollowing = cameraMode == CameraMode.FOLLOW_VEHICLE,
+                                    onFollow = {
+                                        toggleFollowSelectedVehicle(
+                                            view, controller, state.selectedVehicle,
+                                        )
+                                    },
+                                )
+                            }
+                            state.selectedPlace != null -> {
+                                PlaceDetailSheet(
+                                    place = state.selectedPlace!!,
+                                    onRoute = {
+                                        val place = state.selectedPlace ?: return@PlaceDetailSheet
+                                        startRoute(
+                                            view, viewModel, controller, location,
+                                            RoutePlace(place.coordinate, place.shortLabel()),
+                                            originMine, originMap,
+                                        )
+                                    },
+                                )
+                            }
+                            state.route != null && !navigating -> {
+                                RouteSheet(
+                                    state = state.route!!,
+                                    onSelect = viewModel::selectRoute,
+                                    onMode = viewModel::setRouteMode,
+                                    onStart = {
+                                        startGuidance(
+                                            view, viewModel, controller, location, followState,
+                                        ) {
+                                            if (Build.VERSION.SDK_INT >=
+                                                Build.VERSION_CODES.TIRAMISU
+                                            ) {
+                                                notificationPermissionLauncher.launch(
+                                                    Manifest.permission.POST_NOTIFICATIONS,
+                                                )
+                                            }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                scaffoldState = scaffoldState,
+                sheetPeekHeight = peekHeight,
+                sheetContainerColor = BottomSheetDefaults.ContainerColor,
+                sheetShape = BottomSheetDefaults.ExpandedShape,
+                sheetTonalElevation = 0.dp,
+                sheetShadowElevation = BottomSheetDefaults.Elevation,
+                sheetDragHandle = if (state.hasSheet) {
+                    {
+                        Box(
+                            modifier = Modifier.onSizeChanged { size ->
+                                val height = size.height.toFloat()
+                                if (height != sheetHandleHeightPx) {
+                                    sheetHandleHeightPx = height
                                 }
                             },
-                        )
-                    }
-                }
-            }
-
-            // Les rails vivent sur la carte, pas sur les volets. Les garder
-            // compacts au-dessus d'une liste masquait noms et distances sur le
-            // S21 ; le volet fournit déjà son propre retour et ses actions.
-            if (!showingReport && !hideChrome && !state.hasSheet && !state.search.isActive) {
-                val searching = state.search.isActive
-                val leftItems = buildList {
-                    if (!navigating && !searching) {
-                        if (serviceActive && onOpenActiveService != null) {
-                            add(
-                                MapActionItem(
-                                    glyph = AuleGlyph.BUS,
-                                    label = stringResource(R.string.rail_in_service),
-                                    semanticsLabel = stringResource(R.string.rail_in_service_a11y),
-                                    onClick = onOpenActiveService,
-                                    active = true,
-                                    primary = true,
-                                ),
-                            )
-                        } else if (onStartService != null) {
-                            add(
-                                MapActionItem(
-                                    glyph = AuleGlyph.PLAY,
-                                    label = stringResource(R.string.rail_start),
-                                    semanticsLabel = stringResource(R.string.rail_start_a11y),
-                                    onClick = onStartService,
-                                    primary = true,
-                                ),
-                            )
-                        }
-                        if (onOpenHandover != null) {
-                            add(
-                                MapActionItem(
-                                    glyph = AuleGlyph.SWAP,
-                                    label = stringResource(R.string.rail_handover),
-                                    semanticsLabel = stringResource(R.string.rail_handover_a11y),
-                                    onClick = onOpenHandover,
-                                ),
-                            )
-                        }
-                        if (onSubmitReport != null) {
-                            add(
-                                MapActionItem(
-                                    glyph = AuleGlyph.FLAG,
-                                    label = stringResource(R.string.rail_report),
-                                    semanticsLabel = stringResource(R.string.rail_report_a11y),
-                                    onClick = { showingReport = true },
-                                ),
+                        ) {
+                            BottomSheetDefaults.DragHandle(
+                                modifier = Modifier.semantics {
+                                    contentDescription = handleDescription
+                                },
                             )
                         }
                     }
-                }
-                val rightItems = buildList {
-                    if (!searching) {
-                        if (!navigating) {
-                            add(
-                                MapActionItem(
-                                    glyph = AuleGlyph.ROUTE,
-                                    label = stringResource(R.string.rail_route),
-                                    semanticsLabel = stringResource(R.string.rail_route_a11y),
-                                    onClick = viewModel::activateSearch,
-                                ),
-                            )
-                        }
-                        add(
-                            MapActionItem(
-                                glyph = AuleGlyph.PIN,
-                                label = stringResource(R.string.rail_nearby),
-                                semanticsLabel = stringResource(R.string.rail_nearby_a11y),
-                                onClick = viewModel::showNearby,
-                            ),
-                        )
-                    }
-                }
-                MapActionChrome(
-                    cameraMode = cameraMode,
-                    compact = navigating,
-                    leftItems = leftItems,
-                    rightItems = rightItems,
-                    onRecenter = { onRecenter(controller, state.selectedVehicle, navigating) },
-                    showAttribution = !state.hasSheet && !navigating,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .fillMaxWidth()
-                        .safeDrawingPadding()
-                        .padding(horizontal = AuleSpacing.md)
-                        .padding(
-                            bottom = if (navigating) {
-                                TripSummaryBarHeight + AuleSpacing.md
-                            } else {
-                                AuleSpacing.sm
+                } else {
+                    null
+                },
+                sheetSwipeEnabled = state.hasSheet,
+                containerColor = Color.Transparent,
+            ) {
+                Box(Modifier.fillMaxSize()) {
+                    AuleMap(
+                        controller = controller,
+                        ambiance = ambiance,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .semantics {
+                                traversalIndex = 0f
+                                contentDescription = "$mapDescription. $mapHint"
+                                customActions = listOf(
+                                    CustomAccessibilityAction(routeLabel) {
+                                        viewModel.activateSearch()
+                                        true
+                                    },
+                                    CustomAccessibilityAction(nearbyLabel) {
+                                        viewModel.showNearby()
+                                        true
+                                    },
+                                )
                             },
+                    )
+
+                    MapHud(
+                        state = state,
+                        authorization = authorization,
+                        lastLocationError = lastError,
+                        showsDiagnostics = config.showsDiagnostics,
+                        diagnosticsLabel = stringResource(
+                            R.string.map_diagnostics,
+                            config.environmentLabel,
+                            config.dataSource.id,
                         ),
-                )
-            }
-            val submitReport = onSubmitReport
-            if (showingReport && submitReport != null) {
-                ReportSheetHost(
-                    onClose = { showingReport = false },
-                    onSubmit = { report ->
-                        val fix = location.lastFix.value?.coordinate
-                        val positioned = if (report.latitude == null && fix != null) {
-                            report.copy(
-                                latitude = fix.latitude,
-                                longitude = fix.longitude,
+                        onShowNearby = viewModel::showNearby,
+                        onRetryStops = viewModel::retryLoadingStops,
+                        onOpenSettings = location::openSettings,
+                        onRequestPrecise = { permissionLauncher.launch(LOCATION_PERMISSIONS) },
+                        onSearchQuery = viewModel::setSearchQuery,
+                        onSearchActivate = viewModel::activateSearch,
+                        onSearchCancel = viewModel::cancelSearch,
+                        onSelectSearchStop = { hit ->
+                            selectStopFromSearch(view, viewModel, controller, hit)
+                        },
+                        onSelectSearchPlace = { place ->
+                            startRoute(
+                                view, viewModel, controller, location,
+                                RoutePlace(place.coordinate, place.shortLabel()),
+                                originMine, originMap,
                             )
+                        },
+                        onOpenTrip = viewModel::showTripSheet,
+                        onSummaryHeightPx = { height ->
+                            if (navigating && !showingTrip) sheetHeightPx = height
+                        },
+                        onOpenMenu = onOpenMenu,
+                        serviceBanner = serviceBanner,
+                        serviceBannerAction = serviceBannerAction,
+                        onServiceBannerAction = if (handedOver != null) {
+                            onDismissServiceNotice
                         } else {
-                            report
+                            null
+                        },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .safeDrawingPadding()
+                            .semantics { traversalIndex = -1f },
+                    )
+
+                    // Une seule barre en bas stabilise les cibles tactiles et évite
+                    // de faire parcourir les deux bords de l'écran au pouce.
+                    if (!showingReport && !hideChrome && !state.hasSheet &&
+                        !state.search.isActive
+                    ) {
+                        val quickActions = buildList {
+                            if (!navigating) {
+                                if (serviceActive && onOpenActiveService != null) {
+                                    add(
+                                        MapActionItem(
+                                            glyph = AuleGlyph.BUS,
+                                            label = stringResource(R.string.rail_in_service),
+                                            semanticsLabel = stringResource(
+                                                R.string.rail_in_service_a11y,
+                                            ),
+                                            onClick = onOpenActiveService,
+                                            active = true,
+                                        ),
+                                    )
+                                } else if (onStartService != null) {
+                                    add(
+                                        MapActionItem(
+                                            glyph = AuleGlyph.PLAY,
+                                            label = stringResource(R.string.rail_start),
+                                            semanticsLabel = stringResource(
+                                                R.string.rail_start_a11y,
+                                            ),
+                                            onClick = onStartService,
+                                            active = true,
+                                        ),
+                                    )
+                                }
+                                if (onOpenHandover != null) {
+                                    add(
+                                        MapActionItem(
+                                            glyph = AuleGlyph.SWAP,
+                                            label = stringResource(R.string.rail_handover),
+                                            semanticsLabel = stringResource(
+                                                R.string.rail_handover_a11y,
+                                            ),
+                                            onClick = onOpenHandover,
+                                        ),
+                                    )
+                                }
+                                if (onSubmitReport != null) {
+                                    add(
+                                        MapActionItem(
+                                            glyph = AuleGlyph.FLAG,
+                                            label = stringResource(R.string.rail_report),
+                                            semanticsLabel = stringResource(
+                                                R.string.rail_report_a11y,
+                                            ),
+                                            onClick = { showingReport = true },
+                                        ),
+                                    )
+                                }
+                                add(
+                                    MapActionItem(
+                                        glyph = AuleGlyph.PIN,
+                                        label = stringResource(R.string.rail_nearby),
+                                        semanticsLabel = stringResource(
+                                            R.string.rail_nearby_a11y,
+                                        ),
+                                        onClick = viewModel::showNearby,
+                                    ),
+                                )
+                            }
                         }
-                        submitReport(positioned)
-                    },
-                )
+                        MapActionChrome(
+                            cameraMode = cameraMode,
+                            items = quickActions,
+                            onRecenter = {
+                                onRecenter(controller, state.selectedVehicle, navigating)
+                            },
+                            onRoute = if (!navigating) {
+                                viewModel::activateSearch
+                            } else {
+                                null
+                            },
+                            showAttribution = !state.hasSheet && !navigating,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .fillMaxWidth()
+                                .padding(
+                                    bottom = if (navigating) {
+                                        TripSummaryBarHeight + AuleSpacing.md
+                                    } else {
+                                        0.dp
+                                    },
+                                ),
+                        )
+                    }
+                    val submitReport = onSubmitReport
+                    if (showingReport && submitReport != null) {
+                        ReportSheetHost(
+                            onClose = { showingReport = false },
+                            onSubmit = { report ->
+                                val fix = location.lastFix.value?.coordinate
+                                val positioned = if (report.latitude == null && fix != null) {
+                                    report.copy(
+                                        latitude = fix.latitude,
+                                        longitude = fix.longitude,
+                                    )
+                                } else {
+                                    report
+                                }
+                                submitReport(positioned)
+                            },
+                        )
+                    }
+                }
             }
         }
     }
@@ -765,6 +920,20 @@ private fun trackingPurpose(navigating: Boolean, serviceActive: Boolean): Locati
 }
 
 private const val GUIDANCE_TICK_MS = 1_000L
+
+/**
+ * Ce qu'un volet montre sans qu'on le tire.
+ *
+ * 30 % ne suffisaient pas : le volet d'un véhicule tient en un titre, un statut,
+ * un prochain arrêt et un bouton — et c'est le bouton qui passait sous la barre
+ * système, à moitié lisible et à moitié cliquable. Le palier ne borne que les
+ * volets **longs** (arrêt, autour de vous), qui se tirent de toute façon ; les
+ * courts doivent tenir entiers.
+ */
+private const val SHEET_PEEK_FRACTION = 0.45f
+
+/** Ce qui reste de carte au-dessus d'un volet déployé : assez pour se situer. */
+private val SHEET_TOP_INSET = 12.dp
 
 private val LOCATION_PERMISSIONS = arrayOf(
     Manifest.permission.ACCESS_FINE_LOCATION,

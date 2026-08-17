@@ -11,14 +11,15 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -30,9 +31,35 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -45,7 +72,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -56,35 +82,25 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleBanner
-import io.aule.android.core.designsystem.component.AuleBusyIndicator
-import io.aule.android.core.designsystem.component.AuleButton
-import io.aule.android.core.designsystem.component.AuleButtonProminence
-import io.aule.android.core.designsystem.component.AuleCard
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleIcon
-import io.aule.android.core.designsystem.component.AuleIconButton
-import io.aule.android.core.designsystem.component.AuleTextField
 import io.aule.android.core.designsystem.component.AuleTone
+import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.designsystem.token.AuleTouch
@@ -109,6 +125,7 @@ import kotlinx.coroutines.launch
  * s'applique au toucher. La déconnexion reste sans confirmation ; la
  * suppression de compte, elle, demande un second geste.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ProfileScreen(
     viewModel: AuthViewModel,
@@ -224,11 +241,11 @@ fun ProfileScreen(
     }
 
     AuleTheme {
-        val tokens = AuleTheme.tokens
+        val colors = MaterialTheme.colorScheme
         Column(
             modifier = modifier
                 .fillMaxSize()
-                .background(tokens.surfaceSolid.color)
+                .background(colors.surface)
                 .safeDrawingPadding()
                 .imePadding()
                 .semantics {
@@ -236,31 +253,36 @@ fun ProfileScreen(
                     isTraversalGroup = true
                 },
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = AuleSpacing.sm, vertical = AuleSpacing.xs),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                AuleIconButton(
-                    glyph = AuleGlyph.BACK,
-                    contentDescription = stringResource(R.string.profile_close),
-                    onClick = onClose,
-                )
-                Column(modifier = Modifier.padding(start = AuleSpacing.xs)) {
-                    BasicText(
-                        text = title,
-                        style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                            .copy(color = tokens.onSurface.color),
-                        modifier = Modifier.semantics { heading() },
-                    )
-                    BasicText(
-                        text = subtitle,
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
-                    )
-                }
-            }
+            TopAppBar(
+                title = {
+                    Column {
+                        Text(
+                            text = title,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.semantics { heading() },
+                        )
+                        Text(
+                            text = subtitle,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onClose) {
+                        Icon(
+                            imageVector = AuleGlyph.BACK.asImageVector(),
+                            contentDescription = stringResource(R.string.profile_close),
+                        )
+                    }
+                },
+                windowInsets = WindowInsets(0, 0, 0, 0),
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = colors.surface,
+                    titleContentColor = colors.onSurface,
+                    navigationIconContentColor = colors.onSurface,
+                ),
+            )
 
             ProfileTabSwitcher(
                 current = tab,
@@ -485,19 +507,26 @@ private fun AvatarBlock(
     enabled: Boolean,
     onTap: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val action = stringResource(
         if (hasAvatar) R.string.profile_avatar_edit else R.string.profile_avatar_add,
     )
-    AuleCard(
+    Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = AuleSpacing.sm),
-        elevation = AuleElevation.RESTING,
-        shape = RoundedCornerShape(AuleRadius.lg),
-        contentPadding = PaddingValues(AuleSpacing.lg),
+        shape = MaterialTheme.shapes.medium,
+        // La page est déjà `surface` : une carte de la même couleur ne se
+        // détache que par son ombre, invisible de nuit.
+        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
+        ),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Row(
+            modifier = Modifier.padding(AuleSpacing.lg),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Box(
                 modifier = Modifier.padding(end = AuleSpacing.xs, bottom = AuleSpacing.xs),
             ) {
@@ -515,11 +544,15 @@ private fun AvatarBlock(
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
-                                .clip(RoundedCornerShape(AuleRadius.md))
-                                .background(tokens.surfaceSolid.color.copy(alpha = AuleAlpha.VEIL)),
+                                .clip(MaterialTheme.shapes.small)
+                                .background(colors.surface.copy(alpha = AuleAlpha.VEIL)),
                             contentAlignment = Alignment.Center,
                         ) {
-                            AuleBusyIndicator(color = tokens.onSurface.color)
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(AuleControl.icon),
+                                color = colors.onSurface,
+                                strokeWidth = AuleStroke.glyph,
+                            )
                         }
                     }
                 }
@@ -530,14 +563,19 @@ private fun AvatarBlock(
                             .offset(x = AuleSpacing.xs, y = AuleSpacing.xs)
                             .size(AuleControl.avatarBadge)
                             .clip(CircleShape)
-                            .background(tokens.accent.color)
-                            .border(AuleStroke.emphasis, tokens.surface.color, CircleShape),
+                            .background(AuleTheme.tokens.accent.color)
+                            .border(AuleStroke.emphasis, colors.surface, CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        AuleIcon(
-                            glyph = if (hasAvatar) AuleGlyph.EDIT else AuleGlyph.CAMERA,
-                            tint = tokens.onAccent.color,
-                            size = AuleSpacing.md,
+                        Icon(
+                            imageVector = if (hasAvatar) {
+                                AuleGlyph.EDIT.asImageVector()
+                            } else {
+                                AuleGlyph.CAMERA.asImageVector()
+                            },
+                            contentDescription = null,
+                            tint = AuleTheme.tokens.onAccent.color,
+                            modifier = Modifier.size(AuleSpacing.md),
                         )
                     }
                 }
@@ -546,16 +584,17 @@ private fun AvatarBlock(
                 modifier = Modifier.padding(start = AuleSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
             ) {
-                BasicText(
+                Text(
                     text = name,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = colors.onSurface,
                 )
                 if (email != null) {
-                    BasicText(
+                    Text(
                         text = email,
-                        style = auleTextStyle(AuleRole.KICKER)
-                            .copy(color = tokens.onSurfaceMuted.color),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
                     )
                 }
             }
@@ -563,6 +602,7 @@ private fun AvatarBlock(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AvatarMenuDialog(
     hasAvatar: Boolean,
@@ -571,61 +611,52 @@ private fun AvatarMenuDialog(
     onGallery: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(vertical = AuleSpacing.sm),
-        ) {
-            AvatarMenuRow(
-                glyph = AuleGlyph.CAMERA,
-                label = stringResource(R.string.profile_avatar_camera),
-                onClick = onCamera,
+    val colors = MaterialTheme.colorScheme
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(modifier = Modifier.padding(bottom = AuleSpacing.lg)) {
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.profile_avatar_camera)) },
+                leadingContent = {
+                    Icon(
+                        imageVector = AuleGlyph.CAMERA.asImageVector(),
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable(onClick = onCamera),
             )
-            AvatarMenuRow(
-                glyph = AuleGlyph.IMAGE,
-                label = stringResource(R.string.profile_avatar_gallery),
-                onClick = onGallery,
+            ListItem(
+                headlineContent = { Text(stringResource(R.string.profile_avatar_gallery)) },
+                leadingContent = {
+                    Icon(
+                        imageVector = AuleGlyph.IMAGE.asImageVector(),
+                        contentDescription = null,
+                    )
+                },
+                modifier = Modifier.clickable(onClick = onGallery),
             )
             if (hasAvatar) {
-                AvatarMenuRow(
-                    glyph = AuleGlyph.TRASH,
-                    label = stringResource(R.string.profile_avatar_delete),
-                    onClick = onDelete,
-                    danger = true,
+                ListItem(
+                    headlineContent = {
+                        Text(
+                            text = stringResource(R.string.profile_avatar_delete),
+                            color = colors.error,
+                        )
+                    },
+                    leadingContent = {
+                        Icon(
+                            imageVector = AuleGlyph.TRASH.asImageVector(),
+                            contentDescription = null,
+                            tint = colors.error,
+                        )
+                    },
+                    modifier = Modifier.clickable(onClick = onDelete),
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun AvatarMenuRow(
-    glyph: AuleGlyph,
-    label: String,
-    onClick: () -> Unit,
-    danger: Boolean = false,
-) {
-    val tokens = AuleTheme.tokens
-    val ink = if (danger) tokens.alert.color else tokens.onSurface.color
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .clickable(onClick = onClick)
-            .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-            },
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-    ) {
-        AuleIcon(glyph = glyph, tint = ink)
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold).copy(color = ink),
-        )
     }
 }
 
@@ -634,39 +665,29 @@ private fun DeleteAvatarDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val title = stringResource(R.string.profile_avatar_delete_title)
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(AuleSpacing.xl),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier.semantics { heading() },
-                )
-                BasicText(
-                    text = stringResource(R.string.profile_avatar_delete_body),
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                )
-                AuleButton(
-                    title = stringResource(R.string.profile_avatar_delete_confirm),
-                    onClick = onConfirm,
-                    prominence = AuleButtonProminence.DANGER,
-                )
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
-                    onClick = onDismiss,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
+        title = { Text(stringResource(R.string.profile_avatar_delete_title)) },
+        text = { Text(stringResource(R.string.profile_avatar_delete_body)) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.errorContainer,
+                    contentColor = colors.onErrorContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.profile_avatar_delete_confirm))
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.menu_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -674,41 +695,26 @@ private fun CameraPermissionDialog(
     onDismiss: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val title = stringResource(R.string.profile_avatar_permission_title)
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(AuleSpacing.xl),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier.semantics { heading() },
-                )
-                BasicText(
-                    text = stringResource(R.string.profile_avatar_permission_camera),
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                )
-                AuleButton(
-                    title = stringResource(R.string.profile_avatar_settings),
-                    onClick = onOpenSettings,
-                )
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
-                    onClick = onDismiss,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
+        title = { Text(stringResource(R.string.profile_avatar_permission_title)) },
+        text = { Text(stringResource(R.string.profile_avatar_permission_camera)) },
+        confirmButton = {
+            Button(
+                onClick = onOpenSettings,
+                colors = auleAccentButtonColors(),
+            ) {
+                Text(stringResource(R.string.profile_avatar_settings))
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.menu_cancel))
+            }
+        },
+    )
 }
-
-private val DIALOG_MAX_WIDTH = 360.dp
 
 @Composable
 private fun IdentityEditor(
@@ -719,40 +725,58 @@ private fun IdentityEditor(
 ) {
     ProfileSection(title = stringResource(R.string.profile_identity)) {
         Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-            AuleTextField(
-                label = stringResource(R.string.profile_first_name),
+            OutlinedTextField(
                 value = draft.firstName,
                 onValueChange = { onChange(draft.copy(firstName = it)) },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
-                capitalization = KeyboardCapitalization.Words,
-                imeAction = ImeAction.Next,
-                onImeAction = onNext,
+                label = { Text(stringResource(R.string.profile_first_name)) },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(onNext = { onNext() }),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
             )
-            AuleTextField(
-                label = stringResource(R.string.profile_last_name),
+            OutlinedTextField(
                 value = draft.lastName,
                 onValueChange = { onChange(draft.copy(lastName = it)) },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
-                capitalization = KeyboardCapitalization.Words,
-                imeAction = ImeAction.Next,
-                onImeAction = onNext,
+                label = { Text(stringResource(R.string.profile_last_name)) },
+                keyboardOptions = KeyboardOptions(
+                    capitalization = KeyboardCapitalization.Words,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(onNext = { onNext() }),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
             )
-            AuleTextField(
-                label = stringResource(R.string.profile_phone),
+            OutlinedTextField(
                 value = draft.phone,
                 onValueChange = { onChange(draft.copy(phone = it)) },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
-                keyboardType = KeyboardType.Phone,
-                imeAction = ImeAction.Next,
-                onImeAction = onNext,
+                label = { Text(stringResource(R.string.profile_phone)) },
+                keyboardOptions = KeyboardOptions(
+                    keyboardType = KeyboardType.Phone,
+                    imeAction = ImeAction.Next,
+                ),
+                keyboardActions = KeyboardActions(onNext = { onNext() }),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
             )
-            AuleTextField(
-                label = stringResource(R.string.profile_driver_number),
+            OutlinedTextField(
                 value = draft.driverNumber,
                 onValueChange = { onChange(draft.copy(driverNumber = it)) },
+                modifier = Modifier.fillMaxWidth(),
                 enabled = enabled,
-                imeAction = ImeAction.Done,
-                onImeAction = onNext,
+                label = { Text(stringResource(R.string.profile_driver_number)) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { onNext() }),
+                singleLine = true,
+                shape = MaterialTheme.shapes.medium,
             )
         }
     }
@@ -796,6 +820,7 @@ private fun AssignmentEditor(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun OptionPicker(
     label: String,
@@ -806,8 +831,8 @@ private fun OptionPicker(
     enabled: Boolean,
     onSelect: (String) -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    var open by remember { mutableStateOf(false) }
+    val colors = MaterialTheme.colorScheme
+    var expanded by remember { mutableStateOf(false) }
     val chosen = options.find { it.first == selectedId }?.second
     val vacant = options.isEmpty()
     val shown = when {
@@ -815,77 +840,50 @@ private fun OptionPicker(
         chosen != null -> chosen
         else -> hint
     }
-    val shape = RoundedCornerShape(AuleRadius.lg)
     val interactive = enabled && !vacant
-    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.KICKER)
-                .copy(color = tokens.onSurfaceMuted.color),
-        )
-        Row(
+    ExposedDropdownMenuBox(
+        expanded = expanded && interactive,
+        onExpandedChange = { if (interactive) expanded = it },
+    ) {
+        OutlinedTextField(
+            value = shown,
+            onValueChange = {},
             modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleControl.field)
-                .clip(shape)
-                .background(tokens.surface.color)
-                .border(AuleStroke.hairline, tokens.hairline.color, shape)
-                .clickable(enabled = interactive) { open = true }
-                .padding(horizontal = AuleSpacing.md)
-                .semantics {
-                    role = Role.Button
-                    contentDescription = "$label. $shown"
-                    if (!interactive) disabled()
-                },
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            BasicText(
-                text = shown,
-                style = auleTextStyle(AuleRole.BODY).copy(
-                    color = if (chosen != null) tokens.onSurface.color else tokens.onSurfaceMuted.color,
-                ),
-                modifier = Modifier.weight(1f),
-                maxLines = 1,
-            )
-            AuleIcon(
-                glyph = AuleGlyph.CHEVRON,
-                tint = tokens.onSurfaceMuted.color,
-                modifier = Modifier.graphicsLayer { rotationZ = 90f },
-            )
-        }
-    }
-    if (open) {
-        Dialog(onDismissRequest = { open = false }) {
-            AuleCard(
-                modifier = Modifier.fillMaxWidth(),
-                elevation = AuleElevation.OVERLAY,
-                shape = RoundedCornerShape(AuleRadius.lg),
-                contentPadding = PaddingValues(vertical = AuleSpacing.sm),
-            ) {
-                BasicText(
-                    text = label,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier
-                        .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md)
-                        .semantics { heading() },
+                .menuAnchor(
+                    type = ExposedDropdownMenuAnchorType.PrimaryNotEditable,
+                    enabled = interactive,
                 )
-                options.forEach { (id, title) ->
-                    val selected = id == selectedId
-                    BasicText(
-                        text = title,
-                        style = auleTextStyle(AuleRole.BODY, if (selected) FontWeight.SemiBold else FontWeight.Normal)
-                            .copy(color = if (selected) tokens.accentOnSurface.color else tokens.onSurface.color),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = AuleTouch.minimum)
-                            .clickable {
-                                onSelect(id)
-                                open = false
-                            }
-                            .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md),
-                    )
-                }
+                .fillMaxWidth(),
+            readOnly = true,
+            enabled = interactive,
+            label = { Text(label) },
+            trailingIcon = {
+                ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded && interactive)
+            },
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+            colors = ExposedDropdownMenuDefaults.outlinedTextFieldColors(),
+        )
+        ExposedDropdownMenu(
+            expanded = expanded && interactive,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { (id, title) ->
+                val selected = id == selectedId
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = title,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) colors.primary else colors.onSurface,
+                        )
+                    },
+                    onClick = {
+                        onSelect(id)
+                        expanded = false
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
             }
         }
     }
@@ -898,66 +896,57 @@ private fun AccountSection(
     deleting: Boolean,
     deleteFailed: Boolean,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val label = stringResource(R.string.menu_sign_out)
     val deleteLabel = stringResource(R.string.profile_delete_account)
-    val shape = RoundedCornerShape(AuleRadius.md)
     Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
-        BasicText(
+        Text(
             text = stringResource(R.string.profile_account).uppercase(),
-            style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                .copy(color = tokens.onSurfaceMuted.color),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurfaceVariant,
             modifier = Modifier.padding(start = AuleSpacing.xs),
         )
-        Row(
+        ListItem(
+            headlineContent = {
+                Text(
+                    text = label,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            },
+            leadingContent = {
+                Icon(
+                    imageVector = AuleGlyph.SIGN_OUT.asImageVector(),
+                    contentDescription = null,
+                )
+            },
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleTouch.minimum)
-                .clip(shape)
-                .background(tokens.surface.color)
-                .border(AuleStroke.hairline, tokens.hairline.color, shape)
                 .clickable(onClick = onSignOut)
-                .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.md)
-                .semantics {
-                    role = Role.Button
-                    contentDescription = label
-                },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-        ) {
-            AuleIcon(glyph = AuleGlyph.SIGN_OUT, tint = tokens.onSurface.color)
-            BasicText(
-                text = label,
-                style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                    .copy(color = tokens.onSurface.color),
-            )
-        }
+                .semantics { contentDescription = label },
+        )
         if (deleteFailed) {
             AuleBanner(
                 message = stringResource(R.string.profile_delete_error),
                 tone = AuleTone.ALERT,
             )
         }
-        Box(
+        TextButton(
+            onClick = onDeleteAccount,
             modifier = Modifier
                 .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleTouch.minimum)
-                .clickable(enabled = !deleting, onClick = onDeleteAccount)
-                .semantics {
-                    role = Role.Button
-                    contentDescription = deleteLabel
-                    if (deleting) disabled()
-                },
-            contentAlignment = Alignment.Center,
+                .defaultMinSize(minHeight = AuleTouch.minimum),
+            enabled = !deleting,
+            colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
         ) {
             if (deleting) {
-                AuleBusyIndicator(color = tokens.alert.color)
-            } else {
-                BasicText(
-                    text = deleteLabel,
-                    style = auleTextStyle(AuleRole.BODY, FontWeight.SemiBold)
-                        .copy(color = tokens.alert.color),
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    color = colors.error,
+                    strokeWidth = AuleStroke.glyph,
                 )
+            } else {
+                Text(deleteLabel)
             }
         }
     }
@@ -969,39 +958,54 @@ private fun SaveBar(
     onCancel: () -> Unit,
     onSave: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .background(tokens.surface.color)
-            .border(AuleStroke.hairline, tokens.hairline.color)
-            .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = colors.surface,
+        border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
     ) {
-        BasicText(
-            text = stringResource(R.string.profile_unsaved),
-            style = auleTextStyle(AuleRole.KICKER)
-                .copy(color = tokens.onSurfaceMuted.color),
-        )
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-            verticalAlignment = Alignment.CenterVertically,
+        Column(
+            modifier = Modifier.padding(
+                horizontal = AuleSpacing.lg,
+                vertical = AuleSpacing.md,
+            ),
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
         ) {
-            Box(modifier = Modifier.weight(1f)) {
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
+            Text(
+                text = stringResource(R.string.profile_unsaved),
+                style = MaterialTheme.typography.labelSmall,
+                color = colors.onSurfaceVariant,
+            )
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                TextButton(
                     onClick = onCancel,
+                    modifier = Modifier.weight(1f),
                     enabled = !saving,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
-            }
-            Box(modifier = Modifier.weight(2f)) {
-                AuleButton(
-                    title = stringResource(R.string.profile_save),
+                ) {
+                    Text(stringResource(R.string.menu_cancel))
+                }
+                Button(
                     onClick = onSave,
+                    modifier = Modifier
+                        .weight(2f)
+                        .fillMaxWidth()
+                        .defaultMinSize(minHeight = AuleControl.height),
                     enabled = !saving,
-                    loading = saving,
-                )
+                    colors = auleAccentButtonColors(),
+                ) {
+                    if (saving) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(AuleControl.icon),
+                            color = AuleTheme.tokens.onAccent.color,
+                            strokeWidth = AuleStroke.glyph,
+                        )
+                    } else {
+                        Text(stringResource(R.string.profile_save))
+                    }
+                }
             }
         }
     }
@@ -1012,12 +1016,13 @@ private fun ProfileSection(
     title: String,
     content: @Composable () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
-        BasicText(
+        Text(
             text = title.uppercase(),
-            style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                .copy(color = tokens.onSurfaceMuted.color),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurfaceVariant,
             modifier = Modifier.padding(start = AuleSpacing.xs),
         )
         content()
@@ -1026,60 +1031,61 @@ private fun ProfileSection(
 
 private enum class ProfileTab { PROFIL, PREFERENCES }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProfileTabSwitcher(
     current: ProfileTab,
     onChanged: (ProfileTab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.md)
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .clip(shape)
-            .background(tokens.surface.color)
-            .border(AuleStroke.hairline, tokens.hairline.color, shape)
-            .padding(AuleSpacing.xs),
-    ) {
-        SegmentPill(
-            label = stringResource(R.string.profile_title),
-            active = current == ProfileTab.PROFIL,
-            onClick = { onChanged(ProfileTab.PROFIL) },
-            modifier = Modifier.weight(1f),
-        )
-        SegmentPill(
-            label = stringResource(R.string.profile_tab_preferences),
-            active = current == ProfileTab.PREFERENCES,
-            onClick = { onChanged(ProfileTab.PREFERENCES) },
-            modifier = Modifier.weight(1f),
-        )
+    val tabs = ProfileTab.entries
+    SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
+        tabs.forEachIndexed { index, tab ->
+            SegmentedButton(
+                selected = current == tab,
+                onClick = { onChanged(tab) },
+                shape = SegmentedButtonDefaults.itemShape(index, tabs.size),
+                label = {
+                    Text(
+                        stringResource(
+                            if (tab == ProfileTab.PROFIL) {
+                                R.string.profile_title
+                            } else {
+                                R.string.profile_tab_preferences
+                            },
+                        ),
+                    )
+                },
+            )
+        }
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppearanceSection(
     appearance: AppearanceMode,
     onAppearance: (AppearanceMode) -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.md)
+    val modes = AppearanceMode.entries
     ProfileSection(title = stringResource(R.string.profile_appearance)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(shape)
-                .background(tokens.surface.color)
-                .border(AuleStroke.hairline, tokens.hairline.color, shape)
-                .padding(AuleSpacing.xs),
-        ) {
-            AppearanceMode.entries.forEach { mode ->
-                SegmentPill(
-                    label = stringResource(mode.labelRes()),
-                    glyph = mode.glyph(),
-                    active = appearance == mode,
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            modes.forEachIndexed { index, mode ->
+                SegmentedButton(
+                    selected = appearance == mode,
                     onClick = { onAppearance(mode) },
-                    modifier = Modifier.weight(1f),
+                    shape = SegmentedButtonDefaults.itemShape(index, modes.size),
+                    icon = {
+                        Icon(
+                            imageVector = if (appearance == mode) {
+                                AuleGlyph.CHECK.asImageVector(filled = true)
+                            } else {
+                                mode.glyph().asImageVector()
+                            },
+                            contentDescription = null,
+                        )
+                    },
+                    label = { Text(stringResource(mode.labelRes())) },
                 )
             }
         }
@@ -1095,7 +1101,7 @@ private fun GpsTracesSection(
     onExport: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
+    val colors = MaterialTheme.colorScheme
     val deleteLabel = stringResource(R.string.profile_traces_delete)
     val summary = when {
         loading -> stringResource(R.string.profile_loading)
@@ -1115,13 +1121,18 @@ private fun GpsTracesSection(
         }
     }
     ProfileSection(title = stringResource(R.string.profile_traces)) {
-        AuleCard(
+        Card(
             modifier = Modifier.fillMaxWidth(),
-            elevation = AuleElevation.NONE,
-            shape = RoundedCornerShape(AuleRadius.md),
-            contentPadding = PaddingValues(AuleSpacing.md),
+            shape = MaterialTheme.shapes.small,
+            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = AuleElevation.NONE.height(AuleTheme.night),
+            ),
         ) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
+            Column(
+                modifier = Modifier.padding(AuleSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            ) {
                 if (loading) {
                     Box(
                         modifier = Modifier
@@ -1129,13 +1140,17 @@ private fun GpsTracesSection(
                             .defaultMinSize(minHeight = AuleTouch.minimum),
                         contentAlignment = Alignment.Center,
                     ) {
-                        AuleBusyIndicator(color = tokens.onSurfaceMuted.color)
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(AuleControl.icon),
+                            color = colors.onSurfaceVariant,
+                            strokeWidth = AuleStroke.glyph,
+                        )
                     }
                 } else {
-                    BasicText(
+                    Text(
                         text = summary,
-                        style = auleTextStyle(AuleRole.BODY)
-                            .copy(color = tokens.onSurfaceMuted.color),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
                     )
                 }
                 if (shareFailed) {
@@ -1149,28 +1164,22 @@ private fun GpsTracesSection(
                         horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(modifier = Modifier.weight(1f)) {
-                            AuleButton(
-                                title = stringResource(R.string.profile_traces_export),
-                                onClick = onExport,
-                            )
-                        }
-                        Box(
+                        Button(
+                            onClick = onExport,
                             modifier = Modifier
-                                .defaultMinSize(
-                                    minWidth = AuleTouch.minimum,
-                                    minHeight = AuleTouch.minimum,
-                                )
-                                .clip(RoundedCornerShape(AuleRadius.md))
-                                .background(tokens.alert.color.copy(alpha = AuleAlpha.TINT))
-                                .clickable(onClick = onDelete)
-                                .semantics {
-                                    role = Role.Button
-                                    contentDescription = deleteLabel
-                                },
-                            contentAlignment = Alignment.Center,
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .defaultMinSize(minHeight = AuleControl.height),
+                            colors = auleAccentButtonColors(),
                         ) {
-                            AuleIcon(glyph = AuleGlyph.TRASH, tint = tokens.alert.color)
+                            Text(stringResource(R.string.profile_traces_export))
+                        }
+                        IconButton(onClick = onDelete) {
+                            Icon(
+                                imageVector = AuleGlyph.TRASH.asImageVector(),
+                                contentDescription = deleteLabel,
+                                tint = colors.error,
+                            )
                         }
                     }
                 }
@@ -1180,85 +1189,33 @@ private fun GpsTracesSection(
 }
 
 @Composable
-private fun SegmentPill(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    glyph: AuleGlyph? = null,
-) {
-    val tokens = AuleTheme.tokens
-    val ink = if (active) tokens.onAccent.color else tokens.onSurfaceMuted.color
-    val shape = RoundedCornerShape(AuleRadius.sm)
-    Row(
-        modifier = modifier
-            .clip(shape)
-            .then(if (active) Modifier.background(tokens.accent.color) else Modifier)
-            .clickable(onClick = onClick)
-            .defaultMinSize(minHeight = AuleTouch.minimum)
-            .padding(horizontal = AuleSpacing.xs, vertical = AuleSpacing.sm)
-            .semantics {
-                role = Role.Button
-                contentDescription = label
-                selected = active
-            },
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (glyph != null) {
-            AuleIcon(
-                glyph = if (active) AuleGlyph.CHECK else glyph,
-                tint = ink,
-                size = AuleSpacing.lg,
-                filled = active,
-                modifier = Modifier.padding(end = AuleSpacing.xs),
-            )
-        }
-        BasicText(
-            text = label,
-            style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold).copy(color = ink),
-        )
-    }
-}
-
-@Composable
 private fun ConfirmDeleteAccountDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val title = stringResource(R.string.profile_delete_title)
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(AuleSpacing.xl),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier.semantics { heading() },
-                )
-                BasicText(
-                    text = stringResource(R.string.profile_delete_body),
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                )
-                AuleButton(
-                    title = stringResource(R.string.profile_delete_confirm),
-                    onClick = onConfirm,
-                    prominence = AuleButtonProminence.DANGER,
-                )
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
-                    onClick = onDismiss,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
+        title = { Text(stringResource(R.string.profile_delete_title)) },
+        text = { Text(stringResource(R.string.profile_delete_body)) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.errorContainer,
+                    contentColor = colors.onErrorContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.profile_delete_confirm))
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.menu_cancel))
+            }
+        },
+    )
 }
 
 @Composable
@@ -1267,8 +1224,7 @@ private fun ConfirmDeleteTracesDialog(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    val tokens = AuleTheme.tokens
-    val title = stringResource(R.string.profile_traces_delete_title)
+    val colors = MaterialTheme.colorScheme
     val body = stringResource(
         if (count == 1) {
             R.string.profile_traces_delete_body_one
@@ -1277,37 +1233,28 @@ private fun ConfirmDeleteTracesDialog(
         },
         count,
     )
-    Dialog(onDismissRequest = onDismiss) {
-        AuleCard(
-            modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
-            shape = RoundedCornerShape(AuleRadius.lg),
-            contentPadding = PaddingValues(AuleSpacing.xl),
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-                BasicText(
-                    text = title,
-                    style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                        .copy(color = tokens.onSurface.color),
-                    modifier = Modifier.semantics { heading() },
-                )
-                BasicText(
-                    text = body,
-                    style = auleTextStyle(AuleRole.BODY)
-                        .copy(color = tokens.onSurfaceMuted.color),
-                )
-                AuleButton(
-                    title = stringResource(R.string.profile_avatar_delete_confirm),
-                    onClick = onConfirm,
-                    prominence = AuleButtonProminence.DANGER,
-                )
-                AuleButton(
-                    title = stringResource(R.string.menu_cancel),
-                    onClick = onDismiss,
-                    prominence = AuleButtonProminence.PLAIN,
-                )
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.widthIn(max = DIALOG_MAX_WIDTH),
+        title = { Text(stringResource(R.string.profile_traces_delete_title)) },
+        text = { Text(body) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.errorContainer,
+                    contentColor = colors.onErrorContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.profile_avatar_delete_confirm))
             }
-        }
-    }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.menu_cancel))
+            }
+        },
+    )
 }
 
 private fun AppearanceMode.labelRes(): Int = when (this) {
@@ -1321,6 +1268,8 @@ private fun AppearanceMode.glyph(): AuleGlyph = when (this) {
     AppearanceMode.DARK -> AuleGlyph.MOON
     AppearanceMode.SYSTEM -> AuleGlyph.AUTO
 }
+
+private val DIALOG_MAX_WIDTH = 360.dp
 
 private fun shareTraceFiles(
     context: android.content.Context,

@@ -1,32 +1,21 @@
 package io.aule.android.core.designsystem.component
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
-import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.token.AuleAlpha
-import io.aule.android.core.designsystem.token.AuleRadius
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleStroke
-import io.aule.android.core.designsystem.token.AuleTouch
 
 /**
  * Le registre d'un message.
@@ -40,9 +29,18 @@ enum class AuleTone { NEUTRAL, ALERT }
 /**
  * Un message posé dans le flux, avec au plus une action.
  *
- * Il s'annonce en région vivante : un texte qui apparaît après un appui n'est
- * pas lu par TalkBack si personne ne le lui demande, et l'échec de connexion
- * resterait muet pour qui ne voit pas l'écran.
+ * Material 3 n'a volontairement pas de composant « bandeau » : il propose la
+ * `Snackbar` pour ce qui passe, et le `supportingText` d'un champ pour ce qui
+ * concerne une saisie. Reste le message qui doit **demeurer** sans interrompre
+ * — la tournée interrompue, le réseau absent — pour lequel Material recommande
+ * une surface posée dans le flux. C'est ce composant, et c'est pourquoi il
+ * n'est pas une redite d'un composant existant.
+ *
+ * Ce qu'il ajoute par-dessus la `Surface` : le registre, qui choisit le couple
+ * conteneur/encre dans le thème plutôt qu'à chaque appel, et l'annonce en
+ * région vivante — un texte qui apparaît après un appui n'est pas lu par
+ * TalkBack si personne ne le lui demande, et l'échec de connexion resterait
+ * muet pour qui ne voit pas l'écran.
  */
 @Composable
 fun AuleBanner(
@@ -52,56 +50,50 @@ fun AuleBanner(
     action: String? = null,
     onAction: (() -> Unit)? = null,
 ) {
-    val tokens = AuleTheme.tokens
-    val shape = RoundedCornerShape(AuleRadius.md)
+    val colors = MaterialTheme.colorScheme
+    val container = when (tone) {
+        AuleTone.NEUTRAL -> colors.surfaceContainerHigh
+        AuleTone.ALERT -> colors.errorContainer
+    }
     val ink = when (tone) {
-        AuleTone.NEUTRAL -> tokens.onSurface.color
-        AuleTone.ALERT -> tokens.alert.color
+        AuleTone.NEUTRAL -> colors.onSurface
+        AuleTone.ALERT -> colors.onErrorContainer
     }
-    val background = when (tone) {
-        AuleTone.NEUTRAL -> tokens.surface.color
-        AuleTone.ALERT -> tokens.alert.color.copy(alpha = AuleAlpha.TINT)
-    }
-    Row(
+
+    Surface(
         modifier = modifier
             .fillMaxWidth()
-            .clip(shape)
-            .background(background)
-            .then(
-                if (tone == AuleTone.ALERT) {
-                    Modifier.border(
-                        AuleStroke.hairline,
-                        tokens.alert.color.copy(alpha = AuleAlpha.OUTLINE),
-                        shape,
-                    )
-                } else {
-                    Modifier
-                },
-            )
-            .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm)
             .semantics {
                 liveRegion = LiveRegionMode.Polite
                 if (tone == AuleTone.ALERT) error(message)
             },
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically,
+        shape = MaterialTheme.shapes.small,
+        color = container,
+        contentColor = ink,
     ) {
-        BasicText(
-            text = message,
-            style = auleTextStyle(AuleRole.BODY).copy(color = ink),
-            modifier = Modifier.weight(1f),
-        )
-        if (action != null && onAction != null) {
-            BasicText(
-                text = action,
-                style = auleTextStyle(AuleRole.KICKER, FontWeight.SemiBold)
-                    .copy(color = tokens.accentOnSurface.color),
-                modifier = Modifier
-                    .defaultMinSize(minHeight = AuleTouch.minimum)
-                    .clip(RoundedCornerShape(AuleRadius.sm))
-                    .clickable(onClick = onAction)
-                    .padding(horizontal = AuleSpacing.sm),
+        Row(
+            modifier = Modifier.padding(
+                start = AuleSpacing.md,
+                end = if (action != null) AuleSpacing.xs else AuleSpacing.md,
+                top = AuleSpacing.sm,
+                bottom = AuleSpacing.sm,
+            ),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f),
             )
+            if (action != null && onAction != null) {
+                // Le bouton texte porte lui-même sa cible tactile de 48 dp et son
+                // ondulation : c'est ce que le texte simplement cliquable d'avant
+                // n'avait ni l'un ni l'autre.
+                TextButton(onClick = onAction) {
+                    Text(text = action)
+                }
+            }
         }
     }
 }

@@ -107,13 +107,18 @@ class SpacingScaleTest {
         }
     }
 
+    /**
+     * Les cinq crans alimentent les cinq formes de Material dans l'ordre. Deux
+     * crans égaux, et deux familles de composants que Material distingue —
+     * la carte et le dialogue — se confondent à l'écran.
+     */
     @Test
     fun `les rayons croissent, la pilule reste hors echelle`() {
-        listOf(AuleRadius.sm, AuleRadius.md, AuleRadius.lg, AuleRadius.xl)
+        listOf(AuleRadius.sm, AuleRadius.md, AuleRadius.lg, AuleRadius.xl, AuleRadius.xxl)
             .zipWithNext { smaller, larger ->
                 assertTrue(larger > smaller, "$smaller doit précéder $larger")
             }
-        assertTrue(AuleRadius.pill > AuleRadius.xl)
+        assertTrue(AuleRadius.pill > AuleRadius.xxl)
     }
 
     /**
@@ -125,9 +130,15 @@ class SpacingScaleTest {
         listOf(
             AuleAlpha.DISABLED,
             AuleAlpha.TINT,
+            AuleAlpha.WASH,
             AuleAlpha.OUTLINE,
             AuleAlpha.VEIL,
             AuleAlpha.SUBDUED,
+            AuleAlpha.GLOW,
+            AuleAlpha.GLOW_STRONG,
+            AuleAlpha.HALO,
+            AuleAlpha.HALO_STRONG,
+            AuleAlpha.HALO_SOFT,
         ).forEach { alpha ->
             assertTrue(alpha > 0f && alpha < 1f, "$alpha n'est pas une opacité utile")
         }

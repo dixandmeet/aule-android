@@ -4,20 +4,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import io.aule.android.core.common.config.AppConfig
 import io.aule.android.core.common.config.DataSource
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.auleTextStyle
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
-import io.aule.android.core.designsystem.token.AuleRole
 import io.aule.android.core.designsystem.token.AuleSpacing
 
 /**
@@ -36,7 +34,7 @@ import io.aule.android.core.designsystem.token.AuleSpacing
 @Composable
 fun BootScreen(config: AppConfig, modifier: Modifier = Modifier) {
     AuleTheme {
-        val tokens = AuleTheme.tokens
+        val colors = MaterialTheme.colorScheme
         AuleAmbientBackground(modifier = modifier) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -45,34 +43,30 @@ fun BootScreen(config: AppConfig, modifier: Modifier = Modifier) {
                     .safeDrawingPadding()
                     .padding(horizontal = AuleSpacing.xl),
             ) {
-                BasicText(
+                Text(
                     text = stringResource(R.string.boot_title),
-                    style = auleTextStyle(AuleRole.HERO, FontWeight.SemiBold).copy(
-                        color = tokens.accentOnSurface.color,
-                        textAlign = TextAlign.Center,
-                    ),
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = colors.primary,
+                    textAlign = TextAlign.Center,
                 )
-                BasicText(
+                Text(
                     text = stringResource(R.string.boot_subtitle),
-                    style = auleTextStyle(AuleRole.BODY).copy(
-                        color = tokens.onSurface.color,
-                        textAlign = TextAlign.Center,
-                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurface,
+                    textAlign = TextAlign.Center,
                 )
-                BasicText(
+                Text(
                     text = stringResource(R.string.boot_build_label, config.buildLabel),
-                    style = auleTextStyle(AuleRole.KICKER).copy(
-                        color = tokens.onSurfaceMuted.color,
-                        textAlign = TextAlign.Center,
-                    ),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = colors.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
                 )
                 if (!config.supabaseConfigured) {
-                    BasicText(
+                    Text(
                         text = stringResource(R.string.boot_supabase_missing),
-                        style = auleTextStyle(AuleRole.KICKER).copy(
-                            color = tokens.delay.color,
-                            textAlign = TextAlign.Center,
-                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.error,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }

@@ -1,5 +1,6 @@
 package io.aule.android.core.designsystem.token
 
+import androidx.compose.ui.text.font.FontWeight
 import io.aule.android.core.model.TransportMode
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -49,7 +50,31 @@ class ContrastTest {
     fun `l accent ecrit sur la surface tient aussi`(night: Boolean) {
         val t = tokens(night)
         val ratio = t.accentOnSurface.contrastRatio(t.surfaceSolid)
-        assertTrue(ratio >= 4.5, "accent sur surface : $ratio")
+        val minimum = if (night) 4.5 else 8.0
+        assertTrue(ratio >= minimum, "accent sur surface : $ratio pour $minimum:1 exigés")
+    }
+
+    /**
+     * Le brief fixe `onSurfaceMuted` de nuit au-dessus de 10:1. De jour, 4,5:1
+     * reste le plancher AA du corps de texte.
+     */
+    @ParameterizedTest(name = "nuit = {0}")
+    @ValueSource(booleans = [false, true])
+    fun `le texte secondaire depasse le seuil de son ambiance`(night: Boolean) {
+        val t = tokens(night)
+        val ratio = t.onSurfaceMuted.contrastRatio(t.surfaceSolid)
+        val minimum = if (night) 10.0 else 4.5
+        assertTrue(ratio >= minimum, "texte secondaire : $ratio pour $minimum:1 exigés")
+    }
+
+    @ParameterizedTest(name = "nuit = {0}")
+    @ValueSource(booleans = [false, true])
+    fun `un role metier reste lisible dans son conteneur`(night: Boolean) {
+        val t = tokens(night)
+        for (role in listOf(t.realtime, t.delay)) {
+            val ratio = role.onContainer.contrastRatio(role.container)
+            assertTrue(ratio >= 4.5, "onContainer : $ratio")
+        }
     }
 
     @Test
@@ -57,6 +82,52 @@ class ContrastTest {
         assertEquals(AuleRgba(0x0D595E), AuleBrand.teal)
         // L'identité ne suit pas l'ambiance ; l'accent de jour, lui, coïncide avec elle.
         assertEquals(AuleBrand.teal, AuleTokens.day.accent)
+    }
+
+    @Test
+    fun `les jetons HUD de jour sont ceux de la charte`() {
+        val t = AuleTokens.day
+        assertEquals(AuleRgba(0x0D595E), t.accent)
+        assertEquals(AuleRgba(0xFFFFFF), t.onAccent)
+        assertEquals(AuleRgba(0x0D595E), t.accentOnSurface)
+        assertEquals(AuleRgba(0x19B37B), t.realtime.color)
+        assertEquals(AuleRgba(0xFFFFFF), t.realtime.onColor)
+        assertEquals(AuleRgba(0xD1F4E6), t.realtime.container)
+        assertEquals(AuleRgba(0x005132), t.realtime.onContainer)
+        assertEquals(AuleRgba(0xE8A13C), t.delay.color)
+        assertEquals(AuleRgba(0xFFFFFF), t.delay.onColor)
+        assertEquals(AuleRgba(0xFFE3C2), t.delay.container)
+        assertEquals(AuleRgba(0x593600), t.delay.onContainer)
+        assertEquals(AuleRgba(0xD64545), t.alert)
+        assertEquals(AuleRgba(0xFFFFFF), t.onAlert)
+        assertEquals(AuleRgba(0xFFFFFF, alpha = 0.90), t.surface)
+        assertEquals(AuleRgba(0xFFFFFF), t.surfaceSolid)
+        assertEquals(AuleRgba(0x171717, alpha = 0.08), t.hairline)
+        assertEquals(AuleRgba(0x171717), t.onSurface)
+        assertEquals(AuleRgba(0x4A4A4A), t.onSurfaceMuted)
+    }
+
+    @Test
+    fun `les jetons HUD de nuit sont ceux de la charte`() {
+        val t = AuleTokens.night
+        assertEquals(AuleRgba(0x1A5C47), t.accent)
+        assertEquals(AuleRgba(0xF1F6F3), t.onAccent)
+        assertEquals(AuleRgba(0x8AC79B), t.accentOnSurface)
+        assertEquals(AuleRgba(0x41C895), t.realtime.color)
+        assertEquals(AuleRgba(0x003822), t.realtime.onColor)
+        assertEquals(AuleRgba(0x005234), t.realtime.container)
+        assertEquals(AuleRgba(0x67E5B0), t.realtime.onContainer)
+        assertEquals(AuleRgba(0xF0B45C), t.delay.color)
+        assertEquals(AuleRgba(0x432C00), t.delay.onColor)
+        assertEquals(AuleRgba(0x5E4000), t.delay.container)
+        assertEquals(AuleRgba(0xFFDCB3), t.delay.onContainer)
+        assertEquals(AuleRgba(0xE86060), t.alert)
+        assertEquals(AuleRgba(0x601410), t.onAlert)
+        assertEquals(AuleRgba(0x0D1512, alpha = 0.95), t.surface)
+        assertEquals(AuleRgba(0x0D1512), t.surfaceSolid)
+        assertEquals(AuleRgba(0xFFFFFF, alpha = 0.20), t.hairline)
+        assertEquals(AuleRgba(0xF3F5F7), t.onSurface)
+        assertEquals(AuleRgba(0xBFC7C3), t.onSurfaceMuted)
     }
 
     /**
@@ -76,20 +147,17 @@ class ContrastTest {
 class TypeScaleTest {
 
     /**
-     * Le rapport d'environ 1,27 est ce qui rend deux paliers distinguables
-     * **sans les comparer**. C'est aussi lui qui a décidé que le palier haut
-     * valait 28 et non 30 : 28/22 = 1,273 passe, 30/22 = 1,364 non.
+     * Les cinq rôles Aule ne sont que des noms. Leurs chiffres sont ceux des
+     * jetons Material 3 auxquels ils s'ancrent : un 18 à la place du 16 de
+     * `titleMedium`, et l'écran entier sort de la charte.
      */
     @Test
-    fun `l echelle typographique garde son rapport`() {
-        val ladder = AuleRole.ladder
-        ladder.zipWithNext { smaller, larger ->
-            val ratio = larger.sizeSp / smaller.sizeSp
-            assertTrue(
-                ratio >= 1.2f && ratio <= 1.35f,
-                "$smaller → $larger : rapport $ratio, hors de [1,2 ; 1,35]",
-            )
-        }
+    fun `les roles Aule suivent les jetons Material 3 auxquels ils s ancrent`() {
+        assertRole(AuleRole.KICKER, size = 11f, lineHeight = 16f, tracking = 0.5f, weight = FontWeight.Medium)
+        assertRole(AuleRole.BODY, size = 14f, lineHeight = 20f, tracking = 0.2f, weight = FontWeight.Normal)
+        assertRole(AuleRole.TITLE, size = 16f, lineHeight = 24f, tracking = 0.2f, weight = FontWeight.Medium)
+        assertRole(AuleRole.DATA, size = 22f, lineHeight = 28f, tracking = 0f, weight = FontWeight.Normal)
+        assertRole(AuleRole.HERO, size = 28f, lineHeight = 36f, tracking = 0f, weight = FontWeight.Normal)
     }
 
     @Test
@@ -105,6 +173,19 @@ class TypeScaleTest {
         AuleRole.ladder.zipWithNext { smaller, larger ->
             assertTrue(larger.sizeSp > smaller.sizeSp, "$smaller doit précéder $larger")
         }
+    }
+
+    private fun assertRole(
+        role: AuleRole,
+        size: Float,
+        lineHeight: Float,
+        tracking: Float,
+        weight: FontWeight,
+    ) {
+        assertEquals(size, role.sizeSp, "$role.sizeSp")
+        assertEquals(lineHeight, role.lineHeightSp, "$role.lineHeightSp")
+        assertEquals(tracking, role.trackingSp, "$role.trackingSp")
+        assertEquals(weight, role.weight, "$role.weight")
     }
 }
 

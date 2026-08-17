@@ -19,7 +19,10 @@ class AndroidComposeConventionPlugin : Plugin<Project> {
         val bom = libs.findLibrary("androidx-compose-bom").get()
         dependencies {
             add("implementation", platform(bom))
+            add("implementation", libs.findLibrary("androidx-compose-animation").get())
             add("implementation", libs.findLibrary("androidx-compose-foundation").get())
+            add("implementation", libs.findLibrary("androidx-compose-material3").get())
+            add("implementation", libs.findLibrary("androidx-compose-material-icons-extended").get())
             add("implementation", libs.findLibrary("androidx-compose-ui").get())
             add("implementation", libs.findLibrary("androidx-compose-ui-graphics").get())
             add("implementation", libs.findLibrary("androidx-compose-ui-tooling-preview").get())

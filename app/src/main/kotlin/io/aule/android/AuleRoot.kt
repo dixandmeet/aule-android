@@ -1,10 +1,16 @@
 package io.aule.android
 
+import android.content.Context
+import android.content.ContextWrapper
+import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.text.BasicText
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -17,8 +23,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -28,8 +34,7 @@ import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.LocalAppearanceMode
-import io.aule.android.core.designsystem.auleTextStyle
-import io.aule.android.core.designsystem.token.AuleRole
+import io.aule.android.core.designsystem.resolvedNight
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.DriverReportException
 import io.aule.android.core.model.DriverReportFailureKind
@@ -96,19 +101,20 @@ fun AuleRoot(
     }
 
     CompositionLocalProvider(LocalAppearanceMode provides appearance) {
+    SystemBarsFollowAppearance()
     when {
         !authState.isReady -> {
             AuleTheme {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(AuleTheme.tokens.surfaceSolid.color),
+                        .background(MaterialTheme.colorScheme.surface),
                     contentAlignment = Alignment.Center,
                 ) {
-                    BasicText(
+                    Text(
                         text = stringResource(R.string.app_name),
-                        style = auleTextStyle(AuleRole.TITLE, FontWeight.SemiBold)
-                            .copy(color = AuleTheme.tokens.onSurface.color),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
                     )
                 }
             }
@@ -379,4 +385,42 @@ fun AuleRoot(
         }
     }
     }
+}
+
+/**
+ * Les barres système suivent l'apparence **de l'application**.
+ *
+ * `enableEdgeToEdge()` sans argument lit le mode sombre du *téléphone*. Or Aule
+ * laisse choisir clair, sombre ou automatique dans les préférences : le système
+ * reste en clair, l'application passe en sombre, et la barre d'état garde ses
+ * icônes noires — sur un fond devenu noir. La barre de navigation, elle, garde
+ * son voile blanc en bas d'un écran sombre.
+ *
+ * On repose donc le style à chaque bascule, en donnant à Android le vrai état
+ * de l'application plutôt que celui de l'appareil. Les voiles sont
+ * transparents : le bord-à-bord veut que ce soit l'écran qui peigne dessous —
+ * la barre de navigation Material le fait déjà pour la carte.
+ */
+@Composable
+private fun SystemBarsFollowAppearance() {
+    val night = resolvedNight()
+    val view = LocalView.current
+    LaunchedEffect(night, view) {
+        if (view.isInEditMode) return@LaunchedEffect
+        val activity = view.context.findComponentActivity() ?: return@LaunchedEffect
+        val transparent = SystemBarStyle.auto(
+            lightScrim = android.graphics.Color.TRANSPARENT,
+            darkScrim = android.graphics.Color.TRANSPARENT,
+        ) { night }
+        activity.enableEdgeToEdge(
+            statusBarStyle = transparent,
+            navigationBarStyle = transparent,
+        )
+    }
+}
+
+private tailrec fun Context.findComponentActivity(): ComponentActivity? = when (this) {
+    is ComponentActivity -> this
+    is ContextWrapper -> baseContext.findComponentActivity()
+    else -> null
 }
