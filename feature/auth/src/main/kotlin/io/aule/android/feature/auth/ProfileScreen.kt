@@ -19,10 +19,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -51,10 +53,12 @@ import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -75,11 +79,13 @@ import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -284,14 +290,13 @@ fun ProfileScreen(
                 ),
             )
 
+            // Pleine largeur, sans gouttière : le filet d'un `TabRow` sépare
+            // l'en-tête du contenu, et un filet qui s'arrête avant le bord se
+            // lit comme un trait décoratif.
             ProfileTabSwitcher(
                 current = tab,
                 onChanged = { tab = it },
-                modifier = Modifier.padding(
-                    start = AuleSpacing.lg,
-                    end = AuleSpacing.lg,
-                    bottom = AuleSpacing.md,
-                ),
+                modifier = Modifier.padding(bottom = AuleSpacing.md),
             )
 
             Column(
@@ -931,6 +936,12 @@ private fun AccountSection(
                 tone = AuleTone.ALERT,
             )
         }
+        // La largeur d'une cible tactile, et non un espacement : c'est
+        // exactement ce qu'on veut dire. Se déconnecter se rattrape en se
+        // reconnectant ; supprimer son compte, non. Les huit points qui les
+        // séparaient mettaient l'irréversible à un tremblement de doigt de
+        // l'ordinaire.
+        Spacer(Modifier.height(AuleTouch.minimum))
         TextButton(
             onClick = onDeleteAccount,
             modifier = Modifier
@@ -959,8 +970,15 @@ private fun SaveBar(
     onSave: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
+    val notice = stringResource(R.string.profile_unsaved)
     Surface(
-        modifier = Modifier.fillMaxWidth(),
+        // La barre n'existe que lorsque la saisie s'écarte du serveur : son
+        // apparition est une information, pas un décor. Sans région vivante,
+        // un lecteur d'écran qui a le doigt dans un champ ne saurait jamais
+        // qu'il y a désormais quelque chose à enregistrer.
+        modifier = Modifier
+            .fillMaxWidth()
+            .semantics { liveRegion = LiveRegionMode.Polite },
         color = colors.surface,
         border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
     ) {
@@ -972,7 +990,7 @@ private fun SaveBar(
             verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
         ) {
             Text(
-                text = stringResource(R.string.profile_unsaved),
+                text = notice,
                 style = MaterialTheme.typography.labelSmall,
                 color = colors.onSurfaceVariant,
             )
@@ -982,7 +1000,9 @@ private fun SaveBar(
             ) {
                 TextButton(
                     onClick = onCancel,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier
+                        .weight(1f)
+                        .defaultMinSize(minHeight = AuleTouch.minimum),
                     enabled = !saving,
                 ) {
                     Text(stringResource(R.string.menu_cancel))
@@ -1031,7 +1051,18 @@ private fun ProfileSection(
 
 private enum class ProfileTab { PROFIL, PREFERENCES }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * La bascule entre les deux pages de l'écran.
+ *
+ * Des **onglets**, et non une barre segmentée : la page des préférences en
+ * porte une, pour l'apparence, et les deux se retrouvaient empilées à trois
+ * centimètres l'une de l'autre — même dessin, même taille, deux rôles
+ * étrangers. L'une change de page, l'autre règle un réglage ; les confondre
+ * fait chercher le retour en arrière après avoir voulu choisir « Sombre ».
+ *
+ * Material tranche d'ailleurs pareil : `TabRow` navigue, `SegmentedButton`
+ * choisit dans un ensemble.
+ */
 @Composable
 private fun ProfileTabSwitcher(
     current: ProfileTab,
@@ -1039,13 +1070,17 @@ private fun ProfileTabSwitcher(
     modifier: Modifier = Modifier,
 ) {
     val tabs = ProfileTab.entries
-    SingleChoiceSegmentedButtonRow(modifier = modifier.fillMaxWidth()) {
-        tabs.forEachIndexed { index, tab ->
-            SegmentedButton(
+    PrimaryTabRow(
+        selectedTabIndex = tabs.indexOf(current),
+        modifier = modifier.fillMaxWidth(),
+        containerColor = MaterialTheme.colorScheme.surface,
+    ) {
+        tabs.forEach { tab ->
+            Tab(
                 selected = current == tab,
                 onClick = { onChanged(tab) },
-                shape = SegmentedButtonDefaults.itemShape(index, tabs.size),
-                label = {
+                modifier = Modifier.defaultMinSize(minHeight = AuleTouch.minimum),
+                text = {
                     Text(
                         stringResource(
                             if (tab == ProfileTab.PROFIL) {
@@ -1121,12 +1156,15 @@ private fun GpsTracesSection(
         }
     }
     ProfileSection(title = stringResource(R.string.profile_traces)) {
+        // `surface` sur une page `surface`, sans ombre : la carte n'existait
+        // que dans le code. Le cran de conteneur la pose pour de bon, comme
+        // celle du portrait plus haut.
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.small,
-            colors = CardDefaults.cardColors(containerColor = colors.surface),
+            shape = MaterialTheme.shapes.medium,
+            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
             elevation = CardDefaults.cardElevation(
-                defaultElevation = AuleElevation.NONE.height(AuleTheme.night),
+                defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
             ),
         ) {
             Column(
@@ -1160,27 +1198,28 @@ private fun GpsTracesSection(
                     )
                 }
                 if (files.isNotEmpty()) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Button(
+                        onClick = onExport,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = AuleControl.height),
+                        colors = auleAccentButtonColors(),
                     ) {
-                        Button(
-                            onClick = onExport,
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxWidth()
-                                .defaultMinSize(minHeight = AuleControl.height),
-                            colors = auleAccentButtonColors(),
-                        ) {
-                            Text(stringResource(R.string.profile_traces_export))
-                        }
-                        IconButton(onClick = onDelete) {
-                            Icon(
-                                imageVector = AuleGlyph.TRASH.asImageVector(),
-                                contentDescription = deleteLabel,
-                                tint = colors.error,
-                            )
-                        }
+                        Text(stringResource(R.string.profile_traces_export))
+                    }
+                    // Même règle qu'au compte : l'effacement définitif ne
+                    // touche pas le bord du bouton qu'on vise. Il est écrit
+                    // en toutes lettres plutôt qu'en corbeille — une icône
+                    // seule laisse deviner ce qu'elle emporte.
+                    Spacer(Modifier.height(AuleSpacing.md))
+                    TextButton(
+                        onClick = onDelete,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .defaultMinSize(minHeight = AuleTouch.minimum),
+                        colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
+                    ) {
+                        Text(deleteLabel)
                     }
                 }
             }
