@@ -32,7 +32,7 @@ internal class FakeRecorder : GpsTraceRecorder {
         points += point
     }
 
-    override suspend fun close() {
+    override fun close() {
         closed = true
     }
 }

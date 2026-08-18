@@ -184,6 +184,18 @@ class MapViewModel(
 
     /** La trace du guidage en cours. `null` hors guidage, et en production. */
     private var trace: GpsTraceRecorder? = null
+
+    /**
+     * L'horodatage du dernier point consigné.
+     *
+     * La boucle de guidage relit la position chaque seconde, mais le
+     * fournisseur n'en publie une que toutes les huit environ : sans ce
+     * garde-fou, sept lignes sur huit répétaient la précédente. Une trace doit
+     * dire ce que le GPS a **mesuré**, pas à quelle cadence on l'a relu — et
+     * l'écart entre deux horodatages consignés rend justement visible le
+     * rythme du fournisseur, que la répétition masquait.
+     */
+    private var lastTracedMillis: Long? = null
     private val offRoute = OffRouteDetector()
     private var focusedLeg = -1
 
@@ -674,7 +686,10 @@ class MapViewModel(
             }
             return
         }
-        trace?.record(fix.toTracePoint())
+        if (fix.timestampMillis != lastTracedMillis) {
+            lastTracedMillis = fix.timestampMillis
+            trace?.record(fix.toTracePoint())
+        }
         val match = routeProgress.advance(current.plan.points, fix.coordinate)
         val progress = journeyProgressAt(current.plan, routeProgress.t) ?: return
         var off = current.offRoute
@@ -769,12 +784,8 @@ class MapViewModel(
     }
 
     /**
-     * Referme la trace, sans faire attendre l'appelant.
-     *
-     * `close` vide la file et purge le dossier : deux entrées-sorties qu'on ne
-     * met pas sur le chemin du bouton « Arrêter ». Le champ est vidé tout de
-     * suite pour qu'un guidage relancé dans la foulée n'écrive pas dans la
-     * trace du précédent.
+     * Referme la trace. Le champ est vidé d'abord, pour qu'un guidage relancé
+     * dans la foulée n'écrive pas dans la trace du précédent.
      */
     private fun stopGuidanceInternal() {
         maneuverGeneration++
@@ -782,18 +793,37 @@ class MapViewModel(
         focusedLeg = -1
         routeProgress.reset()
         offRoute.reset()
-        val closing = trace ?: return
+        lastTracedMillis = null
+        val closing = trace
         trace = null
-        viewModelScope.launch { closing.close() }
+        closing?.close()
     }
+
+    /**
+     * Ce que fait le système quand l'écran s'en va.
+     *
+     * `onCleared` est protégé : sans cette porte, la seule sortie qui a
+     * réellement posé problème serait aussi la seule qu'aucun test ne
+     * couvrirait.
+     */
+    internal fun clearForTest() = onCleared()
 
     /** Le centre d'ouverture, tant qu'aucune position n'est connue. */
     val openingCenter: Coordinate get() = Coordinate.NANTES
 
+    /**
+     * L'écran s'en va — et un guidage peut être en cours.
+     *
+     * C'est la sortie qu'on oublie : on quitte l'application par le geste de
+     * retour, sans passer par « Arrêter ». Sans cette ligne, la trace du
+     * trajet restait ouverte et son tampon partait avec le processus.
+     */
     override fun onCleared() {
         stopFleetPolling()
         geocodeJob?.cancel()
         routeJob?.cancel()
+        trace?.close()
+        trace = null
         super.onCleared()
     }
 

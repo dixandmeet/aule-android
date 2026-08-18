@@ -284,8 +284,15 @@ interface GpsTraceCatalog {
 interface GpsTraceRecorder {
     fun record(point: GpsTracePoint)
 
-    /** Vide ce qui reste et referme. Après quoi la trace apparaît dans [GpsTraceCatalog.list]. */
-    suspend fun close()
+    /**
+     * Referme la trace. Ne suspend pas, **et c'est le contrat qui compte** :
+     * un guidage se termine aussi quand l'écran disparaît, et à cet instant il
+     * n'y a plus de portée de coroutine pour attendre quoi que ce soit. Une
+     * fermeture qui aurait exigé d'attendre n'aurait tout simplement jamais eu
+     * lieu dans ce cas-là — et c'est le cas où l'on tient le plus à son
+     * fichier.
+     */
+    fun close()
 }
 
 /**

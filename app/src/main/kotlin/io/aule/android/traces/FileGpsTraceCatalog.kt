@@ -110,17 +110,26 @@ private class FileGpsTraceRecorder(
         points.trySend(point)
     }
 
-    override suspend fun close() {
+    override fun close() {
+        // Fermer la file suffit : la boucle d'écriture en sort, vide son
+        // tampon et purge. Rien à attendre, donc rien qui puisse être annulé
+        // au moment où l'écran s'en va.
         points.close()
-        writing.join()
-        withContext(Dispatchers.IO) { prune() }
-        scope.cancel()
     }
 
     /**
      * Le fichier naît au premier point, pas à l'ouverture : un guidage
      * démarré puis arrêté aussitôt — le geste de quelqu'un qui s'est trompé de
      * destination — ne laisse pas un fichier vide dans la liste.
+     *
+     * Le tampon est vidé **à chaque point**. Un compteur de lignes avait
+     * l'air plus économe ; il ne l'était pas : le guidage ne consigne qu'une
+     * mesure nouvelle, soit une toutes les huit secondes, si bien qu'un seuil
+     * de dix lignes retenait plus d'une minute de trajet. Or un fichier de
+     * diagnostic qui perd ses dernières minutes est muet précisément sur ce
+     * qu'on vient lui demander : ce qui s'est passé juste avant que
+     * l'application ne meure. Une écriture disque toutes les huit secondes ne
+     * coûte rien à côté.
      */
     private suspend fun drain() {
         var writer: BufferedWriter? = null
@@ -132,6 +141,7 @@ private class FileGpsTraceRecorder(
                     writer.appendLine(GPS_TRACE_CSV_HEADER)
                 }
                 writer.appendLine(point.toCsvRow())
+                writer.flush()
             }
         } catch (_: Exception) {
             // Voir le KDoc de la classe : la trace se tait, le guidage continue.
@@ -140,6 +150,8 @@ private class FileGpsTraceRecorder(
                 flush()
                 close()
             }
+            runCatching { prune() }
+            scope.cancel()
         }
     }
 

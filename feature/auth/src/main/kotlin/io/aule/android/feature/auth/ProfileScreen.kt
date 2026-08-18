@@ -122,6 +122,7 @@ import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.GpsTraceFile
 import java.io.File
 import kotlinx.coroutines.CancellationException
+import kotlin.math.ceil
 import kotlinx.coroutines.launch
 
 /**
@@ -1143,7 +1144,14 @@ private fun GpsTracesSection(
         files.isEmpty() && enabled -> stringResource(R.string.profile_traces_empty)
         files.isEmpty() -> stringResource(R.string.profile_traces_disabled)
         else -> {
-            val kilos = (files.sumOf { it.bytes } / 1024L).toString()
+            // **Jamais zéro.** Une trace de trente secondes pèse quatre cents
+            // octets : « 1 trace · 0 Ko » se lit comme un fichier vide, donc
+            // comme une panne, alors que le fichier est bon. Même règle que
+            // les minutes de marche, qui ne descendent pas sous une.
+            val kilos = ceil(files.sumOf { it.bytes } / 1024.0)
+                .toInt()
+                .coerceAtLeast(1)
+                .toString()
             stringResource(
                 if (files.size == 1) {
                     R.string.profile_traces_summary_one

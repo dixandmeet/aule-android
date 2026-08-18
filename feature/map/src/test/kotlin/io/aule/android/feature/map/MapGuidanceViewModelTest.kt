@@ -227,6 +227,12 @@ class MapGuidanceViewModelTest {
             viewModel.onGuidanceFix(fixAt(origin.coordinate, accuracy = 400.0))
             assertEquals(2, recorder.points.size)
 
+            // La boucle relit la position chaque seconde là où le GPS n'en
+            // publie une que toutes les huit : la même mesure ne s'écrit pas
+            // deux fois.
+            viewModel.onGuidanceFix(fixAt(destination.coordinate))
+            assertEquals(2, recorder.points.size)
+
             viewModel.stopGuidance()
             advanceUntilIdle()
             assertTrue(recorder.closed)
@@ -240,12 +246,51 @@ class MapGuidanceViewModelTest {
         }
     }
 
-    private fun fixAt(at: Coordinate, accuracy: Double = 5.0) = LocationFix(
+    /**
+     * La sortie qu'on oublie : on quitte l'application par le geste de retour,
+     * sans passer par « Arrêter ». Relevé sur le S21 — la trace restait
+     * ouverte et son tampon partait avec le processus.
+     */
+    @Test
+    fun `quitter l ecran en plein guidage referme la trace`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val traces = RecordingTraces()
+            val viewModel = viewModel(
+                dispatcher,
+                routing = FakeRouting(plan = samplePlan("a")),
+                traces = traces,
+            )
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            viewModel.onGuidanceFix(fixAt(origin.coordinate))
+            advanceUntilIdle()
+
+            val recorder = assertNotNull(traces.recorders.singleOrNull())
+            assertFalse(recorder.closed)
+
+            viewModel.clearForTest()
+            advanceUntilIdle()
+            assertTrue(recorder.closed)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private fun fixAt(
+        at: Coordinate,
+        accuracy: Double = 5.0,
+        atMillis: Long = at.latitude.toRawBits(),
+    ) = LocationFix(
         coordinate = at,
         accuracyMeters = accuracy,
         courseDegrees = 90.0,
         speedMetersPerSecond = 8.0,
-        timestampMillis = 1_760_000_000_000,
+        timestampMillis = atMillis,
         stabilizedHeading = 90.0,
         isHeadingFrozen = false,
     )
