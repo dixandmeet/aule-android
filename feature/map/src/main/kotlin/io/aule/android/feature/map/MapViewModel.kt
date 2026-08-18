@@ -8,6 +8,7 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.FleetStatus
+import io.aule.android.core.model.GpsTracePoint
 import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
 import io.aule.android.core.model.NearbyDigest
@@ -35,6 +36,8 @@ import io.aule.android.core.model.journeyProgressAt
 import io.aule.android.core.model.nextAction
 import io.aule.android.core.model.pinManeuvers
 import io.aule.android.core.model.tripSummary
+import io.aule.android.core.model.repository.GpsTraceCatalog
+import io.aule.android.core.model.repository.GpsTraceRecorder
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
@@ -149,6 +152,7 @@ class MapViewModel(
     internal val stopRepository: StopRepository,
     private val vehicleRepository: VehicleRepository,
     private val linePaletteRepository: LinePaletteRepository,
+    private val traces: GpsTraceCatalog,
     private val placeRepository: PlaceSearchRepository,
     private val routingRepository: RoutingRepository,
     private val roadRouter: RoadRouter,
@@ -177,6 +181,9 @@ class MapViewModel(
     private var maneuverGeneration = 0
     private val maneuversByLeg = mutableMapOf<Int, List<PinnedManeuver>>()
     private val routeProgress = RouteProgress()
+
+    /** La trace du guidage en cours. `null` hors guidage, et en production. */
+    private var trace: GpsTraceRecorder? = null
     private val offRoute = OffRouteDetector()
     private var focusedLeg = -1
 
@@ -620,6 +627,9 @@ class MapViewModel(
         val candidate = route.selected ?: return false
         val plan = journeyFromCandidate(candidate, route.destination.label) ?: return false
         stopGuidanceInternal()
+        // Ouvert ici et refermé avec le guidage : la trace couvre exactement
+        // le trajet, sans les minutes passées à choisir la destination.
+        trace = traces.startRecording()
         routeProgress.reset()
         if (around != null) routeProgress.advance(plan.points, around)
         val progress = journeyProgressAt(plan, routeProgress.t) ?: return false
@@ -664,6 +674,7 @@ class MapViewModel(
             }
             return
         }
+        trace?.record(fix.toTracePoint())
         val match = routeProgress.advance(current.plan.points, fix.coordinate)
         val progress = journeyProgressAt(current.plan, routeProgress.t) ?: return
         var off = current.offRoute
@@ -757,12 +768,23 @@ class MapViewModel(
         stopGuidanceInternal()
     }
 
+    /**
+     * Referme la trace, sans faire attendre l'appelant.
+     *
+     * `close` vide la file et purge le dossier : deux entrées-sorties qu'on ne
+     * met pas sur le chemin du bouton « Arrêter ». Le champ est vidé tout de
+     * suite pour qu'un guidage relancé dans la foulée n'écrive pas dans la
+     * trace du précédent.
+     */
     private fun stopGuidanceInternal() {
         maneuverGeneration++
         maneuversByLeg.clear()
         focusedLeg = -1
         routeProgress.reset()
         offRoute.reset()
+        val closing = trace ?: return
+        trace = null
+        viewModelScope.launch { closing.close() }
     }
 
     /** Le centre d'ouverture, tant qu'aucune position n'est connue. */
@@ -787,3 +809,20 @@ class MapViewModel(
         const val MANEUVER_LOOKAHEAD = 2
     }
 }
+
+/**
+ * La mesure telle qu'on la consigne.
+ *
+ * [LocationFix.coordinate] est déjà lissée par l'ancre de mouvement : c'est
+ * elle qu'on écrit, et non une mesure brute qu'on n'a pas — c'est aussi celle
+ * sur laquelle le guidage a décidé, donc celle qui explique ses décisions.
+ */
+private fun LocationFix.toTracePoint() = GpsTracePoint(
+    timestampMillis = timestampMillis,
+    latitude = coordinate.latitude,
+    longitude = coordinate.longitude,
+    accuracyMeters = accuracyMeters,
+    speedMetersPerSecond = speedMetersPerSecond,
+    courseDegrees = courseDegrees,
+    isMocked = isMocked,
+)

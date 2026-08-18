@@ -149,6 +149,7 @@ fun AuleRoot(
                             stopRepository = graph.stops,
                             vehicleRepository = graph.vehicles,
                             linePaletteRepository = graph.linePalette,
+                            traces = graph.traces,
                             placeRepository = graph.places,
                             routingRepository = graph.routing,
                             roadRouter = graph.roads,

@@ -10,6 +10,9 @@ import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.repository.GpsTraceCatalog
+import io.aule.android.core.model.repository.GpsTraceFile
+import io.aule.android.core.model.repository.GpsTraceRecorder
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadRouter
@@ -50,6 +53,7 @@ class MapSearchViewModelTest {
                 stopRepository = FakeStops(listOf(commerce)),
                 vehicleRepository = FakeVehicles(),
                 linePaletteRepository = FakeLinePalette(),
+            traces = NoTraces,
                 placeRepository = places,
                 routingRepository = FakeRouting(),
                 roadRouter = FakeRoadRouter(),
@@ -81,6 +85,7 @@ class MapSearchViewModelTest {
                 stopRepository = FakeStops(listOf(commerce)),
                 vehicleRepository = FakeVehicles(),
                 linePaletteRepository = FakeLinePalette(),
+            traces = NoTraces,
                 placeRepository = places,
                 routingRepository = FakeRouting(),
                 roadRouter = FakeRoadRouter(),

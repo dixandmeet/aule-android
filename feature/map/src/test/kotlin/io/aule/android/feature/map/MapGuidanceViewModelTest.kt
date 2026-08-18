@@ -17,6 +17,9 @@ import io.aule.android.core.model.RoutePreferences
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.repository.GpsTraceCatalog
+import io.aule.android.core.model.repository.GpsTraceFile
+import io.aule.android.core.model.repository.GpsTraceRecorder
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
@@ -196,14 +199,67 @@ class MapGuidanceViewModelTest {
         }
     }
 
+    @Test
+    fun `le guidage ecrit une trace et la referme en s arretant`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val traces = RecordingTraces()
+            val viewModel = viewModel(
+                dispatcher,
+                routing = FakeRouting(plan = samplePlan("a")),
+                traces = traces,
+            )
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            val recorder = assertNotNull(traces.recorders.singleOrNull())
+            viewModel.onGuidanceFix(fixAt(origin.coordinate))
+            viewModel.onGuidanceFix(fixAt(destination.coordinate))
+            assertEquals(2, recorder.points.size)
+
+            // Une position inexploitable ne rentre pas : la trace doit
+            // ressembler à ce sur quoi le guidage a réellement décidé.
+            viewModel.onGuidanceFix(fixAt(origin.coordinate, accuracy = 400.0))
+            assertEquals(2, recorder.points.size)
+
+            viewModel.stopGuidance()
+            advanceUntilIdle()
+            assertTrue(recorder.closed)
+
+            // Le guidage suivant ouvre sa propre trace, pas celle d'avant.
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+            assertEquals(2, traces.recorders.size)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    private fun fixAt(at: Coordinate, accuracy: Double = 5.0) = LocationFix(
+        coordinate = at,
+        accuracyMeters = accuracy,
+        courseDegrees = 90.0,
+        speedMetersPerSecond = 8.0,
+        timestampMillis = 1_760_000_000_000,
+        stabilizedHeading = 90.0,
+        isHeadingFrozen = false,
+    )
+
     private fun viewModel(
         dispatcher: kotlinx.coroutines.CoroutineDispatcher,
         routing: FakeRouting = FakeRouting(),
         roads: FakeRoadRouter = FakeRoadRouter(),
+        traces: GpsTraceCatalog = NoTraces,
     ) = MapViewModel(
         stopRepository = FakeStops(),
         vehicleRepository = FakeVehicles(),
         linePaletteRepository = FakeLinePalette(),
+        traces = traces,
         placeRepository = FakePlaces(),
         routingRepository = routing,
         roadRouter = roads,

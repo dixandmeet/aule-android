@@ -14,6 +14,9 @@ import io.aule.android.core.model.RoutePreferences
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.repository.GpsTraceCatalog
+import io.aule.android.core.model.repository.GpsTraceFile
+import io.aule.android.core.model.repository.GpsTraceRecorder
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadRouter
@@ -138,6 +141,7 @@ class MapRouteViewModelTest {
             stopRepository = FakeStops(),
             vehicleRepository = FakeVehicles(),
             linePaletteRepository = FakeLinePalette(),
+            traces = NoTraces,
             placeRepository = FakePlaces(),
             routingRepository = routing,
             roadRouter = FakeRoadRouter(),

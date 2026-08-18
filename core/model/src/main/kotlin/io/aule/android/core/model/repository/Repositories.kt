@@ -9,6 +9,7 @@ import io.aule.android.core.model.DriverProfile
 import io.aule.android.core.model.DriverProfileUpdate
 import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.FleetSnapshot
+import io.aule.android.core.model.GpsTracePoint
 import io.aule.android.core.model.HandoverAlertPrefs
 import io.aule.android.core.model.HandoverEngagement
 import io.aule.android.core.model.HandoverSummary
@@ -249,10 +250,42 @@ data class GpsTraceFile(
     val bytes: Long,
 )
 
+/**
+ * Les traces de guidage : les lister, les effacer, et en ouvrir une.
+ *
+ * L'écriture passe par un [GpsTraceRecorder] plutôt que par un `record()` sur
+ * le catalogue, parce qu'une trace a un **début et une fin** — ceux du
+ * guidage. Un catalogue qui accepterait des points au fil de l'eau devrait
+ * deviner tout seul quand refermer le fichier, et il devinerait mal.
+ */
 interface GpsTraceCatalog {
     val enabled: Boolean
     suspend fun list(): List<GpsTraceFile>
     suspend fun deleteAll()
+
+    /**
+     * Ouvre une trace, ou rend `null` quand l'enregistrement est coupé.
+     *
+     * `null` plutôt qu'un enregistreur qui n'écrit rien : l'appelant n'a alors
+     * rien à porter, et le cas « désactivé » se voit à la lecture du code
+     * plutôt qu'au fond d'une implémentation.
+     */
+    fun startRecording(): GpsTraceRecorder?
+}
+
+/**
+ * Une trace ouverte, le temps d'un guidage.
+ *
+ * [record] ne suspend pas : il est appelé depuis la boucle de guidage, une
+ * fois par seconde, et cette boucle n'a pas à attendre un disque. Le fichier
+ * n'existe qu'à partir du premier point — un guidage arrêté aussitôt ne laisse
+ * pas un fichier vide derrière lui.
+ */
+interface GpsTraceRecorder {
+    fun record(point: GpsTracePoint)
+
+    /** Vide ce qui reste et referme. Après quoi la trace apparaît dans [GpsTraceCatalog.list]. */
+    suspend fun close()
 }
 
 /**
