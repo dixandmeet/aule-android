@@ -1,12 +1,14 @@
 package io.aule.android.feature.map
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -20,16 +22,19 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import io.aule.android.core.designsystem.component.auleAccentButtonColors
+import androidx.compose.ui.text.style.TextOverflow
+import io.aule.android.core.designsystem.AuleCappedFontScale
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.LineBadge
+import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.RouteCandidate
 import io.aule.android.core.model.RouteMode
@@ -50,6 +55,14 @@ import java.time.format.FormatStyle
  *
  * « Démarrer » n'apparaît que sur un trajet retenu : un bouton offert
  * sans guidage derrière lui mentirait.
+ *
+ * ## Un choix, donc des boutons radio
+ *
+ * Les variantes ne sont pas une liste qu'on parcourt, c'est un choix dont une
+ * seule réponse survit — et le bouton d'après en dépend. Elles sont donc
+ * regroupées (`selectableGroup`) et annoncées comme telles : TalkBack dit
+ * « sélectionné, 2 sur 3 » au lieu de laisser deviner ce que la teinte du fond
+ * voulait dire.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -66,17 +79,17 @@ internal fun RouteSheet(
             .verticalScroll(rememberScrollState())
             .padding(horizontal = AuleSpacing.lg)
             .padding(bottom = AuleSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
     ) {
-        Text(
-            text = stringResource(R.string.route_title),
-            style = MaterialTheme.typography.titleLarge,
-            modifier = Modifier.semantics { heading() },
-        )
+        SheetTitle(stringResource(R.string.route_title))
 
-        Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
+        SheetCard(modifier = Modifier.fillMaxWidth()) {
             RouteEndpoint(label = stringResource(R.string.route_from), value = state.origin.label)
-            RouteEndpoint(label = stringResource(R.string.route_to), value = state.destination.label)
+            SheetRowDivider()
+            RouteEndpoint(
+                label = stringResource(R.string.route_to),
+                value = state.destination.label,
+            )
         }
 
         val modes = listOf(RouteMode.TRANSIT, RouteMode.CAR)
@@ -105,9 +118,11 @@ internal fun RouteSheet(
             RouteLoadStatus.LOADING -> AuleLoadingState(
                 label = stringResource(R.string.route_loading),
             )
+            // Le message de l'exception reste au journal : « timeout » et
+            // « Unable to resolve host » sont des traces, pas des phrases.
             RouteLoadStatus.ERROR -> AuleEmptyState(
                 title = stringResource(R.string.route_error_title),
-                detail = state.error ?: stringResource(R.string.route_error_detail),
+                detail = stringResource(R.string.route_error_detail),
             )
             RouteLoadStatus.READY -> {
                 val plan = state.plan
@@ -117,13 +132,16 @@ internal fun RouteSheet(
                         detail = stringResource(R.string.route_empty_detail),
                     )
                 } else {
-                    Column {
-                        plan.alternatives.forEach { candidate ->
+                    SheetCard(modifier = Modifier.fillMaxWidth().selectableGroup()) {
+                        plan.alternatives.forEachIndexed { index, candidate ->
                             RouteCandidateRow(
                                 candidate = candidate,
                                 selected = candidate.id == state.selectedId,
                                 onClick = { onSelect(candidate.id) },
                             )
+                            if (index < plan.alternatives.lastIndex) {
+                                SheetRowDivider()
+                            }
                         }
                     }
                     if (state.selected != null) {
@@ -141,22 +159,38 @@ internal fun RouteSheet(
     }
 }
 
+/**
+ * Une extrémité du trajet.
+ *
+ * L'intitulé passe en surtitre plutôt qu'en sous-titre : « Départ » qualifie le
+ * lieu qui suit, et le lire après lui oblige à revenir en arrière.
+ */
 @Composable
 private fun RouteEndpoint(label: String, value: String) {
-    val colors = MaterialTheme.colorScheme
-    Column {
-        Text(
-            text = label,
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.onSurfaceVariant,
-        )
-        Text(
-            text = value,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-    }
+    ListItem(
+        overlineContent = {
+            Text(text = label, style = MaterialTheme.typography.labelSmall)
+        },
+        headlineContent = {
+            Text(
+                text = value,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        // Transparent : la couleur vient du cartouche qui la porte.
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+    )
 }
 
+/**
+ * Une variante de trajet : sa durée, ce qu'elle emprunte, ce qu'elle vaut.
+ *
+ * La durée est l'information qu'on compare — elle porte donc le rôle `DATA`,
+ * aux chiffres à chasse fixe, pour que trois variantes empilées alignent leurs
+ * minutes au lieu de les décaler.
+ */
 @Composable
 private fun RouteCandidateRow(
     candidate: RouteCandidate,
@@ -188,70 +222,77 @@ private fun RouteCandidateRow(
     val supporting = buildString {
         if (departure != null) append(stringResource(R.string.route_departs, departure))
         if (profile != null) {
-            if (isNotEmpty()) append(" · ")
+            if (isNotEmpty()) append(FACT_SEPARATOR)
             append(profile)
         }
         if (reliability != null) {
-            if (isNotEmpty()) append(" · ")
+            if (isNotEmpty()) append(FACT_SEPARATOR)
             append(reliability)
         }
     }
-    ListItem(
-        headlineContent = {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(text = duration, style = MaterialTheme.typography.titleLarge)
-                Text(
-                    text = distance,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant,
-                )
-            }
-        },
-        supportingContent = {
-            Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-                if (supporting.isNotEmpty()) {
+    AuleCappedFontScale {
+        ListItem(
+            headlineContent = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(text = duration, style = MaterialTheme.typography.titleLarge)
                     Text(
-                        text = supporting,
+                        text = distance,
                         style = MaterialTheme.typography.labelSmall,
                         color = colors.onSurfaceVariant,
                     )
                 }
-                val lines = candidate.lineIds()
-                if (lines.isNotEmpty()) {
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        lines.distinct().forEach { line ->
-                            val color = candidate.segments.firstOrNull { it.routeId == line }?.color
-                            LineBadge(
-                                line = line,
-                                colorHex = color,
-                                contentDescription = stringResource(R.string.line_badge, line),
-                            )
+            },
+            supportingContent = {
+                Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
+                    if (supporting.isNotEmpty()) {
+                        Text(
+                            text = supporting,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                    }
+                    val lines = candidate.lineIds()
+                    if (lines.isNotEmpty()) {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            lines.distinct().forEach { line ->
+                                val color = candidate.segments
+                                    .firstOrNull { it.routeId == line }?.color
+                                LineBadge(
+                                    line = line,
+                                    colorHex = color,
+                                    contentDescription = stringResource(
+                                        R.string.line_badge,
+                                        line,
+                                    ),
+                                )
+                            }
+                        }
+                    } else {
+                        candidate.steps.firstOrNull()?.let { step ->
+                            Text(text = step.label, maxLines = 2)
                         }
                     }
-                } else {
-                    candidate.steps.firstOrNull()?.let { step ->
-                        Text(text = step.label, maxLines = 2)
-                    }
                 }
-            }
-        },
-        modifier = Modifier
-            .clickable(onClick = onClick)
-            .semantics {
-                this.selected = selected
-                contentDescription = description
             },
-        colors = ListItemDefaults.colors(
-            containerColor = if (selected) colors.primaryContainer else colors.surface,
-        ),
-    )
+            modifier = Modifier
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                // `selectable` et non `clickable` : c'est un choix parmi
+                // plusieurs, et le rôle est ce qui le fait annoncer comme tel.
+                .selectable(selected = selected, role = Role.RadioButton, onClick = onClick)
+                .semantics(mergeDescendants = true) { contentDescription = description },
+            colors = ListItemDefaults.colors(
+                containerColor = if (selected) colors.primaryContainer else Color.Transparent,
+                headlineColor = if (selected) colors.onPrimaryContainer else colors.onSurface,
+            ),
+        )
+    }
 }
 
 @Composable
@@ -276,3 +317,6 @@ private fun Instant.toClock(): String =
 
 private fun RouteCandidate.lineIds(): List<String> =
     segments.mapNotNull { it.routeId?.takeIf { id -> id.isNotBlank() } }
+
+/** Ce qui sépare deux faits d'une même ligne de sous-titre. */
+private const val FACT_SEPARATOR = " · "

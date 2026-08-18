@@ -5,7 +5,6 @@ import androidx.compose.ui.res.stringResource
 import io.aule.android.core.geo.GeoMath
 import java.text.DecimalFormatSymbols
 import io.aule.android.core.model.DeparturesOutcome
-import io.aule.android.core.model.DepartureRow
 import io.aule.android.core.model.FleetStatus
 import io.aule.android.core.model.ManeuverKind
 import io.aule.android.core.model.NextAction
@@ -13,6 +12,7 @@ import io.aule.android.core.model.NextActionKind
 import io.aule.android.core.model.SummaryMetric
 import io.aule.android.core.model.SummaryMetricKind
 import io.aule.android.core.model.TransportMode
+import io.aule.android.core.model.VehicleLoad
 import io.aule.android.core.model.Wait
 
 /**
@@ -40,13 +40,6 @@ fun Wait.label(): String = when (this) {
 }
 
 @Composable
-fun DepartureRow.waitsText(): String {
-    val next = nextWait ?: return stringResource(R.string.wait_none)
-    val rest = followingWaits.joinToString(" · ")
-    return if (rest.isEmpty()) next.label() else "${next.label()}  ·  $rest"
-}
-
-@Composable
 fun DeparturesOutcome.title(): String = when (this) {
     DeparturesOutcome.ANNOUNCED -> ""
     DeparturesOutcome.NOTHING_ANNOUNCED -> stringResource(R.string.departures_nothing_title)
@@ -66,6 +59,31 @@ fun TransportMode.label(): String = when (this) {
     TransportMode.TRAM -> stringResource(R.string.mode_tram)
     TransportMode.BOAT -> stringResource(R.string.mode_boat)
 }
+
+@Composable
+fun VehicleLoad.label(): String = when (this) {
+    VehicleLoad.QUIET -> stringResource(R.string.vehicle_load_quiet)
+    VehicleLoad.STEADY -> stringResource(R.string.vehicle_load_steady)
+    VehicleLoad.BUSY -> stringResource(R.string.vehicle_load_busy)
+    VehicleLoad.FULL -> stringResource(R.string.vehicle_load_full)
+}
+
+/**
+ * L'âge d'une position, dit comme on le dirait à voix haute.
+ *
+ * La seconde près n'a d'intérêt que la première minute : passé ce cap, ce
+ * qu'on veut savoir n'est plus « à combien de secondes » mais « est-ce que ça
+ * fait longtemps ».
+ */
+@Composable
+fun positionAgeText(seconds: Long): String = when {
+    seconds < FRESH_POSITION_SECONDS -> stringResource(R.string.vehicle_updated_now)
+    seconds < 60L -> stringResource(R.string.vehicle_updated_seconds, seconds.toInt())
+    else -> stringResource(R.string.vehicle_updated_minutes, (seconds / 60L).toInt())
+}
+
+/** En deçà, la position vient d'arriver : on ne compte pas les secondes. */
+private const val FRESH_POSITION_SECONDS = 15L
 
 @Composable
 fun ManeuverKind.phrase(): String = when (this) {

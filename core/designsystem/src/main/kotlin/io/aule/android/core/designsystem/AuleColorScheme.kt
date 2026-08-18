@@ -35,9 +35,10 @@ import io.aule.android.core.designsystem.token.AuleTokens
  *    se salit du bâtiment qui passe derrière.
  *
  *    Le **verre** reste l'identité d'Aule, mais il se demande : c'est
- *    [AuleTokens.surface], que la barre de recherche pose sur la carte. Un
- *    panneau flottant au-dessus du fond de carte le veut ; un volet qui prend
- *    l'écran, non.
+ *    [AuleTokens.surface]. Aucun écran ne le pose aujourd'hui — la barre de
+ *    recherche, qui l'appelait, prend la surface opaque et se décolle par son
+ *    ombre. Il attend le panneau qui flottera au-dessus du fond de carte ; un
+ *    volet qui prend l'écran, lui, n'en voudra jamais.
  *
  * Les couleurs dynamiques restent désactivées : l'identité d'Aule ne dépend pas
  * du fond d'écran de l'appareil.

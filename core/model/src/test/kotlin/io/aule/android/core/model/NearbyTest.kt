@@ -80,6 +80,35 @@ class NearbyTest {
     }
 
     @Test
+    fun `le temps de marche n est jamais nul`() {
+        val here = NearbyDigest.StopEntry(stop("A", "Ici", 0.0), distanceMeters = 0.0)
+        assertEquals(1, here.walkMinutes)
+    }
+
+    @Test
+    fun `le temps de marche compte le detour, pas la corde`() {
+        // 200 m à vol d'oiseau : 240 m de trottoir à 1,35 m/s, soit 2,96 min.
+        val entry = NearbyDigest.StopEntry(stop("A", "Ranzay", 0.0), distanceMeters = 200.0)
+        assertEquals(3, entry.walkMinutes)
+    }
+
+    @Test
+    fun `le temps de marche arrondit vers le haut`() {
+        // 210 m mènent à 3,11 min : on ne promet pas 3 minutes.
+        val entry = NearbyDigest.StopEntry(stop("A", "Terray", 0.0), distanceMeters = 210.0)
+        assertEquals(4, entry.walkMinutes)
+    }
+
+    @Test
+    fun `le temps de marche croit avec la distance`() {
+        val minutes = listOf(100.0, 500.0, 1000.0, 2000.0).map {
+            NearbyDigest.StopEntry(stop("A", "Lieu", 0.0), distanceMeters = it).walkMinutes
+        }
+        assertEquals(minutes.sorted(), minutes)
+        assertTrue(minutes.distinct().size == minutes.size)
+    }
+
+    @Test
     fun `la distance est celle du point de reference`() {
         val digest = NearbyDigestBuilder.build(
             stops = listOf(stop("A", "Ici", 0.0)),

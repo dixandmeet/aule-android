@@ -2,9 +2,23 @@ package io.aule.android.core.model
 
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.geo.GeoMath
+import kotlin.math.ceil
 
 /** Combien d'entrées au plus. Au-delà, une liste lue à voix haute cesse d'être une réponse. */
 const val NEARBY_LIMIT = 12
+
+/**
+ * Le rapport entre la corde et le trottoir réellement parcouru.
+ *
+ * La distance est à vol d'oiseau : personne ne marche en ligne droite entre
+ * deux immeubles. Un cinquième de rallonge est l'ordre de grandeur admis en
+ * tissu urbain — assez pour ne pas promettre plus court que la réalité, pas
+ * assez pour décourager d'un arrêt qui est en face.
+ */
+private const val WALK_DETOUR = 1.2
+
+/** Un piéton qui traverse des rues, en mètres par seconde — pas un marcheur sportif. */
+private const val WALK_SPEED_MPS = 1.35
 
 /**
  * Ce qu'il y a autour d'un point, en une liste ordonnée.
@@ -19,7 +33,23 @@ data class NearbyDigest(
 ) {
     val isEmpty: Boolean get() = stops.isEmpty() && vehicles.isEmpty()
 
-    data class StopEntry(val stop: TransitStop, val distanceMeters: Double)
+    data class StopEntry(val stop: TransitStop, val distanceMeters: Double) {
+        /**
+         * Combien de minutes de marche pour y arriver.
+         *
+         * Une distance répond « où », une durée répond « est-ce que j'y suis
+         * à temps » — et c'est la seconde question qu'on se pose devant une
+         * liste d'arrêts.
+         *
+         * **Jamais zéro.** « 0 min à pied » se lit comme une panne
+         * d'affichage, pas comme « vous y êtes ».
+         */
+        val walkMinutes: Int
+            get() = ceil(distanceMeters * WALK_DETOUR / WALK_SPEED_MPS / 60.0)
+                .toInt()
+                .coerceAtLeast(1)
+    }
+
     data class VehicleEntry(val vehicle: TransportVehicle, val distanceMeters: Double)
 }
 

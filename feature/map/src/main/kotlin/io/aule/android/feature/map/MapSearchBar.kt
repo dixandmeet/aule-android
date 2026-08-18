@@ -36,11 +36,12 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.model.Place
 import io.aule.android.core.model.StopSearchHit
@@ -115,20 +116,32 @@ internal fun MapSearchBar(
         }
     }
 
-    val inputFieldColors = SearchBarDefaults.inputFieldColors()
+    // Le champ peint son propre conteneur par-dessus celui de la barre : c'est
+    // lui, et lui seul, qui donne sa couleur à la barre repliée. Laissé au
+    // défaut Material (`surfaceContainerHigh`), il posait sur la carte un aplat
+    // verdi — les neutres d'Aule le sont de deux points, et une bande pleine
+    // largeur suffit à le rendre visible. Repliée, la barre prend donc la
+    // surface, blanche, et c'est l'ombre qui la décolle du fond de carte.
+    val collapsedInputFieldColors = SearchBarDefaults.inputFieldColors(
+        focusedContainerColor = colors.surface,
+        unfocusedContainerColor = colors.surface,
+        disabledContainerColor = colors.surface,
+    )
 
-    // Repliée, la barre est posée sur la carte : c'est le verre d'Aule, le seul
-    // endroit où il tienne. Déployée, elle prend l'écran et redevient une
-    // surface pleine — laisser voir la carte derrière une liste de résultats
-    // ne la rend pas plus lisible.
+    // Déployée, elle prend l'écran et redevient une surface pleine — laisser
+    // voir la carte derrière une liste de résultats ne la rend pas plus lisible.
+    // Le champ y garde le conteneur Material : posé sur le volet, il doit encore
+    // se lire comme un champ.
+    val expandedInputFieldColors = SearchBarDefaults.inputFieldColors()
+
     val collapsedColors = SearchBarDefaults.colors(
-        containerColor = AuleTheme.tokens.surface.color,
-        inputFieldColors = inputFieldColors,
+        containerColor = colors.surface,
+        inputFieldColors = collapsedInputFieldColors,
     )
     val expandedColors = SearchBarDefaults.colors(
         containerColor = colors.surfaceContainerLow,
         dividerColor = Color.Transparent,
-        inputFieldColors = inputFieldColors,
+        inputFieldColors = expandedInputFieldColors,
     )
     val expanded = searchBarState.currentValue == SearchBarValue.Expanded
     val inputField =
@@ -138,7 +151,7 @@ internal fun MapSearchBar(
                 searchBarState = searchBarState,
                 onSearch = { keyboard?.hide() },
                 placeholder = { Text(hint) },
-                colors = inputFieldColors,
+                colors = if (expanded) expandedInputFieldColors else collapsedInputFieldColors,
                 leadingIcon = {
                     if (expanded) {
                         IconButton(
@@ -180,7 +193,9 @@ internal fun MapSearchBar(
         state = searchBarState,
         inputField = inputField,
         colors = collapsedColors,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .auleShadow(AuleElevation.FLOATING, SearchBarDefaults.inputFieldShape),
     )
     ExpandedFullScreenSearchBar(
         state = searchBarState,

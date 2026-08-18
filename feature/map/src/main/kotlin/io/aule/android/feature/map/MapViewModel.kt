@@ -8,6 +8,7 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.FleetStatus
+import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
 import io.aule.android.core.model.NearbyDigest
 import io.aule.android.core.model.NearbyDigestBuilder
@@ -34,6 +35,7 @@ import io.aule.android.core.model.journeyProgressAt
 import io.aule.android.core.model.nextAction
 import io.aule.android.core.model.pinManeuvers
 import io.aule.android.core.model.tripSummary
+import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
 import io.aule.android.core.model.repository.RoadRouter
@@ -81,6 +83,12 @@ data class MapSearchState(
 data class MapUiState(
     val stops: List<TransitStop> = emptyList(),
     val isLoadingStops: Boolean = false,
+    /**
+     * Les couleurs de lignes. Vide tant que le catalogue n'a pas répondu — et
+     * vide pour toujours s'il ne répond jamais : un badge gris est une fiche
+     * moins jolie, pas une fiche fausse.
+     */
+    val linePalette: LinePalette = LinePalette.EMPTY,
     /**
      * La panne, telle qu'on peut la dire à l'usager.
      *
@@ -140,6 +148,7 @@ data class NavigationUiState(
 class MapViewModel(
     internal val stopRepository: StopRepository,
     private val vehicleRepository: VehicleRepository,
+    private val linePaletteRepository: LinePaletteRepository,
     private val placeRepository: PlaceSearchRepository,
     private val routingRepository: RoutingRepository,
     private val roadRouter: RoadRouter,
@@ -180,6 +189,7 @@ class MapViewModel(
 
     init {
         loadStops()
+        loadLinePalette()
     }
 
     // ------------------------------------------------------------------- arrêts
@@ -225,6 +235,26 @@ class MapViewModel(
     }
 
     fun retryLoadingStops() = loadStops()
+
+    /**
+     * Le nuancier des lignes, demandé une fois.
+     *
+     * En échec, on ne réessaie pas et on ne dit rien à l'usager : la couleur
+     * d'un badge n'est pas une information dont l'absence se signale. Elle se
+     * remplace par le gris de repli, et la fiche reste lisible.
+     */
+    private fun loadLinePalette() {
+        viewModelScope.launch {
+            runCatching {
+                withContext(dispatchers.io) { linePaletteRepository.palette() }
+            }.onSuccess { palette ->
+                if (palette.isEmpty) return@onSuccess
+                _state.value = _state.value.copy(linePalette = palette)
+            }.onFailure { failure ->
+                logger.warn(LogDomain.MAP, "Nuancier des lignes indisponible.", failure)
+            }
+        }
+    }
 
     fun reportMapError(reason: String) {
         _state.value = _state.value.copy(mapError = reason)

@@ -27,7 +27,6 @@
 
     <string name="wait_approaching">approaching</string>
     <string name="wait_minutes">%1$d min</string>
-    <string name="wait_none">—</string>
 
     <string name="departures_nothing_title">No departures announced</string>
     <string name="departures_nothing_detail">Nothing is running at this stop for the next three hours.</string>
@@ -42,6 +41,8 @@
     <string name="stop_accessible">Accessible</string>
     <string name="stop_loading">Looking up the next departures…</string>
     <string name="stop_unavailable_title">Times unavailable</string>
+    <string name="stop_unavailable_detail">The network did not answer. Departures will come back as soon as it does.</string>
+    <string name="stop_following_waits">then %1$s</string>
     <string name="stop_next_departures">Next departures</string>
     <string name="stop_serving_lines">Lines serving this stop</string>
     <string name="stop_realtime">Live</string>
@@ -104,6 +105,16 @@
     <string name="value_unknown">—</string>
     <string name="vehicle_follow">Follow this vehicle</string>
     <string name="vehicle_unfollow">Stop following</string>
+    <string name="vehicle_updated_now">just now</string>
+    <string name="vehicle_updated_seconds">%1$d s ago</string>
+    <string name="vehicle_updated_minutes">%1$d min ago</string>
+    <string name="vehicle_at_stop">Stopped</string>
+    <string name="vehicle_speed">%1$d km/h</string>
+    <string name="vehicle_load">Occupancy</string>
+    <string name="vehicle_load_quiet">Seats available</string>
+    <string name="vehicle_load_steady">Filling up</string>
+    <string name="vehicle_load_busy">Standing room only</string>
+    <string name="vehicle_load_full">Full</string>
 
     <string name="nearby_title">Around you</string>
     <string name="nearby_empty_title">Nothing around you</string>
@@ -117,12 +128,21 @@
     <string name="nearby_live">live</string>
     <string name="nearby_estimated">position estimated from the schedule</string>
     <string name="nearby_at_distance">%1$s away</string>
+    <string name="nearby_summary_one">1 stop within %1$s</string>
+    <string name="nearby_summary_many">%1$d stops within %2$s</string>
+    <string name="nearby_filter_all">All</string>
+    <string name="nearby_closest">Closest</string>
+    <string name="nearby_walk">%1$d min walk</string>
+    <string name="nearby_filtered_empty_title">No stop for this mode</string>
+    <string name="nearby_filtered_empty_detail">Pick “All” to see the whole list again.</string>
 
     <string name="route_start">Start</string>
     <string name="route_start_a11y">Start guidance</string>
     <string name="nav_stop">Stop</string>
     <string name="nav_stop_a11y">Stop guidance</string>
     <string name="nav_trip">Your trip</string>
+    <string name="trip_leg_current">Current leg</string>
+    <string name="trip_leg_done">Completed leg</string>
     <string name="nav_trip_hint">Tap to see the trip details</string>
     <string name="sheet_pane_trip">Your trip</string>
     <string name="nav_gps_lost">GPS signal lost</string>

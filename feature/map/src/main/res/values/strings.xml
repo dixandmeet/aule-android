@@ -27,7 +27,6 @@
 
     <string name="wait_approaching">à l\'approche</string>
     <string name="wait_minutes">%1$d min</string>
-    <string name="wait_none">—</string>
 
     <string name="departures_nothing_title">Aucun passage annoncé</string>
     <string name="departures_nothing_detail">Plus rien ne circule à cet arrêt dans les trois prochaines heures.</string>
@@ -42,6 +41,8 @@
     <string name="stop_accessible">Accessible</string>
     <string name="stop_loading">Recherche des prochains passages…</string>
     <string name="stop_unavailable_title">Horaires indisponibles</string>
+    <string name="stop_unavailable_detail">Le réseau n\'a pas répondu. Les passages réapparaîtront dès qu\'il redonnera signe.</string>
+    <string name="stop_following_waits">puis %1$s</string>
     <string name="stop_next_departures">Prochains passages</string>
     <string name="stop_serving_lines">Lignes desservies</string>
     <string name="stop_realtime">Temps réel</string>
@@ -104,6 +105,16 @@
     <string name="value_unknown">—</string>
     <string name="vehicle_follow">Suivre ce véhicule</string>
     <string name="vehicle_unfollow">Ne plus suivre</string>
+    <string name="vehicle_updated_now">à l\'instant</string>
+    <string name="vehicle_updated_seconds">il y a %1$d s</string>
+    <string name="vehicle_updated_minutes">il y a %1$d min</string>
+    <string name="vehicle_at_stop">À l\'arrêt</string>
+    <string name="vehicle_speed">%1$d km/h</string>
+    <string name="vehicle_load">Affluence</string>
+    <string name="vehicle_load_quiet">Peu de monde</string>
+    <string name="vehicle_load_steady">Bien rempli</string>
+    <string name="vehicle_load_busy">Beaucoup de monde</string>
+    <string name="vehicle_load_full">Complet</string>
 
     <string name="nearby_title">Autour de vous</string>
     <string name="nearby_empty_title">Rien autour de vous</string>
@@ -117,12 +128,21 @@
     <string name="nearby_live">en temps réel</string>
     <string name="nearby_estimated">position estimée sur l\'horaire</string>
     <string name="nearby_at_distance">à %1$s</string>
+    <string name="nearby_summary_one">1 arrêt à moins de %1$s</string>
+    <string name="nearby_summary_many">%1$d arrêts à moins de %2$s</string>
+    <string name="nearby_filter_all">Tous</string>
+    <string name="nearby_closest">Le plus proche</string>
+    <string name="nearby_walk">%1$d min à pied</string>
+    <string name="nearby_filtered_empty_title">Aucun arrêt de ce mode</string>
+    <string name="nearby_filtered_empty_detail">Choisissez « Tous » pour revoir toute la liste.</string>
 
     <string name="route_start">Démarrer</string>
     <string name="route_start_a11y">Démarrer le guidage</string>
     <string name="nav_stop">Arrêter</string>
     <string name="nav_stop_a11y">Arrêter le guidage</string>
     <string name="nav_trip">Votre trajet</string>
+    <string name="trip_leg_current">Étape en cours</string>
+    <string name="trip_leg_done">Étape franchie</string>
     <string name="nav_trip_hint">Toucher pour voir le détail du trajet</string>
     <string name="sheet_pane_trip">Votre trajet</string>
     <string name="nav_gps_lost">Signal GPS perdu</string>

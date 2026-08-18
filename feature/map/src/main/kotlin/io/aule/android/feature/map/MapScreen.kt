@@ -501,6 +501,9 @@ fun MapScreen(
                                     ?: viewModel.openingCenter
                                 NearbySheet(
                                     digest = viewModel.nearbyDigest(around),
+                                    linePalette = state.linePalette,
+                                    repository = viewModel.stopRepository,
+                                    dispatchers = viewModel.dispatchers,
                                     onSelectStop = { stop ->
                                         selectStopFromSheet(view, viewModel, controller, stop)
                                     },
@@ -530,6 +533,9 @@ fun MapScreen(
                             state.selectedVehicle != null -> {
                                 VehicleDetailSheet(
                                     vehicle = state.selectedVehicle!!,
+                                    lineColor = state.linePalette.colorOf(
+                                        state.selectedVehicle!!.lineId,
+                                    ),
                                     isFollowing = cameraMode == CameraMode.FOLLOW_VEHICLE,
                                     onFollow = {
                                         toggleFollowSelectedVehicle(
