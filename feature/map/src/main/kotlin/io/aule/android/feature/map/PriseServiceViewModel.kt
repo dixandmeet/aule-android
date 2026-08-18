@@ -12,7 +12,6 @@ import io.aule.android.core.model.ServiceLine
 import io.aule.android.core.model.ServiceStartRequest
 import io.aule.android.core.model.repository.DriverServiceRepository
 import java.time.Instant
-import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlinx.coroutines.CancellationException
@@ -142,8 +141,18 @@ class PriseServiceViewModel(
         )
     }
 
+    /**
+     * L'heure de prise de service, ramenée à un instant.
+     *
+     * Le jour se lit **sur [now]**, jamais sur l'horloge : deux lectures
+     * séparées de la même horloge ne tombent pas forcément le même jour, et
+     * celle qui se fait à cheval sur minuit décalait la prise de service de
+     * vingt-quatre heures. Un paramètre qu'on injecte et qu'on n'honore qu'à
+     * moitié rend le calcul juste la plupart du temps — c'est-à-dire faux, et
+     * seulement la nuit.
+     */
     fun setTimeOfDay(hour: Int, minute: Int, now: Instant = Instant.now(), zone: ZoneId = ZoneId.systemDefault()) {
-        val today = LocalDate.now(zone)
+        val today = now.atZone(zone).toLocalDate()
         var at = today.atTime(hour, minute).atZone(zone).toInstant()
         if (at.isBefore(now.minus(2, ChronoUnit.HOURS))) {
             at = at.plus(1, ChronoUnit.DAYS)
