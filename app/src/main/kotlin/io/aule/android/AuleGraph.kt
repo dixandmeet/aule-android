@@ -25,6 +25,7 @@ import io.aule.android.core.model.repository.DriverServiceRepository
 import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.HandoverAlertPrefsStore
 import io.aule.android.core.model.repository.HandoverRepository
+import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RegistrationDraftStore
 import io.aule.android.core.model.repository.RoadRouter
@@ -43,6 +44,7 @@ import io.aule.android.data.aule.SupabaseDriverProfileRepository
 import io.aule.android.data.aule.SupabaseDriverReportRepository
 import io.aule.android.data.aule.SupabaseDriverServiceRepository
 import io.aule.android.data.aule.SupabaseHandoverRepository
+import io.aule.android.data.aule.SupabaseLinePaletteRepository
 import io.aule.android.log.AndroidLogger
 import io.aule.android.traces.FileGpsTraceCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,6 +71,7 @@ class AuleGraph private constructor(
     val okHttp: OkHttpClient,
     val vehicles: VehicleRepository,
     val stops: StopRepository,
+    val linePalette: LinePaletteRepository,
     val places: PlaceSearchRepository,
     val routing: RoutingRepository,
     val roads: RoadRouter,
@@ -150,6 +153,11 @@ class AuleGraph private constructor(
                     okHttp = okHttp,
                     vehicles = AuleVehicleRepository(endpoints, http),
                     stops = AuleStopRepository(endpoints, http),
+                    linePalette = SupabaseLinePaletteRepository(
+                        client = http,
+                        supabaseUrl = config.supabaseUrl,
+                        publishableKey = config.supabasePublishableKey,
+                    ),
                     places = AulePlaceSearchRepository(endpoints, http),
                     routing = AuleRoutingRepository(endpoints, http),
                     roads = OsrmRoadRouter(http),

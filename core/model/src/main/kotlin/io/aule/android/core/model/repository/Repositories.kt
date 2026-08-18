@@ -15,6 +15,7 @@ import io.aule.android.core.model.HandoverSummary
 import io.aule.android.core.model.HandoverTarget
 import io.aule.android.core.model.HandoverTrack
 import io.aule.android.core.model.LineJourney
+import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.PositionPublishRequest
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ScheduledTrip
@@ -62,6 +63,18 @@ interface StopRepository {
     suspend fun departures(atStopNamed: String): StopDepartures
 
     suspend fun servingLines(atStopNamed: String): List<ServingLine>
+}
+
+/**
+ * Le nuancier des lignes, tel que le catalogue GTFS le publie.
+ *
+ * À part du reste parce que la donnée est ailleurs : le flux de flotte
+ * n'annonce qu'un `route_id`, et la couleur d'une ligne vit dans le catalogue.
+ * Une seule requête au démarrage suffit — un nuancier change à la fréquence
+ * d'un GTFS, pas d'un sondage.
+ */
+interface LinePaletteRepository {
+    suspend fun palette(): LinePalette
 }
 
 interface PlaceSearchRepository {

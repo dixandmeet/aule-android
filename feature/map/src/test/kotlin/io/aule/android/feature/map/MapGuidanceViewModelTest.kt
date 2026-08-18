@@ -16,6 +16,8 @@ import io.aule.android.core.model.RoutePlan
 import io.aule.android.core.model.RoutePreferences
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
+import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
 import io.aule.android.core.model.repository.RoadRoute
@@ -201,6 +203,7 @@ class MapGuidanceViewModelTest {
     ) = MapViewModel(
         stopRepository = FakeStops(),
         vehicleRepository = FakeVehicles(),
+        linePaletteRepository = FakeLinePalette(),
         placeRepository = FakePlaces(),
         routingRepository = routing,
         roadRouter = roads,
@@ -237,6 +240,13 @@ class MapGuidanceViewModelTest {
         )
         override suspend fun servingLines(atStopNamed: String) = emptyList<io.aule.android.core.model.ServingLine>()
     }
+
+    private class FakeLinePalette : LinePaletteRepository {
+
+        override suspend fun palette(): LinePalette = LinePalette.EMPTY
+
+    }
+
 
     private class FakeVehicles : VehicleRepository {
         override suspend fun vehicles(around: Coordinate, radiusMeters: Double, limit: Int) =

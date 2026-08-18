@@ -1,6 +1,7 @@
 package io.aule.android.core.model
 
 import io.aule.android.core.geo.Coordinate
+import java.time.Duration
 import java.time.Instant
 
 /**
@@ -81,7 +82,110 @@ data class TransportVehicle(
     val twinId: String? = null,
 ) {
     val isLive: Boolean get() = feed == VehicleFeed.LIVE
+
+    /**
+     * Il est immobile — **mesuré** immobile.
+     *
+     * Surtout pas [dwellSeconds] : le serveur y met la même valeur pour tout le
+     * monde (cinq secondes, relevé fait sur la flotte entière), parce que c'est
+     * un paramètre de la glisse — le temps pendant lequel la carte retient le
+     * marqueur au début de chaque horizon — et non l'observation d'un véhicule
+     * à quai. S'en servir affichait « À l'arrêt » sur chaque fiche, y compris
+     * pour un bus que la carte montrait en train de rouler.
+     *
+     * La vitesse d'un véhicule théorique ne dit rien non plus : elle vient de
+     * l'horaire, pas de la route. Seule une position mesurée peut affirmer
+     * qu'il ne bouge pas.
+     */
+    val isStopped: Boolean
+        get() = isLive && speedMps?.takeIf { it.isFinite() }?.let { it < MOVING_SPEED_MPS } == true
+
+    /**
+     * Le palier de remplissage, ou rien si le réseau ne publie pas la charge.
+     *
+     * Une valeur hors de [0, 1] est un capteur qui déraille, pas un véhicule
+     * plein à 300 % : on préfère ne rien dire.
+     */
+    val load: VehicleLoad?
+        get() {
+            val ratio = occupancy?.takeIf { it.isFinite() && it in 0.0..1.0 } ?: return null
+            return when {
+                ratio >= LOAD_FULL -> VehicleLoad.FULL
+                ratio >= LOAD_BUSY -> VehicleLoad.BUSY
+                ratio >= LOAD_STEADY -> VehicleLoad.STEADY
+                else -> VehicleLoad.QUIET
+            }
+        }
+
+    /**
+     * La vitesse en km/h, quand elle est **mesurée** et qu'il avance vraiment.
+     *
+     * Réservée aux positions mesurées pour la même raison qu'[isStopped] : la
+     * vitesse d'un véhicule théorique est celle de l'horaire, et l'écrire en
+     * chiffres la ferait passer pour un relevé.
+     *
+     * Un bus arrêté au feu remonte rarement zéro pile : afficher « 2 km/h »
+     * donnerait du mouvement là où il n'y en a pas, et ferait clignoter le
+     * chiffre à chaque sondage.
+     */
+    val speedKmh: Int?
+        get() = if (!isLive) {
+            null
+        } else {
+            speedMps
+                ?.takeIf { it.isFinite() && it >= MOVING_SPEED_MPS }
+                ?.let { Math.round(it * MPS_TO_KMH).toInt() }
+        }
+
+    /**
+     * Depuis combien de secondes cette position a été relevée.
+     *
+     * L'âge est ce qui distingue « il est là » de « il y était ». Une horloge
+     * de téléphone en avance sur celle du serveur donnerait un âge négatif,
+     * donc un futur : on le ramène à l'instant présent.
+     */
+    fun positionAgeSeconds(now: Instant): Long? {
+        val recorded = updatedAt ?: return null
+        return Duration.between(recorded, now).seconds.coerceAtLeast(0L)
+    }
 }
+
+/**
+ * Le monde à bord, en quatre paliers.
+ *
+ * Le réseau publie un taux continu ; l'afficher tel quel — « 62 % » — donnerait
+ * une précision que la mesure n'a pas, puisqu'elle vient d'un comptage de
+ * portes ou d'une charge à l'essieu. Quatre paliers disent la seule chose qui
+ * se décide dessus : monter dans celui-là, ou attendre le suivant.
+ */
+enum class VehicleLoad {
+    /** Des places assises. */
+    QUIET,
+
+    /** Il se remplit, on trouve encore où se mettre. */
+    STEADY,
+
+    /** Debout, serré. */
+    BUSY,
+
+    /** Il ne prend plus personne. */
+    FULL,
+}
+
+/** Les seuils des paliers de remplissage, en part de la charge maximale. */
+private const val LOAD_STEADY = 0.35
+private const val LOAD_BUSY = 0.70
+
+/**
+ * En deçà de la charge d'écrasement, un véhicule prend encore du monde : c'est
+ * le refus au dernier arrêt qu'on annonce, pas le dernier siège occupé.
+ */
+private const val LOAD_FULL = 0.92
+
+/** Sous cette vitesse, un véhicule est à l'arrêt, pas lent. */
+private const val MOVING_SPEED_MPS = 1.0
+
+private const val MPS_TO_KMH = 3.6
 
 /**
  * L'état de la flotte, sous une forme que l'interface traduit.

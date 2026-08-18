@@ -148,6 +148,7 @@ fun AuleRoot(
                         MapViewModel(
                             stopRepository = graph.stops,
                             vehicleRepository = graph.vehicles,
+                            linePaletteRepository = graph.linePalette,
                             placeRepository = graph.places,
                             routingRepository = graph.routing,
                             roadRouter = graph.roads,

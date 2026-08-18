@@ -9,6 +9,8 @@ import io.aule.android.core.model.Place
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
+import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadRouter
 import io.aule.android.core.model.repository.RoutingRepository
@@ -47,6 +49,7 @@ class MapSearchViewModelTest {
             val viewModel = MapViewModel(
                 stopRepository = FakeStops(listOf(commerce)),
                 vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
                 placeRepository = places,
                 routingRepository = FakeRouting(),
                 roadRouter = FakeRoadRouter(),
@@ -77,6 +80,7 @@ class MapSearchViewModelTest {
             val viewModel = MapViewModel(
                 stopRepository = FakeStops(listOf(commerce)),
                 vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
                 placeRepository = places,
                 routingRepository = FakeRouting(),
                 roadRouter = FakeRoadRouter(),
@@ -105,6 +109,13 @@ class MapSearchViewModelTest {
         )
         override suspend fun servingLines(atStopNamed: String) = emptyList<io.aule.android.core.model.ServingLine>()
     }
+
+    private class FakeLinePalette : LinePaletteRepository {
+
+        override suspend fun palette(): LinePalette = LinePalette.EMPTY
+
+    }
+
 
     private class FakeVehicles : VehicleRepository {
         override suspend fun vehicles(around: Coordinate, radiusMeters: Double, limit: Int) =
