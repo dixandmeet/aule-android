@@ -10,6 +10,7 @@ import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.map.camera.CameraMode
 import io.aule.android.core.map.camera.CameraTarget
+import io.aule.android.core.map.camera.NavigationCamera
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -78,6 +79,20 @@ class MapController(
 
     /** Vrai pendant nos propres animations, pour ne pas les prendre pour un geste. */
     private var suppressGestureDetection = false
+
+    /** Combien de gestes sont en cours. Vrai tant qu'un doigt pilote la carte. */
+    private var activeGestureCount = 0
+    private val isGestureActive: Boolean get() = activeGestureCount > 0
+
+    /** Vrai pendant notre propre réglage d'inclinaison, pour ne pas le déclencher sur lui-même. */
+    private var isAdjustingPitch = false
+
+    /**
+     * L'inclinaison retirée en prenant de la hauteur, à rendre en
+     * redescendant. `null` tant qu'on n'a rien pris : on ne relève que ce
+     * qu'on a couché, jamais une carte que le produit voulait à plat.
+     */
+    private var owedPitch: Double? = null
 
     private var lastAppliedTarget: CameraTarget? = null
     private var isCameraCallInFlight = false
@@ -254,6 +269,7 @@ class MapController(
             return
         }
         setCameraMode(CameraMode.FREE_EXPLORE)
+        forgetOwedPitch()
         val position = cameraPosition(center, zoom, pitch = 0.0, bearing = 0.0, topPaddingPx = 0.0)
         suppressGestureDetection = true
         isCameraCallInFlight = true
@@ -289,6 +305,7 @@ class MapController(
             return
         }
         setCameraMode(CameraMode.FREE_EXPLORE)
+        forgetOwedPitch()
         val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
         usable.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
         val pad = (48f * density).toInt().coerceAtLeast(32)
@@ -325,6 +342,7 @@ class MapController(
         if (mode == _cameraMode.value) return
         _cameraMode.value = mode
         lastAppliedTarget = null
+        forgetOwedPitch()
         if (!mode.followsSomething) {
             applyPadding(topPx = 0.0)
         }
@@ -363,6 +381,10 @@ class MapController(
         val animated = lastAppliedTarget == null && _cameraMode.value.followsSomething
         val last = lastAppliedTarget
         if (!animated && last != null && !isSignificant(target, last)) return false
+
+        // Un mode qui pilote décide seul de son inclinaison : la dette d'un
+        // dézoom précédent n'a plus d'objet.
+        forgetOwedPitch()
 
         val topPx = target.forwardOffsetPx * 2.0 * density
         val position = cameraPosition(
@@ -413,6 +435,7 @@ class MapController(
         topPaddingPx: Double,
     ) {
         val map = map ?: return
+        forgetOwedPitch()
         val position = cameraPosition(center, zoom, pitch, bearing, topPaddingPx)
         suppressGestureDetection = true
         map.moveCamera(CameraUpdateFactory.newCameraPosition(position))
@@ -475,27 +498,112 @@ class MapController(
 
     private fun installGestureListeners(map: MapLibreMap) {
         map.addOnMoveListener(object : MapLibreMap.OnMoveListener {
-            override fun onMoveBegin(detector: MoveGestureDetector) = handleUserGesture()
+            override fun onMoveBegin(detector: MoveGestureDetector) = beginGesture()
             override fun onMove(detector: MoveGestureDetector) = Unit
-            override fun onMoveEnd(detector: MoveGestureDetector) = settleRegion()
+            override fun onMoveEnd(detector: MoveGestureDetector) {
+                endGesture()
+                settleRegion()
+            }
         })
         map.addOnRotateListener(object : MapLibreMap.OnRotateListener {
-            override fun onRotateBegin(detector: RotateGestureDetector) = handleUserGesture()
+            override fun onRotateBegin(detector: RotateGestureDetector) = beginGesture()
             override fun onRotate(detector: RotateGestureDetector) = Unit
-            override fun onRotateEnd(detector: RotateGestureDetector) = Unit
+            override fun onRotateEnd(detector: RotateGestureDetector) = endGesture()
         })
         map.addOnScaleListener(object : MapLibreMap.OnScaleListener {
-            override fun onScaleBegin(detector: StandardScaleGestureDetector) = handleUserGesture()
+            override fun onScaleBegin(detector: StandardScaleGestureDetector) = beginGesture()
             override fun onScale(detector: StandardScaleGestureDetector) = Unit
-            override fun onScaleEnd(detector: StandardScaleGestureDetector) = settleRegion()
+            override fun onScaleEnd(detector: StandardScaleGestureDetector) {
+                endGesture()
+                settleRegion()
+            }
         })
         map.addOnShoveListener(object : MapLibreMap.OnShoveListener {
-            override fun onShoveBegin(detector: ShoveGestureDetector) = handleUserGesture()
+            override fun onShoveBegin(detector: ShoveGestureDetector) = beginGesture()
             override fun onShove(detector: ShoveGestureDetector) = Unit
-            override fun onShoveEnd(detector: ShoveGestureDetector) = Unit
+            override fun onShoveEnd(detector: ShoveGestureDetector) = endGesture()
         })
 
+        // **L'inclinaison suit le doigt, jamais une animation.** Pendant un
+        // geste, personne d'autre n'écrit la caméra : un `moveCamera` y est
+        // sans risque et l'inclinaison se règle au rythme du pincement. Hors
+        // geste, ce même appel annulerait l'animation en cours — l'inertie
+        // du zoom, un double-tap, un `flyTo` — et le mouvement s'arrêterait
+        // net à mi-course. On attend donc que la caméra se pose.
+        map.addOnCameraMoveListener { if (isGestureActive) applyPitchForZoom(animated = false) }
+        map.addOnCameraIdleListener { applyPitchForZoom(animated = true) }
+
         map.addOnMapClickListener { latLng -> handleTap(map, latLng) }
+    }
+
+    private fun beginGesture() {
+        // Un compteur, pas un booléen : pincer en tournant ouvre deux gestes,
+        // et la fin du premier ne signifie pas que les doigts ont quitté
+        // l'écran.
+        activeGestureCount++
+        handleUserGesture()
+    }
+
+    private fun endGesture() {
+        activeGestureCount = (activeGestureCount - 1).coerceAtLeast(0)
+    }
+
+    /**
+     * Couche la carte, ou la relève, selon la hauteur à laquelle on est.
+     *
+     * En dézoomant on quitte l'échelle de la rue, celle où l'inclinaison
+     * sert à quelque chose : passé le seuil elle ne fait plus qu'écraser le
+     * lointain, et la carte revient à plat. En rezoomant, elle se relève de
+     * la même quantité et par la même rampe. Le va-et-vient est symétrique
+     * parce que [owedPitch] retient ce qui a été retiré — la décision, elle,
+     * est prise ailleurs et sans carte, dans
+     * [NavigationCamera.pitchForZoom].
+     */
+    private fun applyPitchForZoom(animated: Boolean) {
+        val map = map ?: return
+        if (isAdjustingPitch || isCameraCallInFlight) return
+
+        val current = map.cameraPosition
+        val decision = NavigationCamera.pitchForZoom(current.tilt, current.zoom, owedPitch)
+        owedPitch = decision.owedPitch
+        val pitch = decision.pitch ?: return
+
+        val position = CameraPosition.Builder(current).tilt(pitch).build()
+        isAdjustingPitch = true
+        if (animated) {
+            suppressGestureDetection = true
+            isCameraCallInFlight = true
+            map.animateCamera(
+                CameraUpdateFactory.newCameraPosition(position),
+                AuleMotion.POP_MS,
+                object : MapLibreMap.CancelableCallback {
+                    override fun onFinish() = finishPitchAdjust()
+                    override fun onCancel() = finishPitchAdjust()
+                },
+            )
+        } else {
+            // En plein geste : on ne touche pas à `suppressGestureDetection`,
+            // sinon on masquerait le geste qui est en train d'avoir lieu.
+            map.moveCamera(CameraUpdateFactory.newCameraPosition(position))
+            isAdjustingPitch = false
+        }
+    }
+
+    private fun finishPitchAdjust() {
+        isAdjustingPitch = false
+        releaseCameraCall()
+    }
+
+    /**
+     * Efface la dette d'inclinaison : quelqu'un d'autre vient de décider du
+     * cadrage.
+     *
+     * Un mode de caméra, un vol vers une adresse, un tracé à cadrer posent
+     * l'inclinaison qu'ils veulent — souvent zéro. La rendre au prochain
+     * zoom relèverait une carte que le produit avait couchée exprès.
+     */
+    private fun forgetOwedPitch() {
+        owedPitch = null
     }
 
     /**

@@ -117,6 +117,129 @@ class NavigationCameraTest {
     }
 
     /**
+     * Le contrat de la 3D : elle existe à l'échelle de la rue, elle
+     * disparaît à l'échelle de la ville. Entre les deux on descend, sans
+     * palier — un redressement d'un coup au milieu d'un pincement se voit.
+     */
+    @Test
+    fun `a l echelle de la rue, l inclinaison reste entiere`() {
+        assertEquals(MAX_PITCH, NavigationCamera.maxPitchForZoom(PITCH_FULL_ZOOM))
+        assertEquals(MAX_PITCH, NavigationCamera.maxPitchForZoom(18.5))
+    }
+
+    @Test
+    fun `en prenant de la hauteur, la carte passe a plat`() {
+        assertEquals(0.0, NavigationCamera.maxPitchForZoom(PITCH_FLAT_ZOOM))
+        assertEquals(0.0, NavigationCamera.maxPitchForZoom(11.0))
+    }
+
+    @Test
+    fun `entre les deux, l inclinaison suit le zoom sans palier`() {
+        var zoom = PITCH_FLAT_ZOOM
+        var previous = -1.0
+        while (zoom <= PITCH_FULL_ZOOM) {
+            val pitch = NavigationCamera.maxPitchForZoom(zoom)
+            assertTrue(pitch > previous, "à z$zoom : $pitch n'est pas au-dessus de $previous")
+            assertTrue(pitch in 0.0..MAX_PITCH, "à z$zoom : $pitch hors bornes")
+            previous = pitch
+            zoom += 0.1
+        }
+        // Au milieu de la rampe, la moitié de l'inclinaison : la descente est
+        // linéaire, et c'est ce qui la rend prévisible au doigt.
+        val middle = (PITCH_FLAT_ZOOM + PITCH_FULL_ZOOM) / 2.0
+        assertEquals(MAX_PITCH / 2.0, NavigationCamera.maxPitchForZoom(middle), 1e-9)
+    }
+
+    @Test
+    fun `un zoom aberrant laisse la carte a plat plutot qu inclinee`() {
+        assertEquals(0.0, NavigationCamera.maxPitchForZoom(Double.NaN))
+        assertEquals(0.0, NavigationCamera.maxPitchForZoom(Double.NEGATIVE_INFINITY))
+        assertEquals(0.0, NavigationCamera.maxPitchForZoom(Double.POSITIVE_INFINITY))
+    }
+
+    /**
+     * Le va-et-vient complet, celui qu'on ne peut pas relire dans le code :
+     * on couche la carte en prenant de la hauteur, on la relève en
+     * redescendant, et on retrouve **exactement** l'inclinaison de départ.
+     */
+    @Test
+    fun `ce qui est retire au dezoom est rendu au rezoom`() {
+        var pitch = 55.0
+        var owed: Double? = null
+
+        // On monte : z17 → z13,5, par pas d'un quart de niveau.
+        var zoom = 17.0
+        while (zoom >= 13.5) {
+            val decision = NavigationCamera.pitchForZoom(pitch, zoom, owed)
+            owed = decision.owedPitch
+            decision.pitch?.let { pitch = it }
+            assertTrue(pitch <= NavigationCamera.maxPitchForZoom(zoom) + PITCH_STEP_EPSILON)
+            zoom -= 0.25
+        }
+        assertEquals(0.0, pitch, PITCH_STEP_EPSILON, "à z13,5 la carte doit être à plat")
+        assertEquals(55.0, assertNotNull(owed), 1e-9, "l'inclinaison retirée doit rester due")
+
+        // On redescend, et la 3D revient d'elle-même.
+        while (zoom <= 17.0) {
+            val decision = NavigationCamera.pitchForZoom(pitch, zoom, owed)
+            owed = decision.owedPitch
+            decision.pitch?.let { pitch = it }
+            zoom += 0.25
+        }
+        assertEquals(55.0, pitch, PITCH_STEP_EPSILON, "l'inclinaison de départ doit être rendue")
+        assertNull(owed, "une dette soldée s'éteint")
+    }
+
+    @Test
+    fun `au milieu de la remontee, on ne rend que ce que la rampe autorise`() {
+        val decision = NavigationCamera.pitchForZoom(currentPitch = 0.0, zoom = 15.0, owedPitch = 55.0)
+        // À z15 le plafond vaut la moitié de MAX_PITCH : on rend cela, pas 55.
+        assertEquals(MAX_PITCH / 2.0, assertNotNull(decision.pitch), 1e-9)
+        assertEquals(55.0, assertNotNull(decision.owedPitch), 1e-9)
+    }
+
+    /**
+     * Le garde-fou qui distingue « relever ce qu'on a couché » de « le zoom
+     * pilote l'inclinaison » : une carte posée à plat par une recherche
+     * d'adresse n'a retiré son inclinaison à personne.
+     */
+    @Test
+    fun `sans rien de du, zoomer ne releve pas une carte posee a plat`() {
+        val decision = NavigationCamera.pitchForZoom(currentPitch = 0.0, zoom = 18.0, owedPitch = null)
+        assertNull(decision.pitch)
+        assertNull(decision.owedPitch)
+    }
+
+    @Test
+    fun `une carte deja conforme au plafond n est pas reecrite`() {
+        val decision = NavigationCamera.pitchForZoom(currentPitch = 55.0, zoom = 17.0, owedPitch = null)
+        assertNull(decision.pitch)
+    }
+
+    /**
+     * Les modes pilotés cadrent tous au-dessus du seuil : la rampe ne doit
+     * rien leur retirer aujourd'hui. Le jour où un profil descendra plus
+     * bas, c'est ce test qui dira qu'il vient de perdre son inclinaison.
+     */
+    @ParameterizedTest
+    @EnumSource(value = CameraMode::class, names = ["FOLLOW", "NAVIGATION", "FOLLOW_VEHICLE"])
+    fun `les modes pilotes cadrent au-dessus du seuil de mise a plat`(mode: CameraMode) {
+        val profile = assertNotNull(CameraProfile.of(mode))
+        assertTrue(profile.minZoom >= PITCH_FULL_ZOOM, "minZoom ${profile.minZoom} < $PITCH_FULL_ZOOM")
+
+        var speed = 0.0
+        while (speed <= 40.0) {
+            val target = requireNotNull(NavigationCamera.target(input(mode, speed = speed)))
+            assertTrue(
+                target.pitch <= NavigationCamera.maxPitchForZoom(target.zoom),
+                "pitch ${target.pitch} au-dessus du plafond à z${target.zoom}",
+            )
+            assertTrue(target.pitch >= profile.minPitch, "pitch ${target.pitch} < ${profile.minPitch}")
+            speed += 2.5
+        }
+    }
+
+    /**
      * Le décalage se calcule sur la **bande visible**, volet déduit. Sans
      * cela, un volet à mi-hauteur repousse le puck derrière lui.
      */

@@ -28,6 +28,58 @@ const val CRUISE_SPEED_MPS = 18.0
 const val MAX_PITCH = 67.0
 
 /**
+ * Le zoom à partir duquel l'inclinaison est pleinement autorisée.
+ *
+ * Au-dessus on est à l'échelle de la rue : l'inclinaison donne de la
+ * profondeur et montre ce qui vient. En dessous, elle n'apporte plus rien —
+ * à hauteur de quartier, un plan incliné écrase le haut de l'écran, entasse
+ * les arrêts lointains sur trois lignes de pixels et rend les distances
+ * illisibles.
+ *
+ * Le couple avec [PITCH_FLAT_ZOOM] **encadre le seuil des bâtiments** : la
+ * couche `building-3d` des deux styles a un `minzoom` de 15. Sous ce
+ * niveau, il n'y a plus un seul volume à regarder ; l'inclinaison
+ * n'incline plus qu'un plan.
+ */
+const val PITCH_FULL_ZOOM = 16.0
+
+/**
+ * Le zoom sous lequel la carte est franchement à plat.
+ *
+ * L'écart avec [PITCH_FULL_ZOOM] n'est pas un détail de réglage : c'est la
+ * longueur de la rampe. Trop courte, la carte se redresse d'un coup au
+ * milieu d'un pincement ; trop longue, on garde une inclinaison résiduelle
+ * jusqu'à l'échelle de l'agglomération. Deux niveaux de zoom, c'est un
+ * pincement franc : assez pour qu'on voie la carte se coucher, trop pour
+ * qu'un ajustement au doigt la fasse basculer par accident.
+ */
+const val PITCH_FLAT_ZOOM = 14.0
+
+/**
+ * L'écart d'inclinaison sous lequel on laisse la carte tranquille.
+ *
+ * Sans cette marge, la rampe écrirait la caméra à chaque image d'un
+ * pincement pour un quart de degré, et le rattrapage de fin de geste se
+ * relancerait sur son propre résultat.
+ */
+const val PITCH_STEP_EPSILON = 0.25
+
+/**
+ * Ce que la caméra doit faire de son inclinaison, maintenant.
+ *
+ * [owedPitch] est le cœur du va-et-vient : l'inclinaison qu'on a retirée
+ * en prenant de la hauteur et qu'on doit rendre en redescendant. Sans
+ * cette mémoire, la carte saurait se coucher mais pas se relever — et
+ * rezoomer laisserait un plan à plat à l'échelle de la rue.
+ */
+data class PitchDecision(
+    /** L'inclinaison à écrire, ou `null` s'il n'y a rien à changer. */
+    val pitch: Double?,
+    /** Ce qu'il reste dû, ou `null` quand la dette est soldée. */
+    val owedPitch: Double?,
+)
+
+/**
  * Ce que la caméra est en train de faire.
  *
  * Ces cinq modes sont le **seul** endroit où se règle le cadrage. Un
@@ -168,7 +220,10 @@ object NavigationCamera {
         val pace = min(max(input.speedMps, 0.0) / CRUISE_SPEED_MPS, 1.0)
 
         val zoom = profile.maxZoom + (profile.minZoom - profile.maxZoom) * pace
-        val pitch = min(profile.minPitch + (profile.maxPitch - profile.minPitch) * pace, MAX_PITCH)
+        val pitch = min(
+            profile.minPitch + (profile.maxPitch - profile.minPitch) * pace,
+            maxPitchForZoom(zoom),
+        )
 
         val visibleHeight = max(input.viewportHeight - input.sheetHeightPx, 0.0)
         val offset = min(
@@ -183,6 +238,66 @@ object NavigationCamera {
             zoom = zoom,
             forwardOffsetPx = offset,
         )
+    }
+
+    /**
+     * L'inclinaison qu'on s'autorise à ce niveau de zoom.
+     *
+     * C'est la règle qui **redresse la carte quand on prend de la hauteur**.
+     * Elle vaut pour les modes pilotés comme pour l'exploration libre : le
+     * seul endroit où l'on décide de la 3D, c'est ici — le contrôleur ne
+     * fait qu'appliquer.
+     *
+     * La rampe est linéaire et sans hystérésis : le doigt écarte, la carte
+     * se couche ; le doigt pince, elle se relève, sans palier ni saut.
+     */
+    fun maxPitchForZoom(zoom: Double): Double {
+        // Un zoom non fini ne devrait pas exister ; s'il arrive, la vue à
+        // plat est le repli qui reste lisible.
+        if (!zoom.isFinite()) return 0.0
+        if (zoom >= PITCH_FULL_ZOOM) return MAX_PITCH
+        if (zoom <= PITCH_FLAT_ZOOM) return 0.0
+        val climb = (zoom - PITCH_FLAT_ZOOM) / (PITCH_FULL_ZOOM - PITCH_FLAT_ZOOM)
+        return MAX_PITCH * climb
+    }
+
+    /**
+     * L'inclinaison à écrire maintenant, et ce qu'il restera dû.
+     *
+     * Le contrat tient en une phrase : **on rend exactement ce qu'on a
+     * pris**. En prenant de la hauteur, l'inclinaison passe sous le plafond
+     * de [maxPitchForZoom] et la valeur retirée est mise de côté ; en
+     * redescendant, elle revient au même rythme, jusqu'à solde.
+     *
+     * Ce n'est pas la même chose que « le zoom pilote l'inclinaison ». Une
+     * carte posée à plat par une recherche d'adresse n'a rien retiré à
+     * personne : [owedPitch] y vaut `null`, et zoomer dessus la laisse
+     * plate. Sans cette distinction, un simple zoom relèverait une caméra
+     * que le produit avait délibérément couchée.
+     *
+     * @param currentPitch l'inclinaison réelle de la caméra, en degrés.
+     * @param owedPitch ce qui reste dû d'un redressement précédent.
+     */
+    fun pitchForZoom(currentPitch: Double, zoom: Double, owedPitch: Double?): PitchDecision {
+        val ceiling = maxPitchForZoom(zoom)
+
+        // On couche la carte : ce qu'on retire, on le note avant de le
+        // retirer — c'est la seule occasion de le connaître.
+        if (currentPitch > ceiling + PITCH_STEP_EPSILON) {
+            return PitchDecision(pitch = ceiling, owedPitch = owedPitch ?: currentPitch)
+        }
+
+        val owed = owedPitch ?: return PitchDecision(pitch = null, owedPitch = null)
+        val wanted = min(owed, ceiling)
+
+        // Une dette soldée s'éteint. La garder ferait ressurgir, au premier
+        // rezoom venu, une inclinaison prise dix minutes plus tôt.
+        val settled = wanted >= owed - PITCH_STEP_EPSILON
+        if (wanted <= currentPitch + PITCH_STEP_EPSILON) {
+            val reached = currentPitch >= owed - PITCH_STEP_EPSILON
+            return PitchDecision(pitch = null, owedPitch = if (reached) null else owed)
+        }
+        return PitchDecision(pitch = wanted, owedPitch = if (settled) null else owed)
     }
 
     /**
