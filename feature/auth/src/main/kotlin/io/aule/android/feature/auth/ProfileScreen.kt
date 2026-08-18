@@ -1207,11 +1207,13 @@ private fun GpsTracesSection(
                     ) {
                         Text(stringResource(R.string.profile_traces_export))
                     }
-                    // Même règle qu'au compte : l'effacement définitif ne
-                    // touche pas le bord du bouton qu'on vise. Il est écrit
-                    // en toutes lettres plutôt qu'en corbeille — une icône
-                    // seule laisse deviner ce qu'elle emporte.
-                    Spacer(Modifier.height(AuleSpacing.md))
+                    // Même règle qu'au compte, et la même distance : une
+                    // cible tactile entière. Douze points suffisaient à
+                    // séparer deux blocs, pas à protéger un effacement
+                    // définitif du doigt qui visait « Exporter ». Il est
+                    // écrit en toutes lettres plutôt qu'en corbeille — une
+                    // icône seule laisse deviner ce qu'elle emporte.
+                    Spacer(Modifier.height(AuleTouch.minimum))
                     TextButton(
                         onClick = onDelete,
                         modifier = Modifier
