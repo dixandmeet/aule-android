@@ -17,17 +17,22 @@ ksp = "2.4.10-2.0.4"
 # Plancher et cible Android.
 # minSdk 26 : java.time sans desugaring, canaux de notification, icônes adaptatives.
 # targetSdk 36 impose de toute façon les services de premier plan typés.
+#
+# compileSdk 37 n'est pas une cible : Compose 1.12.0 le réclame (`minCompileSdk=37`
+# dans les métadonnées de son AAR), et compiler contre 37 ne change rien au
+# comportement à l'exécution — c'est targetSdk, resté à 36, qui le fixe.
 minSdk = "26"
 targetSdk = "36"
-compileSdk = "36"
+compileSdk = "37"
 
 androidxCore = "1.18.0"
 androidxActivity = "1.12.0"
 androidxLifecycle = "2.10.0"
-# BOM 2026.06.01 → Compose 1.11.4. Le BOM 2026.08.00 tire Compose 1.12.0, qui
-# exige compileSdk 37 — non installé sur cette machine. À remonter ensemble le
-# jour où android-37 est installé.
-composeBom = "2026.06.01"
+# BOM 2026.08.00 → Compose 1.12.0. Material 3 n'y bouge pas : il reste en 1.4.0,
+# dernière stable, exactement comme dans le BOM précédent. Cette montée ne touche
+# donc que le cœur — ui, foundation, animation, runtime — et c'est elle qui
+# impose le compileSdk 37 ci-dessus.
+composeBom = "2026.08.00"
 datastore = "1.2.0"
 
 kotlinxCoroutines = "1.11.0"
