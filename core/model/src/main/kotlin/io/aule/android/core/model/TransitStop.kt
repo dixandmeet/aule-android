@@ -129,8 +129,26 @@ data class DepartureRow(
             if (minutes == 0) Wait.Approaching else Wait.Minutes(minutes)
         }
 
-    val followingWaits: List<Int> get() = waits.drop(1)
+    /**
+     * Les passages d'après, tant qu'ils aident encore à décider.
+     *
+     * Au-delà d'une heure, on ne choisit plus entre deux passages : on
+     * reviendra, ou on prendra autre chose. Le chiffre ne dit alors plus rien
+     * qu'on puisse faire — et il nuit, parce qu'il se lit collé à l'attente
+     * utile. Sur la 80, « 20 min » suivi de « 80 · 140 » met sous les yeux un
+     * « 80 » qui est aussi le numéro de la ligne.
+     *
+     * La borne est donc éditoriale et non technique : elle vit ici, avec
+     * [NEARBY_LIMIT], parce que « ce qui mérite d'être montré » est une
+     * décision du domaine que trois vues ne doivent pas reprendre chacune à sa
+     * façon.
+     */
+    val followingWaits: List<Int>
+        get() = waits.drop(1).filter { it < FOLLOWING_WAIT_HORIZON_MINUTES }
 }
+
+/** Passé cette attente, un passage n'est plus une option : c'est une autre journée. */
+private const val FOLLOWING_WAIT_HORIZON_MINUTES = 60
 
 /**
  * Combien de temps avant le prochain passage.

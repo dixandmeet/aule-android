@@ -77,6 +77,27 @@ class StopDeparturesTest {
     }
 
     @Test
+    fun `les attentes suivantes s arretent a l heure`() {
+        val departures = StopDepartures(
+            stopName = "Ranzay",
+            departures = listOf(
+                departure("80", "Bellevue", 20),
+                departure("80", "Bellevue", 80),
+                departure("80", "Bellevue", 140),
+            ),
+            outcome = DeparturesOutcome.ANNOUNCED,
+            fetchedAt = origin,
+        )
+
+        val row = departures.grouped(from = origin).single()
+
+        // La prochaine reste, quoi qu'il arrive : c'est elle qu'on est venu
+        // chercher. Ce sont les suivantes qui cessent d'aider.
+        assertEquals(Wait.Minutes(20), row.nextWait)
+        assertEquals(emptyList(), row.followingWaits)
+    }
+
+    @Test
     fun `un passage en retard n affiche pas une attente negative`() {
         val late = departure("1", "Beaujoire", 0)
         assertEquals(0, late.waitMinutes(from = origin.plusSeconds(1_000)))
