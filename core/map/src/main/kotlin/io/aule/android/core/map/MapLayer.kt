@@ -80,9 +80,36 @@ class MapLayerRegistry {
 
     val hasAnimatedLayer: Boolean get() = _layers.any { it.isAnimated }
 
+    /**
+     * Ajoute une couche, ou **remplace** celle qui portait déjà cet id.
+     *
+     * Remplacer, et non ignorer. Le registre appartient au contrôleur, donc à
+     * l'activité ; les couches, elles, naissent dans un `remember` de l'écran
+     * carte. Une déconnexion sort cet écran de la composition et le ramène
+     * ensuite : au retour, l'écran construit de **nouvelles** couches, et
+     * c'est à elles que ses effets écrivent. Un registre qui garderait les
+     * anciennes remonterait la donnée d'avant la déconnexion — arrêts, flotte,
+     * puck — définitivement figée, et sans la moindre erreur.
+     *
+     * Le remplacement se fait **en place** : l'ordre d'enregistrement est
+     * l'ordre de superposition, et une couche revenue par la fin de la liste
+     * passerait au-dessus de toutes les autres — le puck sous le ruban
+     * d'itinéraire, par exemple.
+     */
     fun register(layer: MapLayer) {
-        if (_layers.any { it.id == layer.id }) return
-        _layers += layer
+        val existing = _layers.indexOfFirst { it.id == layer.id }
+        if (existing < 0) {
+            _layers += layer
+            return
+        }
+        _layers[existing] = layer
+        // La marque de montage désignait l'instance qu'on vient d'écarter :
+        // sans cet oubli, `mountPending` sauterait la nouvelle et la couche
+        // manquerait à la carte. Le chemin suppose un style déjà parti — c'est
+        // le cas au retour de l'écran, où `detach` a tout démonté. Remplacer
+        // une couche réellement posée laisserait ses objets natifs dans le
+        // style, et la nouvelle buterait dessus en montant.
+        mounted -= layer.id
     }
 
     fun layer(id: String): MapLayer? = _layers.firstOrNull { it.id == id }
