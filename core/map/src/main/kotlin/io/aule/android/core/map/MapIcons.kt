@@ -48,6 +48,14 @@ internal object MapIcons {
     private const val RING_RATIO = 0.21f
 
     /**
+     * La boîte du véhicule. La silhouette n'en occupe que la moitié — le nez
+     * monte à seize unités sur vingt-quatre — et ce qui reste sert à la
+     * rotation : MapLibre fait pivoter l'image, pas la forme, et une pointe
+     * calée au bord se ferait rogner dès que le cap quitte le nord.
+     */
+    private const val VEHICLE_SIZE_DP = 32f
+
+    /**
      * L'ombre du jeton : assez pour le décoller de la ville, pas assez pour
      * qu'on la voie. Un marqueur qui projette une ombre franche flotte, et une
      * carte pleine de marqueurs qui flottent fatigue.
@@ -56,7 +64,12 @@ internal object MapIcons {
 
     fun stopPlaceName(mode: TransportMode) = "stop-place-${mode.name.lowercase()}"
     fun stopQuayName(mode: TransportMode) = "stop-quay-${mode.name.lowercase()}"
-    fun vehicleName(mode: TransportMode) = "vehicle-${mode.name.lowercase()}"
+    /**
+     * Le véhicule, en deux images par mode : la position **mesurée** et la
+     * position **calculée**. Voir [vehicleArrow] pour ce qui les sépare.
+     */
+    fun vehicleName(mode: TransportMode, live: Boolean) =
+        "vehicle-${mode.name.lowercase()}" + if (live) "" else "-scheduled"
     const val STOP_SELECTED = "stop-selected"
     const val DESTINATION = "destination"
     const val VEHICLE_HEADING = "vehicle-heading"
@@ -80,7 +93,15 @@ internal object MapIcons {
                 stopQuayName(mode),
                 stopPill(mode, mode.markerColor(night), tokens, QUAY_DIAMETER_DP),
             )
-            style.addImage(vehicleName(mode), vehicleDot(mode.markerColor(night), tokens))
+            val vehicle = mode.markerColor(night)
+            style.addImage(
+                vehicleName(mode, live = true),
+                vehicleArrow(mode, vehicle, tokens, live = true),
+            )
+            style.addImage(
+                vehicleName(mode, live = false),
+                vehicleArrow(mode, vehicle, tokens, live = false),
+            )
         }
         style.addImage(STOP_SELECTED, selectionRing(tokens))
         style.addImage(DESTINATION, destinationPin(tokens))
@@ -94,12 +115,82 @@ internal object MapIcons {
         style.addImage(HANDOVER_STOP_ARRIVED, handoverStop(arrived = true, tokens))
     }
 
-    /** Le véhicule : plus gros qu'un arrêt, cerclé de blanc pour se lire sur n'importe quoi. */
-    private fun vehicleDot(fill: AuleRgba, tokens: AuleTokens): Bitmap =
-        bitmap(sizeDp = 22f) { canvas, size ->
+    /**
+     * Le véhicule : une silhouette **orientée**, pleine ou creuse.
+     *
+     * Elle remplace un disque que surmontait un chevron séparé. Deux défauts s'y
+     * cumulaient, visibles à « Talensac » sur le S21 : le chevron, peint à
+     * l'encre neutre, se perdait sur la chaussée claire — un véhicule sans cap
+     * lisible, alors que le cap est la moitié de ce qu'on lui demande ; et le
+     * disque théorique, posé à 0,55 d'opacité, laissait voir la rue au travers.
+     * Le mobilier fixe se lisait mieux que la flotte, ce qui est l'inverse de
+     * l'ordre des choses sur une carte de transport.
+     *
+     * La forme porte donc le cap — MapLibre la fait tourner, il n'y a plus rien
+     * à poser à côté — et **le plein dit la mesure, le creux dit l'horaire**. Le
+     * retrait du théorique quitte l'opacité pour la forme, à pleine opacité :
+     * une flotte du soir presque entièrement théorique se lisait délavée, le
+     * même constat qui avait déjà fait passer les volumes à une teinte mêlée
+     * plutôt qu'à une transparence. C'est aussi le choix du web, au trait près.
+     *
+     * Le navibus est plus large et moins effilé que les autres : une coque, pas
+     * une flèche.
+     */
+    private fun vehicleArrow(
+        mode: TransportMode,
+        fill: AuleRgba,
+        tokens: AuleTokens,
+        live: Boolean,
+    ): Bitmap =
+        bitmap(sizeDp = VEHICLE_SIZE_DP) { canvas, size ->
             val center = size / 2f
-            canvas.drawCircle(center, center, center, paint(tokens.surfaceSolid.argb))
-            canvas.drawCircle(center, center, center - 2.5f * DENSITY_SCALE, paint(fill.argb))
+            // L'unité du canvas web, dont les coordonnées sont reprises telles
+            // quelles pour que les deux silhouettes restent la même.
+            val u = size / 48f
+            val nose = if (mode == TransportMode.BOAT) 14f * u else 16f * u
+            val tail = 12f * u
+            val wing = if (mode == TransportMode.BOAT) 12f * u else 11f * u
+
+            val hull = Path().apply {
+                moveTo(center, center - nose)
+                quadTo(center + wing, center + tail * 0.2f, center + wing * 0.7f, center + tail)
+                quadTo(center, center + tail * 0.55f, center - wing * 0.7f, center + tail)
+                quadTo(center - wing, center + tail * 0.2f, center, center - nose)
+                close()
+            }
+            val halo = tokens.surfaceSolid.argb
+            val shadow = { paint: Paint ->
+                paint.setShadowLayer(2f * DENSITY_SCALE, 0f, 0.75f * DENSITY_SCALE, SHADOW_COLOR)
+            }
+
+            if (live) {
+                // Le liseré **sous** le remplissage, comme la flèche du puck :
+                // un contour centré sur ce tracé rognerait la pointe, qui est
+                // précisément ce qui dit la direction.
+                canvas.drawPath(
+                    hull,
+                    paint(halo).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 5f * u
+                        strokeJoin = Paint.Join.ROUND
+                        shadow(this)
+                    },
+                )
+                canvas.drawPath(hull, paint(fill.argb))
+            } else {
+                canvas.drawPath(hull, paint(halo).apply { shadow(this) })
+                canvas.drawPath(
+                    hull,
+                    paint(fill.argb).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = 3f * u
+                        strokeJoin = Paint.Join.ROUND
+                    },
+                )
+                // Un point au cœur du creux : sans lui, la silhouette évidée se
+                // lit comme un trou dans la carte plutôt que comme un véhicule.
+                canvas.drawCircle(center, center + tail * 0.1f, 2.6f * u, paint(fill.argb))
+            }
         }
 
     /**
