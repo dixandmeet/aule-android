@@ -110,7 +110,7 @@ class StopsLayer(
                 // collision, donc des requêtes de features : visible et
                 // intouchable, le pire des deux.
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconSize(1.0f),
+                PropertyFactory.iconSize(quayScale()),
             ).also { it.minZoom = MapZoom.QUAYS_FROM.toFloat() },
         )
 
@@ -118,8 +118,19 @@ class StopsLayer(
             SymbolLayer(PLACE_LAYER, PLACES_SOURCE).withProperties(
                 PropertyFactory.iconImage(Expression.get(PROP_ICON)),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconSize(1.0f),
-            ).also { it.minZoom = MapZoom.STOPS_FROM.toFloat() },
+                PropertyFactory.iconSize(placeScale()),
+            ).also {
+                it.minZoom = MapZoom.STOPS_FROM.toFloat()
+                // Le lieu **s'efface** là où ses quais prennent la main.
+                //
+                // Sans ce plafond, les deux couches se peignaient l'une sur
+                // l'autre au-dessus du palier : le lieu porte la coordonnée de
+                // son premier quai, donc chaque pôle payait deux symboles
+                // exactement superposés — deux entrées dans l'index de
+                // collision, deux réponses au hit-test, et l'ombre du plus
+                // petit qui bavait sous le plus grand.
+                it.maxZoom = MapZoom.QUAYS_FROM.toFloat()
+            },
         )
 
         style.addLayer(
@@ -129,9 +140,13 @@ class StopsLayer(
                 // n'en référence que deux, et en demander un troisième ne
                 // dessine simplement aucune étiquette.
                 PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-                PropertyFactory.textSize(11f),
+                PropertyFactory.textSize(labelScale()),
                 PropertyFactory.textAnchor("top"),
-                PropertyFactory.textOffset(arrayOf(0f, 0.9f)),
+                // 1,25 **em**, donc relatif au corps : l'écart au jeton grandit
+                // avec le texte, et l'étiquette ne vient jamais mordre l'anneau
+                // quand les deux grossissent ensemble. À 0,9 elle chevauchait le
+                // bas de la pastille dès que celle-ci a pris son pictogramme.
+                PropertyFactory.textOffset(arrayOf(0f, 1.25f)),
                 PropertyFactory.textMaxWidth(8f),
                 PropertyFactory.textHaloWidth(1.4f),
                 PropertyFactory.textAllowOverlap(false),
@@ -154,6 +169,14 @@ class StopsLayer(
         style.removeSource(PLACES_SOURCE)
         style.removeSource(QUAYS_SOURCE)
         style.removeSource(SELECTION_SOURCE)
+        forgetStyle()
+    }
+
+    /**
+     * Le catalogue et la sélection restent en mémoire — les recharger coûterait
+     * un aller-retour de dépôt pour une donnée qu'on a déjà. [mount] les republie.
+     */
+    override fun forgetStyle() {
         placesSource = null
         quaysSource = null
         selectionSource = null
@@ -231,6 +254,44 @@ class StopsLayer(
             )
             if (withName) addStringProperty(PROP_NAME, departuresKey)
         }
+
+    /**
+     * L'échelle du jeton d'un lieu, du premier palier où les arrêts apparaissent
+     * jusqu'à celui où les quais les remplacent.
+     *
+     * Une taille fixe force un compromis qui ne va à aucun des deux bouts : ce
+     * qui se lit à l'échelle du trottoir fait tapis à l'échelle du quartier, et
+     * l'inverse donne des confettis. Le jeton part donc à un peu plus de la
+     * moitié, où seule sa silhouette compte, et arrive à taille pleine au
+     * moment où son pictogramme devient lisible.
+     */
+    private fun placeScale(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(MapZoom.STOPS_FROM, 0.55),
+        Expression.stop(15.5, 0.80),
+        Expression.stop(MapZoom.QUAYS_FROM, 0.95),
+    )
+
+    /**
+     * Celle du quai. Les deux se rejoignent au palier de bascule — 20,9 dp d'un
+     * côté, 22,1 de l'autre : l'écart passe inaperçu, ce qui est tout ce qu'on
+     * demande à une relève.
+     */
+    private fun quayScale(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(MapZoom.QUAYS_FROM, 0.85),
+        Expression.stop(19.0, 1.0),
+    )
+
+    /** Le corps de l'étiquette suit le jeton, sans quoi il rétrécirait tout seul. */
+    private fun labelScale(): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(LABELS_FROM.toDouble(), 11.0),
+        Expression.stop(18.0, 13.0),
+    )
 
     override fun hitTest(map: MapLibreMap, rect: RectF, point: PointF): (() -> Unit)? {
         val hits = map.queryRenderedFeatures(rect, PLACE_LAYER, QUAY_LAYER)
