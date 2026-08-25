@@ -56,6 +56,12 @@ internal object MapIcons {
     private const val VEHICLE_SIZE_DP = 32f
 
     /**
+     * Le halo du puck, à son ampleur maximale — le double du disque, comme sur
+     * le web, où trente et un pixels de halo entourent une pastille de quinze.
+     */
+    private const val PUCK_HALO_DP = 70f
+
+    /**
      * L'ombre du jeton : assez pour le décoller de la ville, pas assez pour
      * qu'on la voie. Un marqueur qui projette une ombre franche flotte, et une
      * carte pleine de marqueurs qui flottent fatigue.
@@ -74,6 +80,7 @@ internal object MapIcons {
     const val DESTINATION = "destination"
     const val VEHICLE_HEADING = "vehicle-heading"
     const val PUCK = "user-puck"
+    const val PUCK_HALO = "user-puck-halo"
     const val PUCK_MOVING = "user-puck-moving"
     const val PUCK_HEADING = "user-puck-heading"
     const val HANDOVER_VEHICLE = "handover-vehicle"
@@ -107,6 +114,7 @@ internal object MapIcons {
         style.addImage(DESTINATION, destinationPin(tokens))
         style.addImage(VEHICLE_HEADING, headingChevron(tokens))
         style.addImage(PUCK, puckDot())
+        style.addImage(PUCK_HALO, puckHalo())
         style.addImage(PUCK_MOVING, puckArrow())
         style.addImage(PUCK_HEADING, puckCone())
         style.addImage(HANDOVER_VEHICLE, handoverVehicle(filled = true, tokens))
@@ -441,6 +449,51 @@ internal object MapIcons {
                 center,
                 6.5f * DENSITY_SCALE,
                 paint(AuleBrand.teal.argb),
+            )
+        }
+
+    /**
+     * Le halo qui respire sous le puck.
+     *
+     * Le puck disait où l'on est, et le disait une fois pour toutes : posé sur
+     * une carte immobile, rien ne le distinguait d'un marqueur de plus. Le halo
+     * est ce qui le rend **vivant** — c'est le seul objet de la carte qui parle
+     * de soi, et il doit se retrouver d'un coup d'œil après qu'on a fait défiler
+     * la ville.
+     *
+     * Un **dégradé** et non un aplat : à 0,5 d'opacité uniforme sur cinquante
+     * points, le teal fait une tache qui mange la rue. Le web l'a en
+     * `radial-gradient` transparent aux sept dixièmes, et c'est cette douceur
+     * qui lui permet d'être large sans peser.
+     *
+     * Peint à sa taille **haute** : la respiration réduit l'image plutôt que de
+     * l'agrandir, et un dégradé qu'on rétrécit reste net là où un dégradé
+     * étiré se met à baver.
+     */
+    private fun puckHalo(): Bitmap =
+        bitmap(sizeDp = PUCK_HALO_DP) { canvas, size ->
+            val center = size / 2f
+            val teal = AuleBrand.teal
+            canvas.drawCircle(
+                center,
+                center,
+                center,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        center,
+                        center,
+                        center,
+                        intArrayOf(teal.opacity(0.55).argb, teal.opacity(0.0).argb),
+                        // Le teal s'éteint au **bord** de l'image, et non aux
+                        // sept dixièmes comme sur le web. Là-bas, le halo
+                        // entoure une pastille immobile ; ici il entoure une
+                        // flèche qui en masque le cœur — la partie dense du
+                        // dégradé était sous le puck, et il ne restait qu'une
+                        // couronne trop mince pour se voir sur un toit gris.
+                        floatArrayOf(0f, 1f),
+                        Shader.TileMode.CLAMP,
+                    )
+                },
             )
         }
 
