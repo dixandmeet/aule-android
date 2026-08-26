@@ -102,7 +102,11 @@ android {
         buildConfigField(
             "String",
             "SUPABASE_PUBLISHABLE_KEY",
-            "\"${setting("aule.supabasePublishableKey", "sb_publishable_SoVrtwgKHm3lkFaW8r5fmA_HEH7VpL6")}\"",
+            // Aucun repli : la clé vit dans `local.properties`, non versionné.
+            // Un défaut en dur la remettrait dans l'historique au premier
+            // commit, et surtout il ferait croire à une machine configurée —
+            // `supabaseConfigured` est précisément là pour dire le contraire.
+            "\"${setting("aule.supabasePublishableKey")}\"",
         )
     }
 
