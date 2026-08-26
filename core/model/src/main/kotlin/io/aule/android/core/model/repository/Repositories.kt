@@ -3,6 +3,7 @@ package io.aule.android.core.model.repository
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.ActiveDriverService
 import io.aule.android.core.model.AppearanceMode
+import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.Depot
 import io.aule.android.core.model.DriverProfile
@@ -27,12 +28,16 @@ import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.Place
 import io.aule.android.core.model.ServingLine
 import io.aule.android.core.model.StopDepartures
+import io.aule.android.core.model.Timetable
+import io.aule.android.core.model.TransitLine
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.RoadManeuver
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlan
 import io.aule.android.core.model.RoutePreferences
+import io.aule.android.core.model.SavedPlace
 import java.time.Instant
+import java.time.LocalDate
 
 /**
  * Les contrats d'accès aux données.
@@ -64,6 +69,28 @@ interface StopRepository {
     suspend fun departures(atStopNamed: String): StopDepartures
 
     suspend fun servingLines(atStopNamed: String): List<ServingLine>
+}
+
+/**
+ * La grille horaire théorique — catalogue GTFS, via PostgREST.
+ *
+ * À part de [StopRepository], et pas par goût de la symétrie : ce n'est ni la
+ * même source (le catalogue, pas le flux temps réel), ni la même fraîcheur (une
+ * grille change à la fréquence d'un GTFS), ni le même droit d'accès — les
+ * tables GTFS exigent une session, comme tout ce qui vit dans Supabase.
+ *
+ * **Lève** en cas de panne, comme les autres contrats. Une journée sans passage
+ * n'est pas une panne : c'est une grille vide, et l'écran doit pouvoir dire la
+ * différence entre « rien ne circule ce jour-là » et « on n'a pas pu demander ».
+ */
+interface TimetableRepository {
+    suspend fun timetable(
+        session: AuthSession,
+        stopName: String,
+        line: String,
+        destination: String,
+        date: LocalDate,
+    ): Timetable
 }
 
 /**
@@ -174,10 +201,38 @@ interface AuthRepository {
     suspend fun resendSignupConfirmation(email: String)
 
     /**
+     * Envoie le lien « mot de passe oublié », avec le même redirect PKCE que
+     * l'inscription.
+     *
+     * **Ne dit pas si le compte existe** : GoTrue répond 200 pour une adresse
+     * inconnue, et c'est ce qui empêche de découvrir qui est inscrit. L'écran
+     * annonce donc « si un compte existe », jamais « c'est envoyé ».
+     */
+    suspend fun sendPasswordRecovery(email: String)
+
+    /**
+     * Pose un nouveau mot de passe sur la session ouverte.
+     *
+     * N'a de sens que derrière un lien de récupération ([AuthPkceFlow.RECOVERY])
+     * ou depuis un compte déjà connecté : dans les deux cas c'est le jeton de la
+     * session qui autorise, pas l'ancien mot de passe — GoTrue ne le redemande pas.
+     */
+    suspend fun updatePassword(newPassword: String)
+
+    /**
      * Échange le `code` du deep link `io.aule.pro://login-callback/` contre
      * une session, grâce au vérifieur PKCE conservé depuis l'inscription.
      */
     suspend fun exchangeAuthCode(code: String): AuthSession
+
+    /**
+     * Ce que l'échange PKCE en attente était venu faire, ou `null` si aucun
+     * n'attend.
+     *
+     * À lire **avant** [exchangeAuthCode], qui consomme le vérifieur et efface
+     * du même geste le genre.
+     */
+    suspend fun pendingAuthFlow(): AuthPkceFlow?
 
     /**
      * Suppression définitive : RPC `delete_my_account`, puis fermeture de
@@ -192,10 +247,18 @@ interface AuthRepository {
  *
  * Il doit survivre à la mort du processus : le lien de confirmation arrive
  * souvent après que l'app a été tuée. `signOut` ne l'efface pas.
+ *
+ * Le genre ([AuthPkceFlow]) s'écrit **avec** le vérifieur, d'un seul geste : il
+ * dit ce que le lien attendu a le droit d'ouvrir, et deux écritures séparées
+ * laisseraient une fenêtre où le vérifieur existe sans son genre.
  */
 interface AuthPkceStore {
-    suspend fun writeVerifier(verifier: String)
+    suspend fun writeVerifier(verifier: String, flow: AuthPkceFlow = AuthPkceFlow.SIGN_UP)
     suspend fun readVerifier(): String?
+
+    /** Le genre écrit avec le vérifieur courant, ou `null` si aucun n'attend. */
+    suspend fun readFlow(): AuthPkceFlow?
+
     suspend fun clearVerifier()
 }
 
@@ -210,6 +273,190 @@ interface RegistrationDraftStore {
     suspend fun readStep(): String?
     suspend fun write(draftJson: String, step: String)
     suspend fun clear()
+}
+
+/**
+ * Les huit dernières destinations retenues, la plus récente en tête.
+ *
+ * **Ce qui est retenu, c'est le lieu choisi, pas la frappe.** Garder les
+ * requêtes tapées remplirait la liste de « beau », « beauj », « beaujoi » — les
+ * états intermédiaires d'une seule recherche — et un historique qui répète la
+ * même destination sous trois orthographes n'aide personne. Un lieu n'entre donc
+ * ici qu'au moment où on le retient.
+ *
+ * Lu de façon synchrone comme [AppearanceStore] : la barre de recherche affiche
+ * l'historique à l'instant où elle s'ouvre, et un aller-retour asynchrone la
+ * ferait s'ouvrir vide avant de se remplir sous le doigt.
+ *
+ * L'implémentation Android vit dans `:app` ; les tests utilisent une mémoire.
+ */
+interface SearchHistoryStore {
+    fun read(): List<Place>
+
+    /** Place [place] en tête, sans doublon, et tronque à huit entrées. */
+    fun remember(place: Place): List<Place>
+
+    fun clear()
+}
+
+/**
+ * Les adresses favorites, **sur l'appareil**.
+ *
+ * Distinct de [SearchHistoryStore], et ce n'est pas une symétrie de plus : un
+ * historique tourne, un favori ne tourne pas. Le domicile disparaîtrait des huit
+ * dernières destinations dès la cinquième course, alors que c'est précisément
+ * celui qu'on veut toucher sans lire.
+ *
+ * Lu de façon **synchrone**, comme [AppearanceStore] et [SearchHistoryStore] :
+ * la recherche montre ses raccourcis à l'instant où elle s'ouvre, et un
+ * aller-retour asynchrone la ferait s'ouvrir vide avant de se remplir sous le
+ * doigt.
+ *
+ * Il porte les pierres tombales telles quelles : c'est
+ * [io.aule.android.core.model.mergeSavedPlaces] qui décide ce qui vit, pas le
+ * dépôt. L'implémentation Android vit dans `:app` ; les tests utilisent une
+ * mémoire.
+ */
+interface SavedPlacesStore {
+    /**
+     * Tout ce qui est écrit pour ce compte, suppressions comprises.
+     *
+     * ⚠️ **Le propriétaire fait partie de la clé, il n'est pas une commodité.**
+     * Un dépôt commun à tous les comptes ferait pousser le domicile du premier
+     * agent sur le compte du second dès qu'un téléphone de service change de
+     * main — et l'afficherait dans sa recherche en attendant. Ce n'est pas un
+     * cas d'école : un poste de conduite se partage.
+     *
+     * `null` quand personne n'est connecté. La carte vit derrière une session,
+     * donc cela ne se produit qu'avant l'ouverture — et il n'y a alors rien à
+     * lire. Hors ligne, la session est restaurée du disque : les favoris sont
+     * bien là sans réseau.
+     */
+    fun read(owner: String?): List<SavedPlace>
+
+    fun write(owner: String?, places: List<SavedPlace>)
+}
+
+/**
+ * Les adresses favorites, **sur le compte** — table `user_saved_places`.
+ *
+ * C'est ce qui permet de retrouver son domicile après avoir changé de
+ * téléphone. La source de vérité reste l'appareil : le réseau rattrape, il ne
+ * commande pas. Un client qui attendrait le serveur pour afficher « Domicile »
+ * ouvrirait sur une liste vide dans un parking souterrain.
+ *
+ * **Lève** en cas de panne, comme les autres contrats réseau. C'est l'appelant
+ * qui décide qu'une synchronisation ratée n'est pas un incident à montrer :
+ * les favoris locaux, eux, sont déjà à l'écran.
+ */
+interface SavedPlaceRepository {
+    suspend fun fetch(session: AuthSession): List<SavedPlace>
+
+    /**
+     * Écrit ces favoris sur le compte — pierres tombales comprises, c'est par
+     * elles que l'autre appareil apprendra une suppression.
+     *
+     * Un upsert sur `(user_id, id)` : rejouer la même poussée ne crée pas de
+     * doublon, ce qui rend l'appel sûr à répéter après une coupure.
+     */
+    suspend fun push(session: AuthSession, places: List<SavedPlace>)
+}
+
+/**
+ * Un fichier de cache, sans connaître Android.
+ *
+ * Même raison qu'[AssetBytes] : `:data` est du JVM pur, et le dossier de cache
+ * lui arrive par ce contrat plutôt que par un `Context`. L'implémentation vit
+ * dans `:app`, sur `cacheDir` — ce que le système peut vider quand la place
+ * manque, ce qui est exactement le bon endroit pour une donnée retéléchargeable.
+ *
+ * Rien ne lève : un cache est une optimisation, et une optimisation qui fait
+ * planter est un défaut net.
+ */
+interface CacheStore {
+    /** Le contenu, ou `null` s'il n'y en a pas — ou s'il est illisible. */
+    fun read(name: String): String?
+
+    /** Écrit, ou ne fait rien si le disque refuse. */
+    fun write(name: String, content: String)
+
+    fun clear(name: String)
+}
+
+/**
+ * L'inventaire des lignes du réseau — **hors ligne, sans requête**.
+ *
+ * Il vient de `assets/tiles/transit-lines-index.json`, 23 Ko embarqués. C'est le
+ * seul endroit de l'application qui sache *quelles lignes existent* : le
+ * catalogue d'arrêts dit ce qui est desservi, la flotte dit ce qui roule.
+ *
+ * **Ne lève pas.** Un index absent ou illisible rend une liste vide : sans lui
+ * les badges restent gris et lisibles, là où une exception au premier véhicule
+ * peint viderait la carte. Le contrat est donc plus faible que celui des dépôts
+ * réseau, et c'est délibéré.
+ */
+interface NetworkLineRepository {
+    /** Toutes les lignes, dans l'ordre du fichier. Lu une fois, gardé ensuite. */
+    suspend fun allLines(): List<TransitLine>
+
+    /**
+     * La ligne portant cet indice, ou `null`. La recherche est canonique — « c6 »
+     * et « C6 » désignent la même ligne.
+     */
+    suspend fun line(named: String): TransitLine?
+}
+
+/**
+ * De quoi lire un asset, sans connaître Android.
+ *
+ * `:data` est un module **JVM pur** : il n'a pas de `Context`, et lui en donner
+ * un pour trois fichiers embarqués le rendrait non testable sans émulateur. Il
+ * reçoit donc ses octets par ce contrat, dont l'implémentation vit dans `:app` —
+ * même discipline que les dépôts de préférences.
+ *
+ * `null` quand l'asset n'existe pas : c'est une réponse, pas une panne, et
+ * l'appelant décide ce qu'elle vaut.
+ */
+interface AssetBytes {
+    /** @param path chemin relatif au dossier `assets`, par exemple `tiles/x.json`. */
+    fun readText(path: String): String?
+}
+
+/**
+ * Les réglages du Guet, persistés.
+ *
+ * Le type qu'il porte vit dans `:core:guet` — module pur — et son encodage aussi :
+ * ce dépôt ne sait que ranger et relire **une chaîne**, comme celui de la relève.
+ * C'est ce qui permet de vérifier la tolérance du décodage sans disque, et c'est
+ * cette tolérance qui compte : un décodage strict éteindrait le Guet en silence
+ * chez quelqu'un qui vient de mettre à jour.
+ *
+ * Lu de façon synchrone : le moteur les relit à chaque calcul, et un aller-retour
+ * asynchrone par sondage coûterait plus que la lecture qu'il évite.
+ */
+interface GuetPreferencesStore {
+    /** Le JSON tel qu'il a été écrit, ou `null` si rien n'a jamais été enregistré. */
+    fun read(): String?
+
+    fun write(encoded: String)
+}
+
+/**
+ * L'accueil a-t-il déjà été vu.
+ *
+ * **Distinct de « la permission a été demandée »**, que porte déjà
+ * `LocationProvider`. Les deux se ressemblent et ne disent pas la même chose :
+ * qui a répondu « Continuer sans ma position » n'a jamais vu le dialogue
+ * système, et le compter comme une demande faite ferait afficher « la
+ * localisation est refusée » à quelqu'un à qui on n'a rien demandé.
+ *
+ * Lu de façon synchrone comme [AppearanceStore] : c'est la première image du
+ * lancement qui en dépend, et un aller-retour asynchrone ferait apparaître la
+ * carte avant que l'accueil la recouvre.
+ */
+interface WelcomeStore {
+    fun hasSeenWelcome(): Boolean
+    fun markWelcomeSeen()
 }
 
 /**

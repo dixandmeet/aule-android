@@ -16,7 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
@@ -25,6 +28,7 @@ import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberBottomSheetState
@@ -35,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -58,10 +63,12 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import io.aule.android.core.designsystem.AuleSheetMotion
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.resolvedNight
 import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.token.AuleChrome
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.location.LocationAuthorization
@@ -83,12 +90,17 @@ import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.HandoverFix
 import io.aule.android.core.model.HandoverSummary
 import io.aule.android.core.model.RoutePlace
-import io.aule.android.core.model.StopSearchHit
+import io.aule.android.core.model.SavedPlace
+import io.aule.android.core.model.SavedPlaceSlot
+import io.aule.android.core.model.shortPlaceName
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.model.shortLabel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 
 /**
@@ -98,12 +110,16 @@ import kotlinx.coroutines.isActive
  * par-dessus. Les panneaux de détail s'ouvrent en volet au-dessus d'elle,
  * sans jamais la remplacer.
  *
- * Rien ne barre le bas de la fenêtre. Tout ce qu'on peut engager depuis la
- * carte — prendre un service, relever un collègue, calculer un itinéraire,
- * lister les lignes, signaler un événement, voir les correspondances — tient
- * dans le menu flottant ancré à droite, et ne se déplie qu'au moment où on le
- * cherche. Six actions rares n'ont pas à occuper six cibles permanentes, et la
- * carte garde son bord bas.
+ * Le bas de la fenêtre appartient au **socle** : la recherche de destination,
+ * en carte flottante tant qu'on ne s'en sert pas. Elle n'est pas une barre —
+ * c'est le volet du dessous, celui qui revient dès qu'aucun autre n'est
+ * présenté. Voir [MapSearchSheet].
+ *
+ * Tout ce qu'on peut engager depuis la carte — prendre un service, relever un
+ * collègue, calculer un itinéraire, lister les lignes, signaler un événement,
+ * voir les correspondances — tient dans le menu flottant ancré à droite,
+ * au-dessus du socle, et ne se déplie qu'au moment où on le cherche. Six
+ * actions rares n'ont pas à occuper six cibles permanentes.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -111,7 +127,21 @@ fun MapScreen(
     viewModel: MapViewModel,
     controller: MapController,
     location: LocationProvider,
-    onOpenMenu: (() -> Unit)? = null,
+    /**
+     * L'avatar du compte, posé dans le socle de recherche. C'est la porte du
+     * menu, et il vient **entier** de `:app` : la carte ne connaît pas le
+     * compte. Voir `AccountAvatarButton`.
+     */
+    accountAvatar: (@Composable () -> Unit)? = null,
+    /**
+     * Le menu du compte, **en volet** : le contenu vient de `:feature:auth`,
+     * l'écran ne fait que le présenter là où il présente ses fiches. C'est
+     * `showingMenu` qui l'ouvre, et [onDismissMenu] qui le referme — l'état
+     * vit dans `:app`, qui ouvre aussi le profil et le Guet depuis ce menu.
+     */
+    menuSheet: (@Composable () -> Unit)? = null,
+    showingMenu: Boolean = false,
+    onDismissMenu: () -> Unit = {},
     onSubmitReport: (suspend (DriverReport) -> Unit)? = null,
     onStartService: (() -> Unit)? = null,
     serviceActive: Boolean = false,
@@ -160,6 +190,27 @@ fun MapScreen(
     // passent pas par [MapUiState] : ce n'est pas un objet de la carte qu'on
     // sélectionne, c'est une obligation de licence qu'on consulte.
     var showingLegal by rememberSaveable { mutableStateOf(false) }
+    // La gestion des favoris et son éditeur. Hors de [MapUiState] pour la même
+    // raison que les mentions légales : ce n'est pas un objet de la carte qu'on
+    // sélectionne, et les y mettre aurait fait recomposer la carte à chaque
+    // lettre tapée dans un champ de nom.
+    var managingSavedPlaces by remember { mutableStateOf(false) }
+    // La carte s'ouvre : les favoris se rattachent au compte connecté et se
+    // rapprochent de lui. C'est le seul instant où l'on est sûr que la session
+    // est celle de qui regarde — un téléphone de service passe de main en main,
+    // et la rangée ne doit pas montrer le domicile du collègue précédent.
+    LaunchedEffect(Unit) { viewModel.savedPlaces.sync() }
+    var savedPlaceTarget by remember { mutableStateOf<SavedPlaceTarget?>(null) }
+    var deletingSavedPlace by remember { mutableStateOf<SavedPlace?>(null) }
+    // La demande de clavier faite au champ de recherche, une fois.
+    //
+    // Elle ne vit pas dans [MapUiState] : ce n'est pas un état de la carte,
+    // c'est le fait qu'une **autre** commande que le volet vient d'ouvrir la
+    // recherche — « Trouver un itinéraire », l'action d'accessibilité de la
+    // carte — et que celle-là promet une saisie. Le volet tiré au pouce, lui,
+    // ne l'arme pas : monter pour relire ses destinations récentes ne doit pas
+    // faire surgir un clavier par-dessus.
+    var focusSearchField by remember { mutableStateOf(false) }
     // Le menu d'actions, déplié ou non. `rememberSaveable` parce qu'une
     // rotation ne doit pas le refermer sous le doigt ; refermé à la main dès
     // que le chrome s'en va, sinon il attendrait rouvert le retour du volet.
@@ -412,6 +463,9 @@ fun MapScreen(
     val lastError by location.lastError.collectAsStateWithLifecycle()
 
     var sheetHeightPx by remember { mutableFloatStateOf(0f) }
+    // La bande que le socle prend à la carte, remontée depuis la mise en page
+    // du volet. Zéro tant qu'il n'est pas là — en guidage, sous un autre volet.
+    var socleBandPx by remember { mutableFloatStateOf(0f) }
     LaunchedEffect(sheetHeightPx) {
         controller.sheetHeightPx = sheetHeightPx
     }
@@ -424,14 +478,20 @@ fun MapScreen(
             controller.frame(candidate.paintedCoordinates)
         }
     }
-    LaunchedEffect(state.hasSheet, state.isNavigating) {
+    LaunchedEffect(state.hasSheet, state.isNavigating, socleBandPx) {
         if (!state.hasSheet && !state.isNavigating) {
             // Le cadre se rend **avant** que le volet ne retombe : sinon la
             // hauteur qui repasse à zéro relancerait un cadrage sur un tracé
             // que la fermeture vient d'effacer.
             controller.releaseFrame()
-            sheetHeightPx = 0f
-            controller.sheetHeightPx = 0f
+            // Mais la carte ne récupère pas tout : le socle garde sa bande, et
+            // la caméra doit centrer dans ce qui **reste** visible. C'est
+            // `kSearchSheetBand` d'iOS, à ceci près qu'ici elle est mesurée et
+            // non relevée à l'écran. Le palier du socle, et lui seul : le volet
+            // monté n'entre pas dans le compte, sinon ouvrir la recherche
+            // déplacerait la ville sous les doigts.
+            sheetHeightPx = socleBandPx
+            controller.sheetHeightPx = socleBandPx
             if (controller.cameraMode.value == CameraMode.FOLLOW_VEHICLE) {
                 controller.setCameraMode(CameraMode.FOLLOW)
             }
@@ -504,11 +564,27 @@ fun MapScreen(
     val paneVehicle = stringResource(R.string.sheet_pane_vehicle)
     val panePlace = stringResource(R.string.sheet_pane_place)
     val paneRoute = stringResource(R.string.sheet_pane_route)
+    val paneSearch = stringResource(R.string.sheet_pane_search)
+    val paneMenu = stringResource(R.string.sheet_pane_menu)
+    val searchCollapseLabel = stringResource(R.string.search_cancel)
     val paneLine = stringResource(R.string.sheet_pane_line)
     val paneNetworkLines = stringResource(R.string.sheet_pane_network_lines)
     val paneTrip = stringResource(R.string.sheet_pane_trip)
     val originMine = stringResource(R.string.route_origin_me)
     val originMap = stringResource(R.string.route_origin_map)
+    // Les deux noms d'emplacement, résolus ici : ils partent dans un rappel qui
+    // n'est pas une composition, et `stringResource` n'y a pas cours. C'est
+    // « Domicile » que le volet d'itinéraire doit annoncer, pas « 12 rue Paul
+    // Bellamy » — on y va pour rentrer chez soi, pas à une adresse.
+    val savedHomeLabel = stringResource(R.string.saved_place_home)
+    val savedWorkLabel = stringResource(R.string.saved_place_work)
+    val savedLabel: (SavedPlace) -> String = { place ->
+        when (place.slot) {
+            SavedPlaceSlot.HOME -> savedHomeLabel
+            SavedPlaceSlot.WORK -> savedWorkLabel
+            SavedPlaceSlot.CUSTOM -> place.name.ifEmpty { shortPlaceName(place.label) }
+        }
+    }
     val navigating = state.isNavigating
     val showingTrip = state.navigation?.showingTrip == true
     val handedOver = serviceNotice?.takeIf { it.kind == ServiceNoticeKind.HANDED_OVER }
@@ -523,14 +599,38 @@ fun MapScreen(
         null
     }
 
+    // **Le socle : le volet du dessous.**
+    //
+    // Rien ne l'ouvre et rien ne le ferme — il est là dès que rien d'autre
+    // n'occupe le bas de l'écran, et il revient de lui-même quand le volet
+    // qui l'avait remplacé se referme. C'est `MapSheet.search` d'iOS, mot pour
+    // mot, y compris le refus de se rejeter — voir le veto posé sur l'état du
+    // volet, plus bas.
+    //
+    // Il se retire pour trois choses seulement : un guidage, qui prend la même
+    // bande pour sa barre d'arrivée ; un autre volet, qui parle de ce qu'on
+    // vient de désigner ; et la relève, qui demande la carte nue.
+    val menuOpen = showingMenu && menuSheet != null
+    // Ce que le volet porte, quelle qu'en soit la source : les fiches de la
+    // carte, ou le menu du compte que `:app` y pose.
+    val sheetPresented = state.hasSheet || menuOpen
+    val showingSocle = !navigating && !sheetPresented && !hideChrome
+    val searchOpen = showingSocle && state.search.isActive
+
     // `BottomSheetScaffold` sert un volet **persistant** : contrairement à
     // `ModalBottomSheet`, il n'installe aucun gestionnaire de retour. Sans
     // celui-ci, le geste de retour sur un volet ouvert ne le referme pas — il
     // quitte l'application, en pleine consultation d'un arrêt.
-    PredictiveBackHandler(enabled = state.hasSheet) { progress ->
+    PredictiveBackHandler(enabled = sheetPresented || searchOpen) { progress ->
         try {
             progress.collect { }
             when {
+                menuOpen -> onDismissMenu()
+                // Le socle ne se ferme pas : le retour le **redescend**, ce qui
+                // est le seul geste qu'il connaisse. Quitter l'application
+                // depuis une recherche ouverte serait perdre la carte pour
+                // avoir tapé trois lettres.
+                searchOpen -> viewModel.collapseSearch()
                 showingTrip -> viewModel.hideTripSheet()
                 // Une ligne ouverte se referme sur le tableau d'où elle vient :
                 // le retour défait le dernier pas, pas toute la consultation.
@@ -551,13 +651,50 @@ fun MapScreen(
             }
             var sheetHandleHeightPx by remember { mutableFloatStateOf(0f) }
             var sheetContentHeightPx by remember { mutableFloatStateOf(0f) }
+            // La bande du socle, mesurée par le volet de recherche lui-même :
+            // la poignée, le champ, et la marge sous lui. C'est le pendant
+            // d'iOS `kSearchSheetHeight`, à ceci près qu'elle n'est pas écrite —
+            // un réglage de texte agrandi fait grandir le champ, et le palier
+            // le suit sans qu'on ait à y penser.
+            var socleHeightPx by remember { mutableFloatStateOf(0f) }
             val measuredPeek = with(density) {
                 (sheetHandleHeightPx + sheetContentHeightPx).toDp()
             }
-            val peekHeight = if (state.hasSheet && measuredPeek > 0.dp) {
-                minOf(measuredPeek, maxPeekHeight)
-            } else {
-                maxPeekHeight
+            // La barre système entre dans le palier, et pas dans le contenu :
+            // le volet descend jusqu'au bord de la fenêtre, donc un pic réglé
+            // sur la seule hauteur du champ aurait posé celui-ci **sous** les
+            // trois boutons du S21. Ce qu'on ajoute ici est de la surface de
+            // volet, pas de la marge — le champ, lui, garde la sienne.
+            val navigationBarPx = WindowInsets.navigationBars.getBottom(density)
+            val navigationBarHeight = with(density) { navigationBarPx.toDp() }
+            // ⚠️ **Sans la poignée** : la carte flottante n'en a pas, et la
+            // hauteur retenue de la dernière qui en avait une — celle du menu —
+            // gonflait le palier d'autant. Le volet montait alors trop haut, la
+            // carte se dessinait au-dessus de la bande visible, et le doigt
+            // tombait sous le champ : le socle devenait intouchable après un
+            // passage par le menu.
+            val socleHeight = with(density) {
+                (socleHeightPx + navigationBarPx).toDp()
+            }
+            // Le palier redescend jusqu'à la caméra, qui vit hors de la
+            // composition : elle cadre sur la bande **restante**, et cette
+            // bande est ce que le socle occupe.
+            val socleBand = if (showingSocle) socleHeight else 0.dp
+            val socleBandTargetPx = with(density) { socleBand.toPx() }
+            LaunchedEffect(socleBandTargetPx) { socleBandPx = socleBandTargetPx }
+
+            val peekHeight = when {
+                // Le socle passe avant la mesure du contenu : celui du volet de
+                // recherche vaut tout l'écran une fois déployé, et le prendre
+                // pour palier ouvrirait la recherche en grand sans qu'on l'ait
+                // demandée. Avant la première mesure, la bande d'un champ : une
+                // image, invisible, mais jamais zéro — un pic nul pose le
+                // palier à l'endroit exact du volet fermé.
+                showingSocle ->
+                    if (socleHeight > 0.dp) minOf(socleHeight, maxPeekHeight) else AuleChrome.bar
+                sheetPresented && measuredPeek > 0.dp ->
+                    minOf(measuredPeek - SHEET_PEEK_EPSILON, maxPeekHeight)
+                else -> maxPeekHeight
             }
 
             // `BottomSheetScaffold` n'a pas d'encoche pour les insets : déployé,
@@ -578,6 +715,20 @@ fun MapScreen(
             // déployer puis ramener n'a plus d'ancrage, le geste saute à
             // Hidden et le volet se ferme. L'API unifiée garde le palier
             // tant qu'on le demande.
+            // **Le socle ne se rejette pas.**
+            //
+            // `enabledValues` dirait la même chose et serait plus direct — mais
+            // c'est une **clé** du `rememberSaveable` qui porte l'état du volet
+            // (voir `SheetDefaults.rememberSheetState`) : la changer au vol
+            // reconstruit l'état, donc repose le volet à `Hidden`, et chaque
+            // passage du socle à une fiche ferait descendre le volet d'un coup
+            // sec avant de le remonter. Le veto, lui, est une lambda stable qui
+            // lit un état : le glissement vers le bas part, puis revient au
+            // palier, et le volet garde sa position d'un bout à l'autre.
+            val socleShowing = rememberUpdatedState(showingSocle)
+            val confirmSheetValue = remember {
+                { value: SheetValue -> value != SheetValue.Hidden || !socleShowing.value }
+            }
             val sheetState = rememberBottomSheetState(
                 initialValue = SheetValue.Hidden,
                 enabledValues = setOf(
@@ -585,6 +736,7 @@ fun MapScreen(
                     SheetValue.PartiallyExpanded,
                     SheetValue.Expanded,
                 ),
+                confirmValueChange = confirmSheetValue,
             )
             val scaffoldState = rememberBottomSheetScaffoldState(sheetState)
 
@@ -624,6 +776,14 @@ fun MapScreen(
                 }
             }
             val sheetIdentity: Any? = when {
+                // **Le menu passe devant tout.** On l'ouvre expressément, et il
+                // se referme sur ce qu'on regardait : une fiche d'arrêt ouverte
+                // dessous n'est pas perdue, elle attend. C'est la règle d'iOS,
+                // et sans elle un arrêt touché sur la carte pendant que le menu
+                // est ouvert lui prenait le volet — le menu restait « ouvert »
+                // dans l'état de `:app` et resurgissait à la fermeture de la
+                // fiche.
+                menuOpen -> "menu"
                 showingTrip -> "trip"
                 // L'inventaire du réseau compte pour `hasSheet` : sans identité
                 // ici, il faisait disparaître le chrome sans jamais déplier le
@@ -637,9 +797,13 @@ fun MapScreen(
                 state.selectedVehicle != null -> state.selectedVehicle
                 state.selectedPlace != null -> state.selectedPlace
                 state.route != null && !navigating -> state.route
+                // Le socle en dernier : c'est ce qui reste quand rien d'autre
+                // n'est présenté, et il ne prend jamais la place d'un volet.
+                showingSocle -> "search"
                 else -> null
             }
             val paneTitle = when {
+                menuOpen -> paneMenu
                 showingTrip -> paneTrip
                 state.showingNetworkLines -> paneNetworkLines
                 state.showingNearby -> paneNearby
@@ -648,38 +812,128 @@ fun MapScreen(
                 state.selectedVehicle != null -> paneVehicle
                 state.selectedPlace != null -> panePlace
                 state.route != null && !navigating -> paneRoute
+                showingSocle -> paneSearch
                 else -> ""
             }
 
             LaunchedEffect(sheetIdentity) {
+                // ⚠️ **On ne commande pas un volet qui n'a pas encore été
+                // posé.** `expand()` et consorts passent par `anchoredDrag` :
+                // sans ancrage, la fonction ne bouge rien mais **écrit quand
+                // même** l'état d'arrivée, et le volet se retrouve « au palier »
+                // avec un décalage jamais calculé. `BottomSheetScaffold` lit ce
+                // décalage à chaque mise en page — pour poser ses messages — et
+                // se termine par `IllegalStateException: The offset was read
+                // before being initialized`. Vu à l'écran, dès la première
+                // sélection d'un arrêt depuis la recherche.
+                //
+                // Attendre le décalage, c'est attendre les ancrages : le volet
+                // ne reçoit d'ordre qu'une fois mesuré.
+                sheetState.awaitLayout()
                 if (sheetIdentity == null) {
-                    try {
+                    runSheetCommand {
                         if (sheetState.currentValue != SheetValue.Hidden) {
                             sheetState.hide()
                         }
-                    } catch (cancelled: CancellationException) {
-                        throw cancelled
-                    } catch (_: Exception) {
                     }
                     return@LaunchedEffect
                 }
-                try {
-                    // Le trajet s'ouvre en grand : c'est une lecture, pas un
-                    // aperçu. En cran intermédiaire, ses étapes tenaient à
-                    // peine et « Arrêter » — la seule sortie du guidage —
-                    // finissait sous la barre système.
-                    // `show()` prend le palier s'il existe, le grand cran
-                    // sinon : `partialExpand()` levait dès que le contenu
-                    // tenait sous le peek, et le geste de fermeture n'était
-                    // plus écouté.
-                    if (showingTrip) sheetState.expand() else sheetState.show()
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    return@LaunchedEffect
+                // ⚠️ **L'ordre d'ouverture ne doit pas emporter le collecteur.**
+                // Il passe par le mutex du glissement, et un doigt déjà posé —
+                // ou une animation du volet en cours — le fait refuser par une
+                // annulation. Relancée, elle tuait la coroutine **avant** que
+                // le collecteur du dessous ne soit installé : le palier et
+                // l'état de la recherche cessaient alors de s'accorder pour
+                // toute la vie de l'écran, et le volet redescendait en gardant
+                // ses résultats et son clavier.
+                if (sheetIdentity != "search") {
+                    runSheetCommand {
+                        // Le trajet s'ouvre en grand : c'est une lecture, pas
+                        // un aperçu. En cran intermédiaire, ses étapes tenaient
+                        // à peine et « Arrêter » — la seule sortie du guidage —
+                        // finissait sous la barre système.
+                        // `show()` prend le palier s'il existe, le grand cran
+                        // sinon : `partialExpand()` levait dès que le contenu
+                        // tenait sous le peek, et le geste de fermeture n'était
+                        // plus écouté.
+                        if (showingTrip) sheetState.expand() else sheetState.show()
+                    }
+                } else {
+                    // ⚠️ **Le socle ne reçoit pas d'ordre ici**, et c'est tout
+                    // l'intérêt : c'est l'accord état → volet, plus bas, qui le
+                    // pose — lui seul. Les deux ont visé le même palier au même
+                    // instant ; le mutex du glissement en annulait un, celui-là
+                    // rendait la main aussitôt, et le collecteur repartait sur
+                    // un palier qui n'était pas encore celui de l'état. Vu à
+                    // l'écran : fermer le menu du compte rouvrait la recherche,
+                    // déployée, résultats compris. Un écrivain, un seul.
+                    //
+                    // Et **on n'écoute le volet qu'une fois qu'il s'accorde avec
+                    // l'état** : le socle prend la suite d'un autre volet, qui
+                    // pouvait être déployé. Lire le palier dans cet instant-là,
+                    // c'est prendre la position d'où l'on vient pour une
+                    // recherche que personne n'a ouverte.
+                    snapshotFlow {
+                        val wanted = if (viewModel.state.value.search.isActive) {
+                            SheetValue.Expanded
+                        } else {
+                            SheetValue.PartiallyExpanded
+                        }
+                        sheetState.currentValue == wanted
+                    }.first { it }
                 }
+                // Le jet du pouce vers le bas, tel qu'on le sert au socle :
+                // noté ici parce qu'il faut attendre que le geste rende la
+                // main avant d'y répondre. Voir juste en dessous.
+                var socleFlungDown = false
                 snapshotFlow { sheetState.currentValue to sheetState.targetValue }
                     .collect { (current, target) ->
+                        // **Le palier du socle est l'état de la recherche.**
+                        // Les deux sens comptent : monté au pouce, le volet
+                        // ouvre la recherche, sinon il montrerait un champ
+                        // au-dessus de rien ; redescendu, il la referme, sinon
+                        // le clavier resterait pris par un champ passé sous le
+                        // pli. C'est la règle de `SearchSheet` sur iOS, où le
+                        // contenu suit la taille et non l'inverse.
+                        //
+                        // Redescendre **n'efface pas le champ** : voir
+                        // [MapViewModel.collapseSearch].
+                        if (sheetIdentity == "search") {
+                            // ⚠️ **Un jet vers le bas vise le rejet**, que le
+                            // socle refuse — et le refus seul le renvoyait au
+                            // cran d'où il partait, c'est-à-dire déployé : le
+                            // geste le plus franc pour refermer était le seul
+                            // qui ne refermait pas.
+                            //
+                            // On note l'intention, et on ne la sert qu'une fois
+                            // le geste terminé — `current == target`. Y répondre
+                            // pendant le vol ne servait à rien : le glissement
+                            // tient le volet à une priorité supérieure, l'ordre
+                            // était rejeté, et le volet restait en l'air.
+                            if (target == SheetValue.Hidden) {
+                                socleFlungDown = true
+                                return@collect
+                            }
+                            // ⚠️ **Rien ne se décide tant que le volet est en
+                            // route.** Le palier qu'on lit pendant un vol est
+                            // celui d'où l'on part, pas celui où l'on va :
+                            // répondre à celui-là refermait la recherche dans
+                            // la seconde qui suivait le doigt posé sur le
+                            // champ — le volet montait, l'état disait « fermé »,
+                            // et le volet redescendait.
+                            if (current != target) return@collect
+                            if (socleFlungDown && current == SheetValue.Expanded) {
+                                socleFlungDown = false
+                                runSheetCommand { sheetState.partialExpand() }
+                                return@collect
+                            }
+                            socleFlungDown = false
+                            when (current) {
+                                SheetValue.Expanded -> viewModel.activateSearch()
+                                else -> viewModel.collapseSearch()
+                            }
+                            return@collect
+                        }
                         // Un fling depuis le grand cran vise Hidden et saute
                         // le palier. On le ramène : le prochain geste, depuis
                         // le peek, pourra refermer.
@@ -688,25 +942,38 @@ fun MapScreen(
                             current == SheetValue.Expanded &&
                             sheetState.hasPartiallyExpandedState
                         ) {
-                            try {
-                                sheetState.partialExpand()
-                            } catch (cancelled: CancellationException) {
-                                throw cancelled
-                            } catch (_: Exception) {
-                            }
+                            runSheetCommand { sheetState.partialExpand() }
                             return@collect
                         }
                         if (current == SheetValue.Hidden) {
-                            if (showingTrip) {
-                                viewModel.hideTripSheet()
-                            } else {
-                                viewModel.dismissSheet()
+                            when {
+                                menuOpen -> onDismissMenu()
+                                showingTrip -> viewModel.hideTripSheet()
+                                else -> viewModel.dismissSheet()
                             }
                         }
                     }
             }
-            LaunchedEffect(parentHeightPx, state.hasSheet) {
-                if (!state.hasSheet) return@LaunchedEffect
+
+            // Et l'état de la recherche est le palier du socle : ce qui l'ouvre
+            // d'ailleurs — le menu d'actions, l'action d'accessibilité de la
+            // carte — doit monter le volet, faute de quoi la commande promise
+            // n'aurait aucun effet visible.
+            LaunchedEffect(showingSocle, state.search.isActive) {
+                if (!showingSocle) return@LaunchedEffect
+                sheetState.awaitLayout()
+                runSheetCommand {
+                    if (state.search.isActive) {
+                        if (sheetState.currentValue != SheetValue.Expanded) sheetState.expand()
+                    } else if (sheetState.currentValue != SheetValue.PartiallyExpanded &&
+                        sheetState.hasPartiallyExpandedState
+                    ) {
+                        sheetState.partialExpand()
+                    }
+                }
+            }
+            LaunchedEffect(parentHeightPx, sheetPresented) {
+                if (!sheetPresented) return@LaunchedEffect
                 snapshotFlow {
                     runCatching { sheetState.requireOffset() }.getOrNull()
                 }.collect { offset ->
@@ -716,479 +983,706 @@ fun MapScreen(
                 }
             }
 
-            BottomSheetScaffold(
-                sheetContent = {
-                    if (!state.hasSheet) return@BottomSheetScaffold
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = maxSheetHeight)
-                            .onSizeChanged { size ->
-                                val height = size.height.toFloat()
-                                if (height != sheetContentHeightPx) {
-                                    sheetContentHeightPx = height
-                                }
-                            }
-                            .navigationBarsPadding()
-                            .semantics(mergeDescendants = false) {
-                                this.paneTitle = paneTitle
-                                isTraversalGroup = true
-                                traversalIndex = -2f
-                                customActions = listOf(
-                                    CustomAccessibilityAction(dismissLabel) {
-                                        if (showingTrip) {
-                                            viewModel.hideTripSheet()
-                                        } else {
-                                            viewModel.dismissSheet()
-                                        }
-                                        true
-                                    },
-                                )
-                            },
-                    ) {
-                        when {
-                            showingTrip && state.navigation != null -> {
-                                TripSheet(
-                                    state = state.navigation!!,
-                                    onStop = {
-                                        stopGuidance(
-                                            view, viewModel, controller, location, serviceActive,
-                                        )
-                                    },
-                                )
-                            }
-                            state.showingNetworkLines -> {
-                                val opened = viewModel.openedLine()
-                                if (opened != null) {
-                                    LineStopsSheet(
-                                        line = opened,
-                                        state = lineStopsState,
-                                        onBack = viewModel::closeNetworkLine,
-                                        onSelectDirection = viewModel.lineStops::selectDirection,
-                                        onRetry = viewModel.lineStops::retry,
-                                        // Poser l'état suffit : le vol et le
-                                        // retour au tracé se jouent plus haut,
-                                        // sur l'arrêt visé.
-                                        onFocusStop = { stop ->
-                                            if (stop.coordinate != null) {
-                                                viewModel.lineStops.focusStop(stop.id)
-                                            }
-                                        },
-                                        onReleaseStop = { viewModel.lineStops.focusStop(null) },
-                                    )
-                                } else {
-                                    val digest by viewModel.networkDigest
-                                        .collectAsStateWithLifecycle()
-                                    NetworkLinesSheet(
-                                        digest = digest,
-                                        query = state.networkLineQuery,
-                                        focused = state.focusedNetworkLine,
-                                        onQuery = viewModel::setNetworkLineQuery,
-                                        onFocus = viewModel::focusNetworkLine,
-                                        onOpen = viewModel::openNetworkLine,
-                                    )
-                                }
-                            }
-                            state.showingNearby -> {
-                                val around = location.lastFix.value?.coordinate
-                                    ?: controller.cameraCenter
-                                    ?: viewModel.openingCenter
-                                NearbySheet(
-                                    digest = viewModel.nearbyDigest(around),
-                                    linePalette = state.linePalette,
-                                    repository = viewModel.stopRepository,
-                                    dispatchers = viewModel.dispatchers,
-                                    onSelectStop = { stop ->
-                                        selectStopFromSheet(view, viewModel, controller, stop)
-                                    },
-                                    onSelectVehicle = { vehicle ->
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CLOCK_TICK,
-                                        )
-                                        viewModel.select(vehicle)
-                                    },
-                                )
-                            }
-                            state.showingLine -> {
-                                LineDepartureSheet(
-                                    watch = state.lineFocus!!,
-                                    state = watchState,
-                                    onBack = {
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CLOCK_TICK,
-                                        )
-                                        viewModel.closeLine()
-                                    },
-                                    timetable = timetableState,
-                                    onPickDate = viewModel::showTimetableDate,
-                                    onRetryTimetable = viewModel::retryTimetable,
-                                    onToggleFocus = {
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CONTEXT_CLICK,
-                                        )
-                                        viewModel.toggleFocus()
-                                    },
-                                    onToggleWatch = {
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CONTEXT_CLICK,
-                                        )
-                                        // La permission se demande au moment où
-                                        // elle sert, et pas au lancement : c'est
-                                        // ici seulement que l'application a
-                                        // quelque chose à annoncer, et un refus
-                                        // ne coûte que la bannière — la carte
-                                        // suit le véhicule quand même.
-                                        if (!watchState.isArmed &&
-                                            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
-                                        ) {
-                                            notificationPermissionLauncher.launch(
-                                                Manifest.permission.POST_NOTIFICATIONS,
+            // Le volet anime plus lentement que le reste de l'application :
+            // Material fait redescendre un volet au régime des *effets
+            // rapides*, un dixième de seconde, et le socle claquait. Voir
+            // [AuleSheetMotion], et la raison pour laquelle le régime
+            // n'enveloppe que ce sous-arbre.
+            AuleSheetMotion {
+                BottomSheetScaffold(
+                    sheetContent = {
+                        if (showingSocle) {
+                            // Le voile du menu d'actions **passe aussi sur le
+                            // socle**. Il est peint dans le corps de l'écran, et le
+                            // volet se dessine par-dessus le corps : sans ce
+                            // second voile, le menu déplié assombrissait la ville
+                            // et laissait le champ en pleine lumière, touchable —
+                            // c'est-à-dire qu'il ne se lisait plus comme un menu.
+                            val dimMenu = fabMenuExpanded
+                            val dismissMenuLabel = stringResource(R.string.fab_menu_close)
+                            // **Le socle prend toute la hauteur permise**, alors
+                            // que les autres volets se mesurent. Ce n'est pas une
+                            // fantaisie : le grand cran d'un volet se pose à la
+                            // hauteur de son contenu, et un contenu haut comme le
+                            // socle donnerait deux crans confondus — le palier
+                            // disparaîtrait alors des ancrages, et le volet ne
+                            // saurait plus redescendre. La bande visible au repos
+                            // reste celle du pic ; tout le reste attend sous le
+                            // bord de l'écran.
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(maxSheetHeight)
+                                    .navigationBarsPadding()
+                                    .imePadding()
+                                    .semantics(mergeDescendants = false) {
+                                        this.paneTitle = paneSearch
+                                        isTraversalGroup = true
+                                        traversalIndex = -2f
+                                        if (searchOpen) {
+                                            customActions = listOf(
+                                                CustomAccessibilityAction(searchCollapseLabel) {
+                                                    viewModel.collapseSearch()
+                                                    true
+                                                },
                                             )
                                         }
-                                        viewModel.toggleWatch()
                                     },
-                                )
-                            }
-                            state.selectedStop != null -> {
-                                StopDetailSheet(
-                                    stop = state.selectedStop!!,
+                            ) {
+                                MapSearchSheet(
+                                    search = state.search,
+                                    catalog = state.stops,
+                                    positions = location.lastFix,
                                     repository = viewModel.stopRepository,
                                     dispatchers = viewModel.dispatchers,
-                                    onRoute = {
-                                        val stop = state.selectedStop ?: return@StopDetailSheet
-                                        startRoute(
-                                            view, viewModel, controller, location,
-                                            RoutePlace(stop.coordinate, stop.departuresKey),
-                                            originMine, originMap,
+                                    expanded = state.search.isActive,
+                                    focusRequested = focusSearchField,
+                                    onQueryChange = viewModel::setSearchQuery,
+                                    onFieldFocused = viewModel::activateSearch,
+                                    onFocusConsumed = { focusSearchField = false },
+                                    onSocleHeightPx = { height ->
+                                        if (height != socleHeightPx) socleHeightPx = height
+                                    },
+                                    onSelectStop = { hit ->
+                                        selectStopFromSearch(
+                                            view, viewModel, controller, hit.representative,
                                         )
                                     },
-                                    onSelectLine = { row ->
-                                        val stop = state.selectedStop ?: return@StopDetailSheet
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CLOCK_TICK,
-                                        )
-                                        viewModel.openLine(stop, row)
-                                    },
-                                )
-                            }
-                            state.selectedVehicle != null -> {
-                                VehicleDetailSheet(
-                                    vehicle = state.selectedVehicle!!,
-                                    lineColor = state.linePalette.colorOf(
-                                        state.selectedVehicle!!.lineId,
-                                    ),
-                                    isFollowing = cameraMode == CameraMode.FOLLOW_VEHICLE,
-                                    onFollow = {
-                                        toggleFollowSelectedVehicle(
-                                            view, controller, state.selectedVehicle,
-                                        )
-                                    },
-                                    trip = tripState,
-                                )
-                            }
-                            state.selectedPlace != null -> {
-                                PlaceDetailSheet(
-                                    place = state.selectedPlace!!,
-                                    onRoute = {
-                                        val place = state.selectedPlace ?: return@PlaceDetailSheet
+                                    onSelectPlace = { place ->
                                         startRoute(
                                             view, viewModel, controller, location,
                                             RoutePlace(place.coordinate, place.shortLabel()),
                                             originMine, originMap,
                                         )
                                     },
-                                )
-                            }
-                            state.route != null && !navigating -> {
-                                RouteSheet(
-                                    state = state.route!!,
-                                    onSelect = viewModel::selectRoute,
-                                    onMode = viewModel::setRouteMode,
-                                    onSwap = {
-                                        // Le même retour au doigt que le choix
-                                        // d'un arrêt : le calcul repart, et
-                                        // l'écran met une seconde à le montrer.
-                                        view.performHapticFeedback(
-                                            HapticFeedbackConstants.CLOCK_TICK,
-                                        )
-                                        viewModel.swapRouteEnds()
+                                    onSelectNearbyStop = { stop ->
+                                        selectStopFromSearch(view, viewModel, controller, stop)
                                     },
-                                    onStart = {
-                                        startGuidance(
-                                            view, viewModel, controller, location, followState,
-                                        ) {
-                                            if (Build.VERSION.SDK_INT >=
+                                    savedPlaces = viewModel.savedPlaces.places,
+                                    // Un favori touché **part**, il ne s'ouvre
+                                    // pas : c'est toute la promesse — ouvrir,
+                                    // toucher Domicile, rouler. L'ouvrir en
+                                    // fiche aurait remis un geste entre
+                                    // l'intention et l'itinéraire.
+                                    onSelectSaved = { place ->
+                                        startRoute(
+                                            view, viewModel, controller, location,
+                                            RoutePlace(place.coordinate, savedLabel(place)),
+                                            originMine, originMap,
+                                        )
+                                    },
+                                    onFillSaved = { slot ->
+                                        savedPlaceTarget = SavedPlaceTarget.Fill(slot)
+                                    },
+                                    onManageSaved = { managingSavedPlaces = true },
+                                    accountAvatar = accountAvatar,
+                                )
+                                if (dimMenu) {
+                                    Box(
+                                        modifier = Modifier
+                                            .matchParentSize()
+                                            .background(
+                                                MaterialTheme.colorScheme.scrim
+                                                    .copy(alpha = AuleAlpha.SHADE),
+                                            )
+                                            .clickable(
+                                                interactionSource = remember {
+                                                    MutableInteractionSource()
+                                                },
+                                                indication = null,
+                                                onClickLabel = dismissMenuLabel,
+                                            ) { fabMenuExpanded = false }
+                                            .semantics {
+                                                contentDescription = dismissMenuLabel
+                                            },
+                                    )
+                                }
+                            }
+                            return@BottomSheetScaffold
+                        }
+                        if (!sheetPresented) return@BottomSheetScaffold
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = maxSheetHeight)
+                                .onSizeChanged { size ->
+                                    val height = size.height.toFloat()
+                                    if (height != sheetContentHeightPx) {
+                                        sheetContentHeightPx = height
+                                    }
+                                }
+                                .navigationBarsPadding()
+                                .semantics(mergeDescendants = false) {
+                                    this.paneTitle = paneTitle
+                                    isTraversalGroup = true
+                                    traversalIndex = -2f
+                                    customActions = listOf(
+                                        CustomAccessibilityAction(dismissLabel) {
+                                            when {
+                                                menuOpen -> onDismissMenu()
+                                                showingTrip -> viewModel.hideTripSheet()
+                                                else -> viewModel.dismissSheet()
+                                            }
+                                            true
+                                        },
+                                    )
+                                },
+                        ) {
+                            when {
+                                // Le menu passe devant : on l'a demandé
+                                // expressément, et il se referme sur ce qu'on
+                                // regardait.
+                                menuOpen -> menuSheet!!()
+                                showingTrip && state.navigation != null -> {
+                                    TripSheet(
+                                        state = state.navigation!!,
+                                        onStop = {
+                                            stopGuidance(
+                                                view,
+                                                viewModel,
+                                                controller,
+                                                location,
+                                                serviceActive,
+                                            )
+                                        },
+                                    )
+                                }
+                                state.showingNetworkLines -> {
+                                    val opened = viewModel.openedLine()
+                                    if (opened != null) {
+                                        LineStopsSheet(
+                                            line = opened,
+                                            state = lineStopsState,
+                                            onBack = viewModel::closeNetworkLine,
+                                            onSelectDirection =
+                                                viewModel.lineStops::selectDirection,
+                                            onRetry = viewModel.lineStops::retry,
+                                            // Poser l'état suffit : le vol et le
+                                            // retour au tracé se jouent plus haut,
+                                            // sur l'arrêt visé.
+                                            onFocusStop = { stop ->
+                                                if (stop.coordinate != null) {
+                                                    viewModel.lineStops.focusStop(stop.id)
+                                                }
+                                            },
+                                            onReleaseStop = { viewModel.lineStops.focusStop(null) },
+                                        )
+                                    } else {
+                                        val digest by viewModel.networkDigest
+                                            .collectAsStateWithLifecycle()
+                                        NetworkLinesSheet(
+                                            digest = digest,
+                                            query = state.networkLineQuery,
+                                            focused = state.focusedNetworkLine,
+                                            onQuery = viewModel::setNetworkLineQuery,
+                                            onFocus = viewModel::focusNetworkLine,
+                                            onOpen = viewModel::openNetworkLine,
+                                        )
+                                    }
+                                }
+                                state.showingNearby -> {
+                                    val around = location.lastFix.value?.coordinate
+                                        ?: controller.cameraCenter
+                                        ?: viewModel.openingCenter
+                                    NearbySheet(
+                                        digest = viewModel.nearbyDigest(around),
+                                        linePalette = state.linePalette,
+                                        repository = viewModel.stopRepository,
+                                        dispatchers = viewModel.dispatchers,
+                                        onSelectStop = { stop ->
+                                            selectStopFromSheet(view, viewModel, controller, stop)
+                                        },
+                                        onSelectVehicle = { vehicle ->
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CLOCK_TICK,
+                                            )
+                                            viewModel.select(vehicle)
+                                        },
+                                    )
+                                }
+                                state.showingLine -> {
+                                    LineDepartureSheet(
+                                        watch = state.lineFocus!!,
+                                        state = watchState,
+                                        onBack = {
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CLOCK_TICK,
+                                            )
+                                            viewModel.closeLine()
+                                        },
+                                        timetable = timetableState,
+                                        onPickDate = viewModel::showTimetableDate,
+                                        onRetryTimetable = viewModel::retryTimetable,
+                                        onToggleFocus = {
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CONTEXT_CLICK,
+                                            )
+                                            viewModel.toggleFocus()
+                                        },
+                                        onToggleWatch = {
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CONTEXT_CLICK,
+                                            )
+                                            // La permission se demande au moment où
+                                            // elle sert, et pas au lancement : c'est
+                                            // ici seulement que l'application a
+                                            // quelque chose à annoncer, et un refus
+                                            // ne coûte que la bannière — la carte
+                                            // suit le véhicule quand même.
+                                            val tiramisu = Build.VERSION.SDK_INT >=
                                                 Build.VERSION_CODES.TIRAMISU
-                                            ) {
+                                            if (!watchState.isArmed && tiramisu) {
                                                 notificationPermissionLauncher.launch(
                                                     Manifest.permission.POST_NOTIFICATIONS,
                                                 )
                                             }
+                                            viewModel.toggleWatch()
+                                        },
+                                    )
+                                }
+                                state.selectedStop != null -> {
+                                    StopDetailSheet(
+                                        stop = state.selectedStop!!,
+                                        repository = viewModel.stopRepository,
+                                        dispatchers = viewModel.dispatchers,
+                                        onRoute = {
+                                            val stop = state.selectedStop ?: return@StopDetailSheet
+                                            startRoute(
+                                                view, viewModel, controller, location,
+                                                RoutePlace(stop.coordinate, stop.departuresKey),
+                                                originMine, originMap,
+                                            )
+                                        },
+                                        onSelectLine = { row ->
+                                            val stop = state.selectedStop ?: return@StopDetailSheet
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CLOCK_TICK,
+                                            )
+                                            viewModel.openLine(stop, row)
+                                        },
+                                    )
+                                }
+                                state.selectedVehicle != null -> {
+                                    VehicleDetailSheet(
+                                        vehicle = state.selectedVehicle!!,
+                                        lineColor = state.linePalette.colorOf(
+                                            state.selectedVehicle!!.lineId,
+                                        ),
+                                        isFollowing = cameraMode == CameraMode.FOLLOW_VEHICLE,
+                                        onFollow = {
+                                            toggleFollowSelectedVehicle(
+                                                view, controller, state.selectedVehicle,
+                                            )
+                                        },
+                                        trip = tripState,
+                                    )
+                                }
+                                state.selectedPlace != null -> {
+                                    PlaceDetailSheet(
+                                        place = state.selectedPlace!!,
+                                        onRoute = {
+                                            val place = state.selectedPlace
+                                                ?: return@PlaceDetailSheet
+                                            startRoute(
+                                                view, viewModel, controller, location,
+                                                RoutePlace(place.coordinate, place.shortLabel()),
+                                                originMine, originMap,
+                                            )
+                                        },
+                                    )
+                                }
+                                state.route != null && !navigating -> {
+                                    RouteSheet(
+                                        state = state.route!!,
+                                        onSelect = viewModel::selectRoute,
+                                        onMode = viewModel::setRouteMode,
+                                        onSwap = {
+                                            // Le même retour au doigt que le choix
+                                            // d'un arrêt : le calcul repart, et
+                                            // l'écran met une seconde à le montrer.
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CLOCK_TICK,
+                                            )
+                                            viewModel.swapRouteEnds()
+                                        },
+                                        onStart = {
+                                            startGuidance(
+                                                view, viewModel, controller, location, followState,
+                                            ) {
+                                                if (Build.VERSION.SDK_INT >=
+                                                    Build.VERSION_CODES.TIRAMISU
+                                                ) {
+                                                    notificationPermissionLauncher.launch(
+                                                        Manifest.permission.POST_NOTIFICATIONS,
+                                                    )
+                                                }
+                                            }
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                    scaffoldState = scaffoldState,
+                    sheetPeekHeight = peekHeight,
+                    // `surface` et non le `surfaceContainerLow` que Material propose
+                    // par défaut. Le volet est le **support** des cartes qu'il
+                    // contient, et un support doit être plus clair que ce qu'on pose
+                    // dessus, sans quoi la hiérarchie s'inverse : au défaut Material,
+                    // le volet et ses cartes ne se séparaient que d'un point de
+                    // clarté, et la liste se lisait comme un aplat continu.
+                    // Le volet **s'efface** sous le socle fermé : c'est la carte
+                    // flottante qui porte alors la surface et l'ombre, écartée des
+                    // bords, et le volet ne doit rien peindre derrière elle.
+                    sheetContainerColor = if (showingSocle && !searchOpen) {
+                        Color.Transparent
+                    } else {
+                        MaterialTheme.colorScheme.surface
+                    },
+                    sheetShape = BottomSheetDefaults.ExpandedShape,
+                    sheetTonalElevation = 0.dp,
+                    sheetShadowElevation = if (showingSocle && !searchOpen) {
+                        0.dp
+                    } else {
+                        BottomSheetDefaults.Elevation
+                    },
+                    // ⚠️ **Pas de poignée sur la carte flottante.** Elle promet
+                    // un glissement qui n'existe pas au repos — le socle ne s'ouvre
+                    // qu'au doigt posé sur le champ — et un trait de préhension
+                    // posé sur une carte détachée des bords ne ressemble à rien.
+                    // Déployé, le volet la retrouve : c'est un volet.
+                    sheetDragHandle = if (sheetPresented || searchOpen) {
+                        {
+                            Box(
+                                // Le voile du menu couvre la poignée avec le reste
+                                // du socle : dimensionnée seule, elle laissait une
+                                // bande blanche en travers d'un écran assombri.
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .onSizeChanged { size ->
+                                        val height = size.height.toFloat()
+                                        if (height != sheetHandleHeightPx) {
+                                            sheetHandleHeightPx = height
                                         }
+                                    }
+                                    .background(
+                                        if (showingSocle && fabMenuExpanded) {
+                                            MaterialTheme.colorScheme.scrim
+                                                .copy(alpha = AuleAlpha.SHADE)
+                                        } else {
+                                            Color.Transparent
+                                        },
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                BottomSheetDefaults.DragHandle(
+                                    modifier = Modifier.semantics {
+                                        contentDescription = handleDescription
                                     },
                                 )
                             }
                         }
-                    }
-                },
-                modifier = Modifier.fillMaxSize(),
-                scaffoldState = scaffoldState,
-                sheetPeekHeight = peekHeight,
-                // `surface` et non le `surfaceContainerLow` que Material propose
-                // par défaut. Le volet est le **support** des cartes qu'il
-                // contient, et un support doit être plus clair que ce qu'on pose
-                // dessus, sans quoi la hiérarchie s'inverse : au défaut Material,
-                // le volet et ses cartes ne se séparaient que d'un point de
-                // clarté, et la liste se lisait comme un aplat continu.
-                sheetContainerColor = MaterialTheme.colorScheme.surface,
-                sheetShape = BottomSheetDefaults.ExpandedShape,
-                sheetTonalElevation = 0.dp,
-                sheetShadowElevation = BottomSheetDefaults.Elevation,
-                sheetDragHandle = if (state.hasSheet) {
-                    {
-                        Box(
-                            modifier = Modifier.onSizeChanged { size ->
-                                val height = size.height.toFloat()
-                                if (height != sheetHandleHeightPx) {
-                                    sheetHandleHeightPx = height
-                                }
+                    } else {
+                        null
+                    },
+                    sheetSwipeEnabled = sheetPresented || searchOpen,
+                    containerColor = Color.Transparent,
+                ) {
+                    Box(Modifier.fillMaxSize()) {
+                        AuleMap(
+                            controller = controller,
+                            ambiance = ambiance,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .semantics {
+                                    traversalIndex = 0f
+                                    contentDescription = "$mapDescription. $mapHint"
+                                    customActions = listOf(
+                                        CustomAccessibilityAction(routeLabel) {
+                                            focusSearchField = true
+                                            viewModel.activateSearch()
+                                            true
+                                        },
+                                        CustomAccessibilityAction(nearbyLabel) {
+                                            viewModel.showNearby()
+                                            true
+                                        },
+                                    )
+                                },
+                        )
+
+                        MapHud(
+                            state = state,
+                            authorization = authorization,
+                            lastLocationError = lastError,
+                            onShowNearby = viewModel::showNearby,
+                            onRetryStops = viewModel::retryLoadingStops,
+                            onOpenSettings = location::openSettings,
+                            onRequestPrecise = { permissionLauncher.launch(LOCATION_PERMISSIONS) },
+                            onOpenTrip = viewModel::showTripSheet,
+                            // Seulement quand la veille est armée : la même cible
+                            // sert au volet ouvert sans alerte, et une pastille
+                            // annoncerait alors une surveillance qui n'existe pas.
+                            watch = watchState.armed,
+                            onOpenWatch = {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                viewModel.reopenWatch()
                             },
-                        ) {
-                            BottomSheetDefaults.DragHandle(
-                                modifier = Modifier.semantics {
-                                    contentDescription = handleDescription
+                            onSummaryHeightPx = { height ->
+                                if (navigating && !showingTrip) sheetHeightPx = height
+                            },
+                            serviceBanner = serviceBanner,
+                            serviceBannerAction = serviceBannerAction,
+                            onServiceBannerAction = if (handedOver != null) {
+                                onDismissServiceNotice
+                            } else {
+                                null
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .safeDrawingPadding()
+                                .semantics { traversalIndex = -1f },
+                        )
+
+                        // Une seule cible en bas stabilise le geste et évite de faire
+                        // parcourir les deux bords de l'écran au pouce.
+                        val showingChrome = !showingReport && !hideChrome && !sheetPresented &&
+                            !state.search.isActive
+                        // Un volet ouvert par ailleurs — une veille qui se rouvre, un
+                        // arrêt sélectionné sur la carte — emporte le chrome avec lui.
+                        // Sans cela le menu attendrait, déplié, le retour de la carte.
+                        LaunchedEffect(showingChrome) {
+                            if (!showingChrome) fabMenuExpanded = false
+                        }
+                        BackHandler(enabled = fabMenuExpanded) { fabMenuExpanded = false }
+                        if (showingChrome) {
+                            // Le service garde son entrée unique : selon qu'il tourne
+                            // ou non, la même place ouvre la prise ou la fin. Deux
+                            // entrées côte à côte dont une seule répond seraient pires
+                            // que le changement de libellé.
+                            val actions = buildList {
+                                if (!navigating) {
+                                    if (serviceActive && onOpenActiveService != null) {
+                                        add(
+                                            MapFabAction(
+                                                glyph = AuleGlyph.BUS,
+                                                label = stringResource(R.string.fab_service_end),
+                                                onClick = onOpenActiveService,
+                                            ),
+                                        )
+                                    } else if (onStartService != null) {
+                                        add(
+                                            MapFabAction(
+                                                glyph = AuleGlyph.PLAY,
+                                                label = stringResource(R.string.fab_service_start),
+                                                onClick = onStartService,
+                                            ),
+                                        )
+                                    }
+                                    if (onOpenHandover != null) {
+                                        add(
+                                            MapFabAction(
+                                                glyph = AuleGlyph.SWAP,
+                                                label = stringResource(R.string.fab_handover),
+                                                onClick = onOpenHandover,
+                                            ),
+                                        )
+                                    }
+                                    add(
+                                        MapFabAction(
+                                            glyph = AuleGlyph.ROUTE,
+                                            label = stringResource(R.string.fab_route),
+                                            // Le menu promet une saisie : le volet
+                                            // monte **et** le clavier s'ouvre. Tiré
+                                            // au pouce, il monterait sans clavier —
+                                            // voir [focusSearchField].
+                                            onClick = {
+                                                focusSearchField = true
+                                                viewModel.activateSearch()
+                                            },
+                                        ),
+                                    )
+                                    add(
+                                        MapFabAction(
+                                            glyph = AuleGlyph.TRAM,
+                                            label = stringResource(R.string.fab_network_lines),
+                                            onClick = viewModel::openNetworkLines,
+                                        ),
+                                    )
+                                    // Les deux rescapées de la barre du bas, placées
+                                    // en dernier : le menu se déplie vers le haut,
+                                    // donc la fin de la liste est ce que le pouce
+                                    // atteint sans bouger. Ce sont aussi les deux
+                                    // qu'on ouvre le plus souvent.
+                                    if (onSubmitReport != null) {
+                                        add(
+                                            MapFabAction(
+                                                glyph = AuleGlyph.FLAG,
+                                                label = stringResource(R.string.fab_report),
+                                                onClick = { showingReport = true },
+                                            ),
+                                        )
+                                    }
+                                    add(
+                                        MapFabAction(
+                                            glyph = AuleGlyph.PIN,
+                                            label = stringResource(R.string.fab_nearby),
+                                            onClick = viewModel::showNearby,
+                                        ),
+                                    )
+                                }
+                            }
+                            if (fabMenuExpanded) {
+                                val dismissMenu = stringResource(R.string.fab_menu_close)
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(
+                                            MaterialTheme.colorScheme.scrim
+                                                .copy(alpha = AuleAlpha.SHADE),
+                                        )
+                                        // Sans ondulation : un voile plein écran qui
+                                        // s'illumine au doigt ferait croire qu'on a
+                                        // touché quelque chose, alors qu'on referme.
+                                        .clickable(
+                                            interactionSource = remember {
+                                                MutableInteractionSource()
+                                            },
+                                            indication = null,
+                                            onClickLabel = dismissMenu,
+                                        ) { fabMenuExpanded = false }
+                                        .semantics { contentDescription = dismissMenu },
+                                )
+                            }
+                            MapActionChrome(
+                                cameraMode = cameraMode,
+                                onRecenter = {
+                                    onRecenter(controller, state.selectedVehicle, navigating)
+                                },
+                                onOpenLegal = { showingLegal = true },
+                                actions = actions,
+                                fabExpanded = fabMenuExpanded,
+                                onFabExpandedChange = { fabMenuExpanded = it },
+                                // Le chrome se relève de ce qui occupe déjà la
+                                // bande du bas : la barre d'arrivée en guidage, la
+                                // recherche le reste du temps. Posé au bord comme
+                                // avant, le bouton d'action serait venu sur le
+                                // champ — deux cibles superposées dans le seul coin
+                                // que le pouce atteint sans bouger.
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .padding(
+                                        bottom = if (navigating) {
+                                            TripSummaryBarHeight + AuleSpacing.md
+                                        } else {
+                                            // Le palier moins la barre système : le
+                                            // chrome pose la sienne par-dessus, et
+                                            // les compter deux fois éloignerait le
+                                            // bouton d'action du bord d'autant.
+                                            (peekHeight - navigationBarHeight)
+                                                .coerceAtLeast(0.dp)
+                                        },
+                                    ),
+                            )
+                        }
+                        val submitReport = onSubmitReport
+                        if (showingReport && submitReport != null) {
+                            ReportSheetHost(
+                                onClose = { showingReport = false },
+                                onSubmit = { report ->
+                                    val fix = location.lastFix.value?.coordinate
+                                    val positioned = if (report.latitude == null && fix != null) {
+                                        report.copy(
+                                            latitude = fix.latitude,
+                                            longitude = fix.longitude,
+                                        )
+                                    } else {
+                                        report
+                                    }
+                                    submitReport(positioned)
                                 },
                             )
                         }
-                    }
-                } else {
-                    null
-                },
-                sheetSwipeEnabled = state.hasSheet,
-                containerColor = Color.Transparent,
-            ) {
-                Box(Modifier.fillMaxSize()) {
-                    AuleMap(
-                        controller = controller,
-                        ambiance = ambiance,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .semantics {
-                                traversalIndex = 0f
-                                contentDescription = "$mapDescription. $mapHint"
-                                customActions = listOf(
-                                    CustomAccessibilityAction(routeLabel) {
-                                        viewModel.activateSearch()
-                                        true
-                                    },
-                                    CustomAccessibilityAction(nearbyLabel) {
-                                        viewModel.showNearby()
-                                        true
-                                    },
-                                )
-                            },
-                    )
-
-                    MapHud(
-                        state = state,
-                        authorization = authorization,
-                        lastLocationError = lastError,
-                        positions = location.lastFix,
-                        stopRepository = viewModel.stopRepository,
-                        dispatchers = viewModel.dispatchers,
-                        onShowNearby = viewModel::showNearby,
-                        onRetryStops = viewModel::retryLoadingStops,
-                        onOpenSettings = location::openSettings,
-                        onRequestPrecise = { permissionLauncher.launch(LOCATION_PERMISSIONS) },
-                        onSearchQuery = viewModel::setSearchQuery,
-                        onSearchActivate = viewModel::activateSearch,
-                        onSearchCancel = viewModel::cancelSearch,
-                        onSelectSearchStop = { hit ->
-                            selectStopFromSearch(view, viewModel, controller, hit.representative)
-                        },
-                        onSelectNearbyStop = { stop ->
-                            selectStopFromSearch(view, viewModel, controller, stop)
-                        },
-                        onSelectSearchPlace = { place ->
-                            startRoute(
-                                view, viewModel, controller, location,
-                                RoutePlace(place.coordinate, place.shortLabel()),
-                                originMine, originMap,
-                            )
-                        },
-                        onOpenTrip = viewModel::showTripSheet,
-                        // Seulement quand la veille est armée : la même cible
-                        // sert au volet ouvert sans alerte, et une pastille
-                        // annoncerait alors une surveillance qui n'existe pas.
-                        watch = watchState.armed,
-                        onOpenWatch = {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            viewModel.reopenWatch()
-                        },
-                        onSummaryHeightPx = { height ->
-                            if (navigating && !showingTrip) sheetHeightPx = height
-                        },
-                        onOpenMenu = onOpenMenu,
-                        serviceBanner = serviceBanner,
-                        serviceBannerAction = serviceBannerAction,
-                        onServiceBannerAction = if (handedOver != null) {
-                            onDismissServiceNotice
-                        } else {
-                            null
-                        },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .safeDrawingPadding()
-                            .semantics { traversalIndex = -1f },
-                    )
-
-                    // Une seule cible en bas stabilise le geste et évite de faire
-                    // parcourir les deux bords de l'écran au pouce.
-                    val showingChrome = !showingReport && !hideChrome && !state.hasSheet &&
-                        !state.search.isActive
-                    // Un volet ouvert par ailleurs — une veille qui se rouvre, un
-                    // arrêt sélectionné sur la carte — emporte le chrome avec lui.
-                    // Sans cela le menu attendrait, déplié, le retour de la carte.
-                    LaunchedEffect(showingChrome) {
-                        if (!showingChrome) fabMenuExpanded = false
-                    }
-                    BackHandler(enabled = fabMenuExpanded) { fabMenuExpanded = false }
-                    if (showingChrome) {
-                        // Le service garde son entrée unique : selon qu'il tourne
-                        // ou non, la même place ouvre la prise ou la fin. Deux
-                        // entrées côte à côte dont une seule répond seraient pires
-                        // que le changement de libellé.
-                        val actions = buildList {
-                            if (!navigating) {
-                                if (serviceActive && onOpenActiveService != null) {
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.BUS,
-                                            label = stringResource(R.string.fab_service_end),
-                                            onClick = onOpenActiveService,
-                                        ),
-                                    )
-                                } else if (onStartService != null) {
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.PLAY,
-                                            label = stringResource(R.string.fab_service_start),
-                                            onClick = onStartService,
-                                        ),
-                                    )
-                                }
-                                if (onOpenHandover != null) {
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.SWAP,
-                                            label = stringResource(R.string.fab_handover),
-                                            onClick = onOpenHandover,
-                                        ),
-                                    )
-                                }
-                                add(
-                                    MapFabAction(
-                                        glyph = AuleGlyph.ROUTE,
-                                        label = stringResource(R.string.fab_route),
-                                        onClick = viewModel::activateSearch,
-                                    ),
-                                )
-                                add(
-                                    MapFabAction(
-                                        glyph = AuleGlyph.TRAM,
-                                        label = stringResource(R.string.fab_network_lines),
-                                        onClick = viewModel::openNetworkLines,
-                                    ),
-                                )
-                                // Les deux rescapées de la barre du bas, placées
-                                // en dernier : le menu se déplie vers le haut,
-                                // donc la fin de la liste est ce que le pouce
-                                // atteint sans bouger. Ce sont aussi les deux
-                                // qu'on ouvre le plus souvent.
-                                if (onSubmitReport != null) {
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.FLAG,
-                                            label = stringResource(R.string.fab_report),
-                                            onClick = { showingReport = true },
-                                        ),
-                                    )
-                                }
-                                add(
-                                    MapFabAction(
-                                        glyph = AuleGlyph.PIN,
-                                        label = stringResource(R.string.fab_nearby),
-                                        onClick = viewModel::showNearby,
-                                    ),
-                                )
-                            }
+                        if (showingLegal) {
+                            LegalNoticeSheet(onClose = { showingLegal = false })
                         }
-                        if (fabMenuExpanded) {
-                            val dismissMenu = stringResource(R.string.fab_menu_close)
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(
-                                        MaterialTheme.colorScheme.scrim
-                                            .copy(alpha = AuleAlpha.SHADE),
-                                    )
-                                    // Sans ondulation : un voile plein écran qui
-                                    // s'illumine au doigt ferait croire qu'on a
-                                    // touché quelque chose, alors qu'on referme.
-                                    .clickable(
-                                        interactionSource = remember { MutableInteractionSource() },
-                                        indication = null,
-                                        onClickLabel = dismissMenu,
-                                    ) { fabMenuExpanded = false }
-                                    .semantics { contentDescription = dismissMenu },
+                        if (managingSavedPlaces) {
+                            SavedPlacesSheet(
+                                places = viewModel.savedPlaces.places,
+                                onEdit = { place ->
+                                    savedPlaceTarget = SavedPlaceTarget.Edit(place)
+                                },
+                                onFill = { slot ->
+                                    savedPlaceTarget = SavedPlaceTarget.Fill(slot)
+                                },
+                                onDelete = { place -> deletingSavedPlace = place },
+                                onClose = { managingSavedPlaces = false },
                             )
                         }
-                        MapActionChrome(
-                            cameraMode = cameraMode,
-                            onRecenter = {
-                                onRecenter(controller, state.selectedVehicle, navigating)
-                            },
-                            onOpenLegal = { showingLegal = true },
-                            actions = actions,
-                            fabExpanded = fabMenuExpanded,
-                            onFabExpandedChange = { fabMenuExpanded = it },
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .fillMaxWidth()
-                                .padding(
-                                    bottom = if (navigating) {
-                                        TripSummaryBarHeight + AuleSpacing.md
-                                    } else {
-                                        0.dp
-                                    },
-                                ),
-                        )
-                    }
-                    val submitReport = onSubmitReport
-                    if (showingReport && submitReport != null) {
-                        ReportSheetHost(
-                            onClose = { showingReport = false },
-                            onSubmit = { report ->
-                                val fix = location.lastFix.value?.coordinate
-                                val positioned = if (report.latitude == null && fix != null) {
-                                    report.copy(
-                                        latitude = fix.latitude,
-                                        longitude = fix.longitude,
-                                    )
-                                } else {
-                                    report
-                                }
-                                submitReport(positioned)
-                            },
-                        )
-                    }
-                    if (showingLegal) {
-                        LegalNoticeSheet(onClose = { showingLegal = false })
+                        deletingSavedPlace?.let { doomed ->
+                            SavedPlaceDeleteDialog(
+                                name = savedLabel(doomed),
+                                onConfirm = {
+                                    viewModel.savedPlaces.remove(doomed.id)
+                                    deletingSavedPlace = null
+                                },
+                                onDismiss = { deletingSavedPlace = null },
+                            )
+                        }
+                        savedPlaceTarget?.let { target ->
+                            SavedPlaceEditorSheet(
+                                target = target,
+                                catalog = state.stops,
+                                repository = viewModel.placeRepository,
+                                dispatchers = viewModel.dispatchers,
+                                logger = viewModel.logger,
+                                onSave = viewModel.savedPlaces::save,
+                                onDelete = viewModel.savedPlaces::remove,
+                                onClose = { savedPlaceTarget = null },
+                            )
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/**
+ * Donner un ordre au volet sans se faire tuer par le geste en cours.
+ *
+ * ⚠️ `expand()`, `partialExpand()` et `hide()` passent par le `MutatorMutex` du
+ * glissement. Un doigt posé sur le volet le tient à une priorité supérieure :
+ * l'ordre est alors refusé, et il l'est **en jetant une `CancellationException`
+ * qui n'est pas celle de la portée**. La relancer — le réflexe correct partout
+ * ailleurs — tuait le collecteur qui tient l'accord entre le palier et l'état :
+ * un jet du pouce vers le bas laissait le volet déployé et vide, et plus aucun
+ * geste ne le redescendait.
+ *
+ * [ensureActive] fait la part des choses : il ne relance que si la portée, elle,
+ * a vraiment été annulée.
+ */
+private suspend fun runSheetCommand(block: suspend () -> Unit) {
+    try {
+        block()
+    } catch (_: CancellationException) {
+        currentCoroutineContext().ensureActive()
+    } catch (_: Exception) {
+    }
+}
+
+/**
+ * Attendre que le volet ait une position, c'est-à-dire des ancrages.
+ *
+ * Le décalage naît de la mesure ; tant qu'elle n'a pas eu lieu il vaut `NaN`,
+ * et toute commande donnée avant pose l'état sans poser le volet. Voir l'appel
+ * dans `MapScreen`, qui porte le défaut que ça a produit.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+private suspend fun SheetState.awaitLayout() {
+    snapshotFlow { runCatching { requireOffset() }.getOrNull() }.first { it != null }
 }
 
 private fun selectStopFromSheet(
@@ -1365,6 +1859,26 @@ private const val SHEET_PEEK_FRACTION = 0.45f
 
 /** Ce qui reste de carte au-dessus d'un volet déployé : assez pour se situer. */
 private val SHEET_TOP_INSET = 12.dp
+
+/**
+ * Le point qui sépare le palier du grand cran, et qui évite un plantage.
+ *
+ * `BottomSheetScaffold` **retire le palier** dès que le pic vaut exactement la
+ * hauteur du volet : les deux crans se confondent, il n'en garde qu'un. Or le
+ * pic d'ici est *mesuré sur le contenu* — l'égalité est le cas courant, pas le
+ * cas limite. Tant que rien ne bouge, c'est sans conséquence.
+ *
+ * ⚠️ Mais quand le palier disparaît **pendant qu'une animation le vise** —
+ * exactement ce qui arrive en passant du socle de recherche à la fiche d'un
+ * arrêt qu'on vient d'y choisir —, `AnchoredDraggable` termine son vol en
+ * écrivant la position d'un ancrage qui n'existe plus, c'est-à-dire `NaN`. La
+ * mise en page suivante lit ce décalage et jette : *The offset was read before
+ * being initialized*. Le volet ne s'ouvrait pas, l'application se fermait.
+ *
+ * Un point de moins tient les deux crans distincts. Il ne se voit pas — c'est
+ * un point de contenu de moins au palier — et il vaut mieux que le plantage.
+ */
+private val SHEET_PEEK_EPSILON = 1.dp
 
 private val LOCATION_PERMISSIONS = arrayOf(
     Manifest.permission.ACCESS_FINE_LOCATION,

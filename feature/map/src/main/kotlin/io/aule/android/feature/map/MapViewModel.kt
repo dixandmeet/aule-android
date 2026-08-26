@@ -6,6 +6,10 @@ import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.AuthSession
+import io.aule.android.core.model.DepartureRow
+import io.aule.android.core.model.DepartureWatch
+import io.aule.android.core.model.DepartureWatchAlert
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.FleetStatus
 import io.aule.android.core.model.GpsTracePoint
@@ -20,7 +24,10 @@ import io.aule.android.core.model.RoutePlace
 import io.aule.android.core.model.RoutePlan
 import io.aule.android.core.model.StopSearch
 import io.aule.android.core.model.StopSearchHit
+import io.aule.android.core.model.NetworkLinesDigest
+import io.aule.android.core.model.TransitLine
 import io.aule.android.core.model.TransitStop
+import io.aule.android.core.model.canonicalLineName
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.geo.RouteProgress
 import io.aule.android.core.location.LocationFix
@@ -28,6 +35,7 @@ import io.aule.android.core.model.JourneyPlan
 import io.aule.android.core.model.JourneyProgress
 import io.aule.android.core.model.LegMode
 import io.aule.android.core.model.NextAction
+import io.aule.android.core.model.NextActionKind
 import io.aule.android.core.model.OffRouteDetector
 import io.aule.android.core.model.PinnedManeuver
 import io.aule.android.core.model.TripSummary
@@ -36,15 +44,25 @@ import io.aule.android.core.model.journeyProgressAt
 import io.aule.android.core.model.nextAction
 import io.aule.android.core.model.pinManeuvers
 import io.aule.android.core.model.tripSummary
+import io.aule.android.core.model.Timetable
+import io.aule.android.core.model.TimetableException
+import io.aule.android.core.model.TimetableFailureKind
 import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.GpsTraceRecorder
+import io.aule.android.core.model.repository.DriverServiceRepository
 import io.aule.android.core.model.repository.LinePaletteRepository
+import io.aule.android.core.model.repository.NetworkLineRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
 import io.aule.android.core.model.repository.RoadRouter
 import io.aule.android.core.model.repository.RoutingRepository
+import io.aule.android.core.model.repository.SearchHistoryStore
+import io.aule.android.core.model.repository.SavedPlaceRepository
+import io.aule.android.core.model.repository.SavedPlacesStore
 import io.aule.android.core.model.repository.StopRepository
+import io.aule.android.core.model.repository.TimetableRepository
 import io.aule.android.core.model.repository.VehicleRepository
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -68,8 +86,8 @@ import kotlin.math.min
  *
  * Un seul volet à la fois, par construction : sélectionner un véhicule libère
  * l'arrêt, et réciproquement. « Autour de vous » ferme les deux. La recherche
- * ferme le volet : le clavier prend la moitié basse, et deux surfaces
- * empilées ne se lisent pas.
+ * les ferme aussi, et pour une autre raison : **elle est elle-même le volet**,
+ * celui du dessous, et rien ne se pose par-dessus lui sans le remplacer.
  */
 data class MapSearchState(
     val query: String = "",
@@ -77,8 +95,24 @@ data class MapSearchState(
     val stops: List<StopSearchHit> = emptyList(),
     val places: List<Place> = emptyList(),
     val isGeocoding: Boolean = false,
+    /**
+     * Les destinations déjà demandées, la plus récente en tête.
+     *
+     * Elles ne se mêlent pas aux résultats : ce sont deux listes qui ne
+     * répondent pas à la même question — « ce que vous cherchez » et « où vous
+     * alliez ». C'est [showsHistory] qui décide laquelle s'affiche.
+     */
+    val history: List<Place> = emptyList(),
 ) {
-    val showsResults: Boolean get() = isActive && query.trim().isNotEmpty()
+    /**
+     * L'historique remplace les résultats tant qu'aucune lettre n'est tapée.
+     *
+     * C'est le seul moment où il sert : une fois la frappe commencée, ce qu'on
+     * cherche prime sur où l'on allait, et deux listes empilées feraient défiler
+     * pour atteindre la première réponse.
+     */
+    val showsHistory: Boolean get() = isActive && query.trim().isEmpty() && history.isNotEmpty()
+
     val isEmpty: Boolean
         get() = stops.isEmpty() && places.isEmpty() && !isGeocoding
 }
@@ -107,19 +141,51 @@ data class MapUiState(
     val selectedStop: TransitStop? = null,
     val selectedVehicle: TransportVehicle? = null,
     val selectedPlace: Place? = null,
+    /**
+     * La ligne ouverte depuis le tableau d'un arrêt.
+     *
+     * Elle se pose **par-dessus** le volet de l'arrêt plutôt qu'à sa place :
+     * l'arrêt reste sélectionné, sa pastille reste allumée sur la carte, et le
+     * retour ramène au tableau d'où l'on vient. C'est le même geste que le
+     * détail d'un trajet pendant le guidage — un cran de plus dans la même
+     * chose, pas une autre chose.
+     */
+    val lineFocus: DepartureWatch? = null,
     val showingNearby: Boolean = false,
+    /**
+     * Le volet « Lignes du réseau », et la ligne qu'il met en avant.
+     *
+     * Les deux sont séparés, et ce n'est pas un raffinement : ils répondent à
+     * deux questions différentes — « où passent les lignes ici ? » et « où passe
+     * celle-ci ? » —, et la seconde doit pouvoir se poser sur une carte nue.
+     */
+    val showingNetworkLines: Boolean = false,
+    val networkLineQuery: String = "",
+    val focusedNetworkLine: String? = null,
+    /**
+     * La fiche de ligne, ouverte **par-dessus** l'inventaire.
+     *
+     * Elle ne remplace pas le volet : la ligne reste mise en avant sur la carte,
+     * et le retour ramène à la liste d'où l'on vient.
+     */
+    val openedNetworkLine: String? = null,
     val search: MapSearchState = MapSearchState(),
     val route: RouteUiState? = null,
     val navigation: NavigationUiState? = null,
 ) {
     val hasSheet: Boolean
-        get() = showingNearby ||
+        get() = showingNetworkLines ||
+            showingNearby ||
+            lineFocus != null ||
             selectedStop != null ||
             selectedVehicle != null ||
             selectedPlace != null ||
             (route != null && navigation == null) ||
             navigation?.showingTrip == true
     val isNavigating: Boolean get() = navigation != null
+
+    /** Vrai quand le geste de retour doit refermer la ligne, et non le volet. */
+    val showingLine: Boolean get() = lineFocus != null
 }
 
 enum class RouteLoadStatus { LOADING, READY, ERROR }
@@ -132,6 +198,26 @@ data class RouteUiState(
     val plan: RoutePlan? = null,
     val selectedId: String? = null,
     val error: String? = null,
+    /**
+     * Combien de minutes par mode, pour la même destination.
+     *
+     * ## Pourquoi elles sont ici, et pas dans le plan
+     *
+     * Le moteur ne répond que pour **un** mode à la fois. Sans ces valeurs, le
+     * sélecteur annonçait trois choix dont on ne pouvait comparer aucun : il
+     * fallait toucher « À pied » — donc relancer un calcul, donc attendre, donc
+     * perdre le trajet affiché — pour apprendre qu'on en avait pour vingt-cinq
+     * minutes. Le choix se faisait à l'aveugle, ou pas du tout.
+     *
+     * Une entrée absente veut dire « pas encore » ; une entrée à `null` veut
+     * dire « ce mode n'a rien rendu ». Les distinguer évite d'afficher un
+     * indicateur d'attente sur un mode qui a déjà répondu qu'il ne pouvait pas.
+     *
+     * Elles survivent au changement de mode ([setRouteMode]) : ce sont les
+     * durées d'**une destination**, pas d'un calcul, et les recalculer à chaque
+     * bascule aurait triplé le réseau pour réafficher les mêmes chiffres.
+     */
+    val durations: Map<RouteMode, Int?> = emptyMap(),
 ) {
     val selected: RouteCandidate?
         get() = plan?.selected(selectedId)
@@ -146,18 +232,98 @@ data class NavigationUiState(
     val signalLost: Boolean = false,
     val routeBearing: Double = 0.0,
     val showingTrip: Boolean = false,
-)
+) {
+
+    /**
+     * Le mode de la jambe qu'on est en train de parcourir.
+     *
+     * La caméra ne cadre pas un trottoir comme une quatre-voies : c'est
+     * cette valeur, et non le mode du trajet entier, qui choisit le profil.
+     * Un même itinéraire passe de la marche au tram puis à la marche, et le
+     * cadrage doit suivre à chaque jambe.
+     *
+     * Le repli sur la marche n'est pas arbitraire : un index de jambe hors
+     * bornes veut dire qu'on est au bout du trajet, donc à pied.
+     */
+    val currentLegMode: LegMode
+        get() = plan.legs.getOrNull(progress.legIndex)?.mode ?: LegMode.WALK
+
+    /**
+     * La distance au prochain point qui demande de l'attention, en mètres.
+     *
+     * `null` quand il n'y en a pas en vue — on suit une ligne droite, ou on
+     * est assis dans un tram. C'est ce que lit la caméra pour se rapprocher
+     * d'un carrefour, et c'est pour cela que la montée en véhicule y figure
+     * au même titre qu'un virage : trouver le bon quai à trente mètres
+     * demande exactement le même cadre que prendre la bonne branche.
+     */
+    val maneuverMeters: Double?
+        get() = action
+            ?.takeIf { it.kind == NextActionKind.MANEUVER || it.kind == NextActionKind.BOARD }
+            ?.leadMeters
+}
 
 class MapViewModel(
     internal val stopRepository: StopRepository,
     private val vehicleRepository: VehicleRepository,
     private val linePaletteRepository: LinePaletteRepository,
     private val traces: GpsTraceCatalog,
-    private val placeRepository: PlaceSearchRepository,
+    /**
+     * Le géocodeur. `internal` et non privé : l'éditeur de favori s'en sert
+     * aussi, avec son propre champ et son propre débrayage — voir
+     * [PlacePickerModel]. Le lui passer par l'écran évite de dupliquer un
+     * paramètre de construction pour la même dépendance.
+     */
+    internal val placeRepository: PlaceSearchRepository,
     private val routingRepository: RoutingRepository,
     private val roadRouter: RoadRouter,
     internal val dispatchers: AuleDispatchers,
     val logger: AuleLogger,
+    /**
+     * Ce qu'on fait d'une alerte de veille : un son et une bannière système.
+     * Muet par défaut — la composition les branche (`AuleRoot`), un test non.
+     */
+    private val onDepartureAlert: (DepartureWatchAlert, DepartureWatch) -> Unit = { _, _ -> },
+    /**
+     * La grille horaire théorique, et la session qui donne le droit de la lire.
+     *
+     * La session est une **lecture**, pas une valeur : un jeton capturé à la
+     * création du `ViewModel` aurait vieilli avec l'écran, et la grille aurait
+     * fini par se voir refuser sans que rien n'ait changé pour l'usager.
+     * Absente, le volet le dit et n'affiche pas de grille — les tables GTFS ne
+     * s'ouvrent pas aux anonymes.
+     */
+    private val timetableRepository: TimetableRepository? = null,
+    /**
+     * La desserte horodatée d'une course, pour le plan de ligne du véhicule
+     * suivi. Absente, la fiche reste ce qu'elle était — un véhicule se suit
+     * très bien sans son plan.
+     */
+    private val serviceRepository: DriverServiceRepository? = null,
+    private val session: () -> AuthSession? = { null },
+    private val today: () -> LocalDate = { LocalDate.now() },
+    /**
+     * Les destinations déjà demandées. Absent, la recherche fonctionne à
+     * l'identique et n'affiche simplement rien à l'ouverture — c'est ce que
+     * voient les tests qui ne parlent pas d'historique.
+     */
+    private val searchHistory: SearchHistoryStore? = null,
+    /**
+     * Les adresses favorites, sur l'appareil. Absent, la recherche n'affiche
+     * aucun raccourci et n'en propose pas — ce que voient les tests qui n'en
+     * parlent pas.
+     */
+    private val savedPlacesStore: SavedPlacesStore? = null,
+    /**
+     * Les mêmes, sur le compte. Absent, les favoris restent locaux : c'est
+     * exactement ce qui se passe hors ligne, et rien d'autre ne change.
+     */
+    private val savedPlaceRepository: SavedPlaceRepository? = null,
+    /**
+     * L'inventaire des lignes, lu dans les assets. Absent, le volet « Lignes du
+     * réseau » s'ouvre vide — ce que voient les tests qui n'en parlent pas.
+     */
+    private val networkLineRepository: NetworkLineRepository? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(MapUiState())
@@ -174,9 +340,93 @@ class MapViewModel(
     private val _fleet = MutableSharedFlow<FleetSnapshot>(replay = 1)
     val fleet: SharedFlow<FleetSnapshot> = _fleet.asSharedFlow()
 
+    /**
+     * La veille d'un passage, portée par l'écran et non par le volet.
+     *
+     * C'est tout l'intérêt : une veille sert à ne plus regarder. Elle survit
+     * donc au volet qui l'a armée, et son état se collecte à part de
+     * [state] — il change toutes les trente secondes, la carte non.
+     */
+    /**
+     * La grille du jour, à côté du temps réel et non dedans.
+     *
+     * Deux modèles pour un seul volet, parce que ce sont deux mondes : l'un se
+     * rafraîchit toutes les trente secondes et se périme, l'autre se charge une
+     * fois par journée demandée et reste vrai. Les fondre aurait fait sonder un
+     * catalogue au rythme d'un flux temps réel.
+     */
+    internal val timetable = TimetableModel(
+        repository = timetableRepository ?: NoTimetables,
+        session = session,
+        dispatchers = dispatchers,
+        scope = viewModelScope,
+        logger = logger,
+        today = today,
+    )
+
+    /**
+     * Le plan de ligne du véhicule suivi.
+     *
+     * Encore un modèle à côté du temps réel, et pour la même raison que la
+     * grille : une desserte se charge une fois, quand le temps réel se sonde
+     * en boucle. Ce qui bouge dans le plan — la coupure entre desservi et à
+     * desservir — se recalcule à l'affichage, à partir de la position qui
+     * arrive déjà.
+     */
+    /**
+     * La desserte de la ligne dont la fiche est ouverte.
+     *
+     * Encore un modèle à côté de l'état de la carte, et pour la même raison que
+     * les autres : il ne se charge qu'à l'ouverture d'une fiche, quand `state`
+     * change à chaque geste. Les fondre ferait recomposer l'écran entier au
+     * rythme d'un volet qui, la plupart du temps, n'est pas ouvert.
+     */
+    internal val lineStops = LineStopsModel(
+        repository = serviceRepository,
+        session = session,
+        dispatchers = dispatchers,
+        scope = viewModelScope,
+        logger = logger,
+        stops = stopRepository,
+    )
+
+    internal val vehicleTrip = VehicleTripModel(
+        repository = serviceRepository,
+        session = session,
+        dispatchers = dispatchers,
+        scope = viewModelScope,
+        logger = logger,
+    )
+
+    /**
+     * Les adresses favorites — Domicile, Travail, et le reste.
+     *
+     * Encore un modèle à côté de [state], et pour la raison inverse des autres :
+     * ceux-là se chargent depuis le réseau, celui-ci est **déjà là**. Il se lit
+     * du disque à la construction, sans attendre, parce que la recherche montre
+     * ses raccourcis à l'instant où elle s'ouvre.
+     */
+    internal val savedPlaces = SavedPlacesModel(
+        store = savedPlacesStore,
+        repository = savedPlaceRepository,
+        session = session,
+        dispatchers = dispatchers,
+        scope = viewModelScope,
+        logger = logger,
+    )
+
+    internal val departureWatch = DepartureWatchModel(
+        repository = stopRepository,
+        dispatchers = dispatchers,
+        scope = viewModelScope,
+        logger = logger,
+        onAlert = { alert, watch -> onDepartureAlert(alert, watch) },
+    )
+
     private var pollJob: Job? = null
     private var geocodeJob: Job? = null
     private var routeJob: Job? = null
+    private var previewJob: Job? = null
     private var routeToken = 0
     private var maneuverGeneration = 0
     private val maneuversByLeg = mutableMapOf<Int, List<PinnedManeuver>>()
@@ -309,9 +559,16 @@ class MapViewModel(
                 outcome.onSuccess { snapshot ->
                     lastSnapshot = snapshot
                     _fleet.emit(snapshot)
+                    departureWatch.onFleetSnapshot(snapshot)
                     val current = _state.value.selectedVehicle
                     val refreshed = current?.let { selected ->
                         snapshot.vehicles.find { it.id == selected.id }
+                            // Le théorique qu'on regardait a pu être remplacé
+                            // par sa mesure : même bus, autre identifiant. Le
+                            // perdre ici figerait la fiche sur une position qui
+                            // ne bougera plus, et laisserait la caméra suivre un
+                            // identifiant que plus personne ne publie.
+                            ?: snapshot.vehicles.find { it.twinId == selected.id }
                     }
                     _state.value = _state.value.copy(
                         fleetStatus = snapshot.status,
@@ -333,6 +590,7 @@ class MapViewModel(
                     val stale = lastSnapshot.copy(isStale = true)
                     lastSnapshot = stale
                     _fleet.emit(stale)
+                    departureWatch.onFleetSnapshot(stale)
                     _state.value = _state.value.copy(
                         fleetStatus = stale.status,
                         showsFleetStatus = stale.isStale || stale.vehicles.isNotEmpty(),
@@ -360,9 +618,136 @@ class MapViewModel(
             .coerceIn(MIN_RADIUS_M, MAX_RADIUS_M)
     }
 
+    // ------------------------------------------------- lignes du réseau
+
+    /**
+     * Les lignes du réseau, rangées et filtrées.
+     *
+     * Lues **une fois** au premier besoin puis gardées : l'index vit dans les
+     * assets, sa lecture ne dépend d'aucun réseau, et 138 lignes ne changent pas
+     * pendant qu'un volet est ouvert.
+     */
+    private var networkLines: List<TransitLine> = emptyList()
+
+    private val _networkDigest = MutableStateFlow(NetworkLinesDigest(emptyList()))
+    val networkDigest: StateFlow<NetworkLinesDigest> = _networkDigest.asStateFlow()
+
+    fun openNetworkLines() {
+        if (_state.value.showingNetworkLines) return
+        releaseLine()
+        geocodeJob?.cancel()
+        abandonRoute()
+        _state.value = _state.value.copy(
+            showingNetworkLines = true,
+            networkLineQuery = "",
+            openedNetworkLine = null,
+            selectedStop = null,
+            selectedVehicle = null,
+            selectedPlace = null,
+            showingNearby = false,
+            lineFocus = null,
+            search = MapSearchState(),
+            route = null,
+            navigation = null,
+        )
+        viewModelScope.launch { loadNetworkLines() }
+    }
+
+    /**
+     * Referme le volet **et éteint les tracés avec lui**.
+     *
+     * Les deux vont ensemble : le réseau est quelque chose qu'on demande, et le
+     * laisser peint après la fermeture recouvrirait la carte d'un lacis que plus
+     * rien n'explique.
+     */
+    fun closeNetworkLines() {
+        if (!_state.value.showingNetworkLines) return
+        lineStops.close()
+        _state.value = _state.value.copy(
+            showingNetworkLines = false,
+            networkLineQuery = "",
+            focusedNetworkLine = null,
+            openedNetworkLine = null,
+        )
+    }
+
+    /**
+     * Ouvre la fiche d'une ligne : ses arrêts, dans l'ordre, par sens.
+     *
+     * Elle **met aussi la ligne en avant** : ouvrir sa desserte sans la montrer
+     * sur la carte demanderait de faire deux gestes pour une seule intention.
+     */
+    fun openNetworkLine(name: String) {
+        val canonical = canonicalLineName(name)
+        if (_state.value.openedNetworkLine == canonical) return
+        _state.value = _state.value.copy(
+            openedNetworkLine = canonical,
+            focusedNetworkLine = canonical,
+        )
+        lineStops.open(canonical)
+    }
+
+    /** Referme la fiche et **garde l'inventaire ouvert** : c'est d'où l'on vient. */
+    fun closeNetworkLine() {
+        if (_state.value.openedNetworkLine == null) return
+        _state.value = _state.value.copy(openedNetworkLine = null)
+        lineStops.close()
+    }
+
+    /** La ligne dont la fiche est ouverte, avec tout ce que l'index en sait. */
+    fun openedLine(): TransitLine? {
+        val name = _state.value.openedNetworkLine ?: return null
+        return networkLines.firstOrNull { it.match == name }
+    }
+
+    fun setNetworkLineQuery(query: String) {
+        if (_state.value.networkLineQuery == query) return
+        _state.value = _state.value.copy(networkLineQuery = query)
+        _networkDigest.value = NetworkLinesDigest.build(networkLines, query)
+    }
+
+    /**
+     * Met une ligne en avant, ou retire la mise en avant si c'est la même.
+     *
+     * Retoucher le rang déjà désigné **éteint** la mise en avant : c'est le geste
+     * qu'on fait sans réfléchir pour revenir en arrière, et il n'a nulle part
+     * ailleurs où aller.
+     */
+    fun focusNetworkLine(name: String?) {
+        val canonical = name?.let(::canonicalLineName)
+        val next = if (canonical != null && canonical == _state.value.focusedNetworkLine) {
+            null
+        } else {
+            canonical
+        }
+        if (next == _state.value.focusedNetworkLine) return
+        _state.value = _state.value.copy(focusedNetworkLine = next)
+    }
+
+    /** La ligne désignée, avec son cadre — ce qu'il faut pour l'emmener à l'écran. */
+    fun focusedLine(): TransitLine? {
+        val name = _state.value.focusedNetworkLine ?: return null
+        return networkLines.firstOrNull { it.match == name }
+    }
+
+    private suspend fun loadNetworkLines() {
+        if (networkLines.isEmpty()) {
+            networkLines = runCatching {
+                withContext(dispatchers.io) { networkLineRepository?.allLines().orEmpty() }
+            }.getOrElse { failure ->
+                if (failure is CancellationException) throw failure
+                logger.warn(LogDomain.MAP, "Inventaire des lignes illisible.", failure)
+                emptyList()
+            }
+            logger.info(LogDomain.MAP, "Inventaire du réseau : ${networkLines.size} ligne(s).")
+        }
+        _networkDigest.value = NetworkLinesDigest.build(networkLines, _state.value.networkLineQuery)
+    }
+
     // ---------------------------------------------------------------- sélection
 
     fun select(stop: TransitStop) {
+        releaseLine()
         geocodeJob?.cancel()
         abandonRoute()
         _state.value = _state.value.copy(
@@ -370,6 +755,7 @@ class MapViewModel(
             selectedVehicle = null,
             selectedPlace = null,
             showingNearby = false,
+            lineFocus = null,
             search = MapSearchState(),
             route = null,
             navigation = null,
@@ -377,6 +763,7 @@ class MapViewModel(
     }
 
     fun select(vehicle: TransportVehicle) {
+        releaseLine()
         geocodeJob?.cancel()
         abandonRoute()
         _state.value = _state.value.copy(
@@ -384,6 +771,7 @@ class MapViewModel(
             selectedVehicle = vehicle,
             selectedPlace = null,
             showingNearby = false,
+            lineFocus = null,
             search = MapSearchState(),
             route = null,
             navigation = null,
@@ -391,20 +779,138 @@ class MapViewModel(
     }
 
     fun select(place: Place) {
+        releaseLine()
         geocodeJob?.cancel()
         abandonRoute()
+        searchHistory?.remember(place)
         _state.value = _state.value.copy(
             selectedStop = null,
             selectedVehicle = null,
             selectedPlace = place,
             showingNearby = false,
+            lineFocus = null,
             search = MapSearchState(),
             route = null,
             navigation = null,
         )
     }
 
-    fun select(hit: StopSearchHit) = select(hit.representative)
+    /**
+     * Un arrêt choisi dans la recherche.
+     *
+     * Il entre dans l'historique **comme lieu d'arrêt** — mode renseigné — et
+     * non comme adresse : c'est le mode, jamais le libellé, qui dira plus tard
+     * qu'on peut demander ses passages. Une adresse peut porter le nom d'un
+     * arrêt — « rue de la Beaujoire » — et l'interroger rendrait les lignes d'un
+     * lieu où l'on ne va pas.
+     *
+     * L'écran, lui, reçoit l'arrêt du catalogue et non ce lieu : la fiche
+     * d'arrêt a besoin de ses quais.
+     */
+    fun select(hit: StopSearchHit) {
+        searchHistory?.remember(
+            Place(
+                label = hit.label,
+                coordinate = hit.coordinate,
+                stopMode = hit.mode,
+            ),
+        )
+        select(hit.representative)
+    }
+
+    /**
+     * On suit ce véhicule, ou plus aucun : le plan de ligne suit la caméra.
+     *
+     * L'état du suivi vit dans le contrôleur de carte, pas ici — c'est un
+     * cadrage, pas une donnée d'écran. L'écran, qui voit les deux, dit au
+     * modèle quel véhicule mérite sa desserte.
+     */
+    fun followVehicle(vehicle: TransportVehicle?) = vehicleTrip.follow(vehicle)
+
+    // ------------------------------------------------------------------- veille
+
+    /**
+     * Ouvre une ligne du tableau d'un arrêt.
+     *
+     * On y va pour deux raisons, et une seule suffit à justifier le volet : voir
+     * **tous** les horaires — le tableau n'en montre que trois — ou demander à
+     * être prévenu. La rangée touchée porte déjà tout ce qu'il faut pour les
+     * deux, et le mode vient de l'arrêt quand le passage ne le publie pas.
+     */
+    fun openLine(stop: TransitStop, row: DepartureRow) {
+        val watch = DepartureWatch(
+            stopName = stop.departuresKey,
+            line = row.line,
+            destination = row.destination,
+            lineColor = row.lineColor,
+            mode = row.mode ?: stop.mode,
+            stopCoordinate = stop.coordinate,
+        )
+        departureWatch.open(watch)
+        timetable.open(watch)
+        _state.value = _state.value.copy(lineFocus = watch)
+    }
+
+    /**
+     * Revient sur la ligne veillée, depuis la pastille de la carte.
+     *
+     * L'arrêt est resélectionné quand le catalogue le connaît : c'est ce qui
+     * rallume sa pastille sur la carte et donne au geste de retour un endroit
+     * où revenir. S'il ne le connaît pas — catalogue encore en chargement — la
+     * ligne s'ouvre quand même : elle porte le nom de l'arrêt, et c'est tout ce
+     * qu'il faut pour lire des horaires.
+     */
+    fun reopenWatch() {
+        val target = departureWatch.state.value.armed ?: return
+        val stop = _state.value.stops.firstOrNull { it.departuresKey == target.stopName }
+        if (stop != null) {
+            select(stop)
+        }
+        departureWatch.open(target)
+        timetable.open(target)
+        _state.value = _state.value.copy(lineFocus = target)
+    }
+
+    /** Referme la ligne et revient au tableau de l'arrêt. La veille, elle, reste. */
+    fun closeLine() {
+        if (_state.value.lineFocus == null) return
+        departureWatch.close()
+        timetable.close()
+        _state.value = _state.value.copy(lineFocus = null)
+    }
+
+    /** La journée qu'on regarde dans la grille. */
+    fun showTimetableDate(date: LocalDate) = timetable.setDate(date)
+
+    /** Après un échec réseau : la reprise se demande, elle ne s'improvise pas. */
+    fun retryTimetable() = timetable.retry()
+
+    /**
+     * Le bouton unique du volet de ligne : on veille, ou on ne veille plus.
+     *
+     * Une seule veille à la fois, et c'est un choix : deux alertes concurrentes
+     * demanderaient de dire laquelle a parlé, donc une liste, donc un écran de
+     * gestion — pour un besoin qui, sur le terrain, s'exprime au singulier. On
+     * attend **un** bus.
+     */
+    /**
+     * Le second bouton : la carte accompagne le véhicule, ou le laisse partir.
+     *
+     * Séparé de l'alerte, et pas par symétrie : on arme une alerte **pour
+     * ranger son téléphone**, on demande un focus **pour le regarder**. Les
+     * joindre obligeait à accepter l'un pour obtenir l'autre.
+     */
+    fun toggleFocus() {
+        departureWatch.setFocused(!departureWatch.state.value.isFocused)
+    }
+
+    fun toggleWatch() {
+        if (departureWatch.state.value.isArmed) {
+            departureWatch.disarm()
+        } else {
+            departureWatch.arm()
+        }
+    }
 
     /**
      * Ce qu'il y a autour, calculé à l'ouverture de la liste et pas avant.
@@ -421,6 +927,7 @@ class MapViewModel(
         )
 
     fun showNearby() {
+        releaseLine()
         geocodeJob?.cancel()
         abandonRoute()
         _state.value = _state.value.copy(
@@ -428,6 +935,7 @@ class MapViewModel(
             selectedVehicle = null,
             selectedPlace = null,
             showingNearby = true,
+            lineFocus = null,
             search = MapSearchState(),
             route = null,
             navigation = null,
@@ -442,16 +950,38 @@ class MapViewModel(
         ) {
             return
         }
+        releaseLine()
         _state.value = current.copy(
             selectedStop = null,
             selectedVehicle = null,
             selectedPlace = null,
+            lineFocus = null,
         )
+    }
+
+    /**
+     * Le volet de ligne disparaît avec celui qui le portait.
+     *
+     * La **veille**, elle, ne disparaît pas : c'est [DepartureWatchModel.close]
+     * qui arbitre — il arrête le sondage si personne ne regarde et que rien
+     * n'est armé, et le laisse tourner sinon.
+     */
+    private fun releaseLine() {
+        if (_state.value.lineFocus == null) return
+        departureWatch.close()
+        timetable.close()
     }
 
     /** Ferme le volet, y compris « autour de vous » et l'itinéraire. */
     fun dismissSheet() {
         val current = _state.value
+        // Le volet du réseau se ferme par son propre chemin : il emporte avec lui
+        // les tracés et la ligne désignée, ce que le reste de cette fonction ne
+        // sait pas faire.
+        if (current.showingNetworkLines) {
+            closeNetworkLines()
+            return
+        }
         if (current.selectedStop == null &&
             current.selectedVehicle == null &&
             current.selectedPlace == null &&
@@ -461,12 +991,14 @@ class MapViewModel(
         ) {
             return
         }
+        releaseLine()
         abandonRoute()
         _state.value = current.copy(
             selectedStop = null,
             selectedVehicle = null,
             selectedPlace = null,
             showingNearby = false,
+            lineFocus = null,
             route = null,
             navigation = null,
         )
@@ -475,17 +1007,23 @@ class MapViewModel(
     // ---------------------------------------------------------------- recherche
 
     /**
-     * La saisie a pris le champ.
+     * La recherche s'ouvre : le socle monte, et ce qui était présenté cède.
      *
-     * Le volet cède : le clavier occupe la moitié basse, et deux surfaces
-     * empilées ne se lisent pas. La carte, elle, reste montée.
+     * Ce n'est pas une préférence d'écran, c'est la même règle qu'ailleurs — un
+     * seul volet à la fois. La carte, elle, reste montée derrière.
      */
     fun activateSearch() {
         val current = _state.value
         if (current.search.isActive) return
         abandonRoute()
+        // Relu à chaque ouverture, et non gardé en mémoire depuis le démarrage :
+        // c'est le seul instant où il sert, et le lire ici garantit qu'il est à
+        // jour même si un autre écran l'a fait grandir entre-temps.
         _state.value = current.copy(
-            search = current.search.copy(isActive = true),
+            search = current.search.copy(
+                isActive = true,
+                history = searchHistory?.read().orEmpty(),
+            ),
             selectedStop = null,
             selectedVehicle = null,
             selectedPlace = null,
@@ -493,6 +1031,15 @@ class MapViewModel(
             route = null,
             navigation = null,
         )
+        // La frappe gardée par [collapseSearch] reprend son travail. Sans cela,
+        // rouvrir sur « ranz » aurait montré « Aucun résultat pour ranz » —
+        // c'est-à-dire une réponse à une question que personne n'avait reposée.
+        val kept = current.search.query
+        if (kept.isNotBlank()) setSearchQuery(kept)
+        // Le compte a pu enregistrer une adresse depuis un autre appareil. La
+        // liste locale est déjà à l'écran ; ceci ne fait que la rattraper, et
+        // se débraye tout seul si elle vient d'être rattrapée.
+        savedPlaces.sync()
     }
 
     /**
@@ -546,12 +1093,34 @@ class MapViewModel(
         }
     }
 
-    fun cancelSearch() {
+    /**
+     * Le volet redescend au socle : la recherche se referme, **le champ garde
+     * sa frappe**.
+     *
+     * Repousser n'est pas annuler. Un volet à paliers invite l'aller-retour —
+     * on redescend pour revoir la carte, on remonte pour affiner — et effacer
+     * ici ferait payer ce geste au prix d'une saisie entière. C'est
+     * `DestinationSearchModel.collapse()` sur iOS, et l'argument y est le même.
+     *
+     * Ce qui part, en revanche, ce sont les **réponses** : l'appel au géocodeur
+     * est coupé, et les listes sont vidées plutôt que gardées au chaud sous un
+     * volet fermé. Elles reviennent à la réouverture — voir [activateSearch].
+     *
+     * Pour effacer, il y a la croix du champ, qui repasse par [setSearchQuery].
+     */
+    fun collapseSearch() {
         geocodeJob?.cancel()
         geocodeJob = null
         val current = _state.value
-        if (!current.search.isActive && current.search.query.isEmpty()) return
-        _state.value = current.copy(search = MapSearchState())
+        if (!current.search.isActive) return
+        _state.value = current.copy(
+            search = current.search.copy(
+                isActive = false,
+                stops = emptyList(),
+                places = emptyList(),
+                isGeocoding = false,
+            ),
+        )
     }
 
     // ------------------------------------------------------------- itinéraire
@@ -562,9 +1131,20 @@ class MapViewModel(
      *
      * Un jeton empêche une réponse lente d'écraser un calcul plus récent.
      */
-    fun routeTo(destination: RoutePlace, origin: RoutePlace, mode: RouteMode = RouteMode.TRANSIT) {
+    fun routeTo(
+        destination: RoutePlace,
+        origin: RoutePlace,
+        mode: RouteMode = RouteMode.TRANSIT,
+        /**
+         * Vrai quand seule la variante change : les durées déjà connues restent,
+         * et l'aperçu ne repart pas. Voir [RouteUiState.durations].
+         */
+        keepDurations: Boolean = false,
+    ) {
         geocodeJob?.cancel()
         routeJob?.cancel()
+        if (!keepDurations) previewJob?.cancel()
+        val known = if (keepDurations) _state.value.route?.durations.orEmpty() else emptyMap()
         val issued = ++routeToken
         _state.value = _state.value.copy(
             selectedStop = null,
@@ -578,8 +1158,10 @@ class MapViewModel(
                 destination = destination,
                 mode = mode,
                 status = RouteLoadStatus.LOADING,
+                durations = known,
             ),
         )
+        if (!keepDurations) previewDurations(origin, destination, issued)
         logger.info(LogDomain.NET, "Itinéraire ${mode.name.lowercase()} vers ${destination.label}.")
         routeJob = viewModelScope.launch {
             val outcome = runCatching {
@@ -600,6 +1182,10 @@ class MapViewModel(
                         plan = plan,
                         selectedId = plan.selectedId,
                         error = null,
+                        // Le mode demandé n'est pas redemandé par l'aperçu : sa
+                        // durée est déjà là, dans le plan qu'on vient de lire.
+                        durations = latest.durations +
+                            (mode to plan.selected()?.durationMinutes),
                     ),
                 )
             }.onFailure { failure ->
@@ -616,6 +1202,59 @@ class MapViewModel(
         }
     }
 
+    /**
+     * Les durées des **autres** modes, pour la destination qu'on vient de poser.
+     *
+     * ## Ce que ça coûte, et ce que ça évite
+     *
+     * Deux appels de plus — le mode demandé, lui, répond déjà. C'est le prix
+     * d'un sélecteur où l'on compare avant de choisir, au lieu d'un sélecteur
+     * qu'il faut essayer pour savoir. Ils partent **en parallèle** du calcul
+     * principal et ne le retardent pas : le trajet s'affiche à son rythme, et
+     * les chiffres se posent sur les onglets quand ils arrivent.
+     *
+     * Et deux appels seulement par **destination** : changer de mode n'en
+     * relance aucun, la réponse est déjà là.
+     *
+     * ## Un aperçu muet ne fait rien échouer
+     *
+     * Un mode sans réponse s'affiche sans chiffre, et c'est tout. Le trajet
+     * demandé, lui, est ailleurs et n'en dépend pas — faire remonter cet échec
+     * poserait un bandeau d'erreur sur un itinéraire parfaitement calculé.
+     */
+    private fun previewDurations(
+        origin: RoutePlace,
+        destination: RoutePlace,
+        issued: Int,
+    ) {
+        val repository = routingRepository
+        previewJob = viewModelScope.launch {
+            RouteMode.entries
+                .filter { it != _state.value.route?.mode }
+                .forEach { mode ->
+                    val minutes = runCatching {
+                        withContext(dispatchers.io) {
+                            repository.plan(
+                                mode = mode,
+                                from = origin.coordinate,
+                                to = destination.coordinate,
+                            )
+                        }
+                    }.getOrElse { failure ->
+                        if (failure is CancellationException) throw failure
+                        logger.warn(LogDomain.NET, "Aperçu ${mode.apiValue} muet.", failure)
+                        null
+                    }?.selected()?.durationMinutes
+
+                    if (issued != routeToken) return@launch
+                    val latest = _state.value.route ?: return@launch
+                    _state.value = _state.value.copy(
+                        route = latest.copy(durations = latest.durations + (mode to minutes)),
+                    )
+                }
+        }
+    }
+
     fun selectRoute(id: String) {
         val current = _state.value.route ?: return
         if (current.selectedId == id) return
@@ -625,7 +1264,28 @@ class MapViewModel(
     fun setRouteMode(mode: RouteMode) {
         val current = _state.value.route ?: return
         if (current.mode == mode) return
-        routeTo(current.destination, current.origin, mode)
+        routeTo(current.destination, current.origin, mode, keepDurations = true)
+    }
+
+    /**
+     * Retourne le trajet : ce qui était l'arrivée devient le départ.
+     *
+     * Le calcul repart entièrement, et c'est voulu — un itinéraire n'est pas
+     * symétrique. Les sens uniques, les arrêts desservis dans une seule
+     * direction et l'heure elle-même changent la réponse : à 17 h, l'aller
+     * existe et le retour peut n'avoir plus de correspondance.
+     *
+     * « Ma position » part avec sa coordonnée, pas avec son nom : une fois en
+     * arrivée, elle désigne l'endroit d'où l'on vient — celui où l'on était au
+     * moment du premier calcul — et non l'endroit où l'on sera tout à l'heure.
+     */
+    fun swapRouteEnds() {
+        val current = _state.value.route ?: return
+        routeTo(
+            destination = current.origin,
+            origin = current.destination,
+            mode = current.mode,
+        )
     }
 
     /**
@@ -779,6 +1439,11 @@ class MapViewModel(
     private fun abandonRoute() {
         routeJob?.cancel()
         routeJob = null
+        // L'aperçu meurt avec le trajet : deux calculs de comparaison pour un
+        // itinéraire qu'on vient d'abandonner sont deux requêtes payées pour un
+        // sélecteur que plus personne ne regarde.
+        previewJob?.cancel()
+        previewJob = null
         routeToken++
         stopGuidanceInternal()
     }
@@ -820,6 +1485,9 @@ class MapViewModel(
      */
     override fun onCleared() {
         stopFleetPolling()
+        departureWatch.clear()
+        timetable.close()
+        vehicleTrip.close()
         geocodeJob?.cancel()
         routeJob?.cancel()
         trace?.close()
@@ -856,3 +1524,21 @@ private fun LocationFix.toTracePoint() = GpsTracePoint(
     courseDegrees = courseDegrees,
     isMocked = isMocked,
 )
+
+/**
+ * Le repli quand aucune source d'horaires n'est branchée — les tests, et toute
+ * variante de l'application qui n'aurait pas de catalogue.
+ *
+ * Il **lève**, il ne rend pas une grille vide : une journée sans passage et une
+ * source absente n'appellent pas le même écran, et c'est précisément la
+ * confusion que le contrat existe pour éviter.
+ */
+private object NoTimetables : TimetableRepository {
+    override suspend fun timetable(
+        session: AuthSession,
+        stopName: String,
+        line: String,
+        destination: String,
+        date: LocalDate,
+    ): Timetable = throw TimetableException(TimetableFailureKind.NOT_CONFIGURED)
+}

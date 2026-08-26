@@ -7,7 +7,17 @@ import io.aule.android.appearance.PreferencesAppearanceStore
 import io.aule.android.auth.PreferencesAuthPkceStore
 import io.aule.android.auth.PreferencesAuthSessionStore
 import io.aule.android.auth.PreferencesRegistrationDraftStore
+import io.aule.android.search.PreferencesSavedPlacesStore
+import io.aule.android.search.PreferencesSearchHistoryStore
+import io.aule.android.assets.AndroidAssetBytes
+import io.aule.android.assets.FileCacheStore
+import io.aule.android.assets.TransitArchive
+import io.aule.android.data.caching.CachedStopRepository
+import io.aule.android.guet.PreferencesGuetStore
+import io.aule.android.data.tiles.AssetNetworkLineRepository
+import io.aule.android.welcome.PreferencesWelcomeStore
 import io.aule.android.handover.HandoverAlertNotifier
+import io.aule.android.watch.DepartureWatchNotifier
 import io.aule.android.handover.PreferencesHandoverAlertStore
 import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.common.DefaultDispatchers
@@ -28,9 +38,16 @@ import io.aule.android.core.model.repository.HandoverRepository
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RegistrationDraftStore
+import io.aule.android.core.model.repository.SavedPlaceRepository
+import io.aule.android.core.model.repository.SavedPlacesStore
+import io.aule.android.core.model.repository.SearchHistoryStore
+import io.aule.android.core.model.repository.GuetPreferencesStore
+import io.aule.android.core.model.repository.NetworkLineRepository
+import io.aule.android.core.model.repository.WelcomeStore
 import io.aule.android.core.model.repository.RoadRouter
 import io.aule.android.core.model.repository.RoutingRepository
 import io.aule.android.core.model.repository.StopRepository
+import io.aule.android.core.model.repository.TimetableRepository
 import io.aule.android.core.model.repository.VehicleRepository
 import io.aule.android.core.network.AuleEndpoints
 import io.aule.android.core.network.AuleHttpClient
@@ -45,8 +62,12 @@ import io.aule.android.data.aule.SupabaseDriverReportRepository
 import io.aule.android.data.aule.SupabaseDriverServiceRepository
 import io.aule.android.data.aule.SupabaseHandoverRepository
 import io.aule.android.data.aule.SupabaseLinePaletteRepository
+import io.aule.android.data.aule.SupabaseSavedPlaceRepository
+import io.aule.android.data.aule.SupabaseTimetableRepository
 import io.aule.android.log.AndroidLogger
 import io.aule.android.traces.FileGpsTraceCatalog
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,6 +92,7 @@ class AuleGraph private constructor(
     val okHttp: OkHttpClient,
     val vehicles: VehicleRepository,
     val stops: StopRepository,
+    val timetables: TimetableRepository,
     val linePalette: LinePaletteRepository,
     val places: PlaceSearchRepository,
     val routing: RoutingRepository,
@@ -78,6 +100,13 @@ class AuleGraph private constructor(
     val auth: AuthRepository,
     val profiles: DriverProfileRepository,
     val registrationDrafts: RegistrationDraftStore,
+    val searchHistory: SearchHistoryStore,
+    val savedPlaces: SavedPlacesStore,
+    val savedPlaceSync: SavedPlaceRepository,
+    val welcome: WelcomeStore,
+    val networkLines: NetworkLineRepository,
+    val transitArchive: TransitArchive,
+    val guetPreferences: GuetPreferencesStore,
     val appearance: AppearanceSettings,
     val traces: GpsTraceCatalog,
     val reports: DriverReportRepository,
@@ -87,6 +116,7 @@ class AuleGraph private constructor(
     val alertTone: AlertTone,
     val handoverAlertPrefs: HandoverAlertPrefsStore,
     val handoverAlerts: HandoverAlertNotifier,
+    val departureAlerts: DepartureWatchNotifier,
 ) {
     private val _authCallback = MutableStateFlow<Uri?>(null)
     val authCallback: StateFlow<Uri?> = _authCallback.asStateFlow()
@@ -152,7 +182,24 @@ class AuleGraph private constructor(
                     dispatchers = DefaultDispatchers,
                     okHttp = okHttp,
                     vehicles = AuleVehicleRepository(endpoints, http),
-                    stops = AuleStopRepository(endpoints, http),
+                    // Le catalogue passe par le disque : un lancement dans un
+                    // tunnel doit montrer des arrêts. Le décorateur enveloppe le
+                    // dépôt réseau et rien d'autre ne change — c'est la couture
+                    // qui existait déjà.
+                    stops = CachedStopRepository(
+                        upstream = AuleStopRepository(endpoints, http),
+                        cache = FileCacheStore(context, logger),
+                        // Un scope à part de tout écran : la revalidation est un
+                        // travail de fond, et la lier au volet qui a demandé les
+                        // arrêts l'annulerait au premier changement de volet.
+                        scope = CoroutineScope(SupervisorJob() + DefaultDispatchers.io),
+                        logger = logger,
+                    ),
+                    timetables = SupabaseTimetableRepository(
+                        client = http,
+                        supabaseUrl = config.supabaseUrl,
+                        publishableKey = config.supabasePublishableKey,
+                    ),
                     linePalette = SupabaseLinePaletteRepository(
                         client = http,
                         supabaseUrl = config.supabaseUrl,
@@ -164,6 +211,17 @@ class AuleGraph private constructor(
                     auth = auth,
                     profiles = profiles,
                     registrationDrafts = PreferencesRegistrationDraftStore(context),
+                    searchHistory = PreferencesSearchHistoryStore(context),
+                    savedPlaces = PreferencesSavedPlacesStore(context),
+                    savedPlaceSync = SupabaseSavedPlaceRepository(
+                        client = http,
+                        supabaseUrl = config.supabaseUrl,
+                        publishableKey = config.supabasePublishableKey,
+                    ),
+                    welcome = PreferencesWelcomeStore(context),
+                    networkLines = AssetNetworkLineRepository(AndroidAssetBytes(context)),
+                    transitArchive = TransitArchive(context, logger),
+                    guetPreferences = PreferencesGuetStore(context),
                     appearance = AppearanceSettings(PreferencesAppearanceStore(context)),
                     traces = FileGpsTraceCatalog(context),
                     reports = SupabaseDriverReportRepository(
@@ -185,6 +243,7 @@ class AuleGraph private constructor(
                     alertTone = AlertTone(context),
                     handoverAlertPrefs = PreferencesHandoverAlertStore(context),
                     handoverAlerts = HandoverAlertNotifier(context),
+                    departureAlerts = DepartureWatchNotifier(context),
                 )
 
                 // Ces deux chemins arrivent avec leurs lots respectifs. Ils
@@ -222,7 +281,6 @@ class AuleGraph private constructor(
                 environmentLabel = BuildConfig.ENVIRONMENT_LABEL,
                 versionName = BuildConfig.VERSION_NAME,
                 versionCode = BuildConfig.VERSION_CODE,
-                showsDiagnostics = BuildConfig.VERBOSE_LOGGING,
             )
         }
     }

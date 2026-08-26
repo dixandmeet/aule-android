@@ -17,6 +17,7 @@ effort, elle n'a pas besoin d'ADR.
 | [009](ADR-009-inclinaison.md) | L'inclinaison plafonne à 60°, pas 67° | Mesure, pas supposition |
 | [010](ADR-010-pas-de-material.md) | Material 3 sous identité Aule | Le comportement Android, les jetons Aule |
 | [011](ADR-011-localisation.md) | Un modèle ne contient pas de phrase | Où vivent les mots adressés à l'usager |
+| [012](ADR-012-favoris-locaux-d-abord.md) | Les favoris vivent sur l'appareil | Le compte rattrape, il ne commande pas |
 
 La 006 est celle qu'il faut lire en premier si l'on touche à la carte : c'est la seule règle
 du projet qui soit **invisible dans le code** et qu'un changement anodin suffise à détruire.

@@ -35,6 +35,7 @@ class AuleGlyphMappingTest {
             AuleGlyph.AUTO,
             AuleGlyph.PLAY,
             AuleGlyph.SWAP,
+            AuleGlyph.EXPLORE,
         )
         generic.forEach { glyph ->
             assertTrue(
@@ -61,6 +62,24 @@ class AuleGlyphMappingTest {
                 "$glyph doit rester une icône métier Aule",
             )
         }
+    }
+
+    @Test
+    fun `chaque icone de favori a un dessin, et l epingle reste metier`() {
+        io.aule.android.core.model.SavedPlaceIcon.entries.forEach { icon ->
+            // Un `when` exhaustif suffit au compilateur ; ce test attrape le cas
+            // qu'il ne voit pas — une valeur neuve renvoyée vers le même dessin
+            // qu'une autre, donc deux intentions qu'on ne distingue plus.
+            assertTrue(icon.asImageVector().name.isNotEmpty(), "$icon n'a pas de dessin")
+        }
+        val distinct = io.aule.android.core.model.SavedPlaceIcon.entries
+            .map { it.asImageVector().name }
+            .distinct()
+        assertEquals(io.aule.android.core.model.SavedPlaceIcon.entries.size, distinct.size)
+        assertEquals(
+            "Aule.Stop",
+            io.aule.android.core.model.SavedPlaceIcon.PIN.asImageVector().name,
+        )
     }
 
     @Test

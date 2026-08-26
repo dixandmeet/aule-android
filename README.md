@@ -128,8 +128,9 @@ Les formulations du domaine vivent dans `res/values/` (français source) et
 Les tests portent sur les modules purs et le décodage : profils de caméra,
 fenêtres de progression, stabilisation du cap, ancre de mouvement, contraste
 des tokens, échelle typographique, échelles d'élévation et de mesure,
-classement de la recherche d'arrêts, et décodage des **captures réelles** des
-points d'entrée du BFF. Pas les vues, pas le `MapController`.
+classement de la recherche d'arrêts, règles des adresses favorites
+(remplacement, fusion, pierres tombales), et décodage des **captures réelles**
+des points d'entrée du BFF. Pas les vues, pas le `MapController`.
 
 Une garde à part balaie `app/` et `feature/` : aucune mesure chiffrée à la
 main, aucune ombre posée hors du design system, aucun caractère en guise
@@ -139,8 +140,8 @@ c'est la seule façon tenue de garder une échelle après la revue de code.
 ## Session
 
 La carte est derrière une session : sans jeton valide, `AuleRoot` montre la
-connexion. Le menu du compte s'ouvre depuis le bouton en haut à gauche de la
-carte, et la déconnexion y est **seule, en bas de page, avec confirmation** —
+connexion. Le menu du compte s'ouvre **en volet**, depuis l'avatar du socle de
+recherche, et la déconnexion y est **seule, en bas, avec confirmation** —
 un doigt qui dérape au volant ne doit pas renvoyer à la saisie du mot de passe
 (reprise de `../SAE/docs/carte-app/REPRISE.md`, 09/08/2026). La carte
 d'identité du menu lit la fiche `drivers` (nom, matricule, dépôt) ; sans
@@ -174,6 +175,35 @@ Le profil a deux onglets. **Préférences** mémorise Clair / Sombre / Auto
 (`sae.theme_mode`, défaut clair comme Flutter) et liste les traces GPS de
 diagnostic. **Profil** porte la suppression définitive (`delete_my_account`) :
 un échec réseau laisse la session ouverte pour réessayer.
+
+## Les adresses favorites
+
+Le socle de recherche ouvre sur **Domicile** et **Travail**, puis sur les
+adresses qu'on y a ajoutées — crèche, salle de sport, famille. Un appui lance
+l'itinéraire depuis la position : ouvrir, toucher, rouler, sans une lettre
+tapée. Les deux emplacements nommés s'affichent **avant d'exister**, en « À
+définir » : un raccourci absent ne se découvre jamais, et celui-là ouvre
+l'éditeur au lieu de ne rien faire.
+
+L'éditeur demande l'adresse d'abord — c'est ce qu'on est venu faire — et propose
+le nom à partir d'elle. Il partage le géocodeur de la carte sans partager son
+état : chercher une adresse à enregistrer ne doit pas défaire l'itinéraire qu'on
+regardait (`PlacePickerModel`).
+
+**Les favoris vivent sur l'appareil ; le compte les rattrape** ([ADR-012](Docs/adr/ADR-012-favoris-locaux-d-abord.md)).
+Lus du disque de façon synchrone, ils sont à l'écran avant la première image, et
+la rangée fonctionne dans un parking souterrain. La synchronisation
+(`user_saved_places`, RLS sur `auth.uid()`) fusionne à l'horodatage **avant**
+d'écrire, et une suppression laisse une pierre tombale datée — sans elle, un
+favori effacé revient au prochain démarrage, renvoyé par un serveur qui n'a rien
+appris. Une synchronisation ratée est journalisée et rien d'autre : la liste
+locale est déjà correcte.
+
+Le sélecteur de mode du volet d'itinéraire porte désormais **les trois durées**.
+Elles coûtent deux appels de plus par destination — le mode demandé répond déjà —
+et aucun de plus quand on bascule d'un mode à l'autre : ce sont les durées d'une
+destination, pas d'un calcul. Sans elles, comparer imposait de toucher un onglet,
+donc de relancer un calcul et de perdre le trajet affiché.
 
 ## Reste à faire (hors jalon 1)
 
