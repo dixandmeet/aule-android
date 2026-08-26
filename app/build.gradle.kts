@@ -97,7 +97,10 @@ android {
         buildConfigField(
             "String",
             "SUPABASE_URL",
-            "\"${setting("aule.supabaseUrl", "https://rllcdvuqduuyhdcifiwp.supabase.co")}\"",
+            // Sans repli, pour la raison qui vaut pour la clé juste en dessous :
+            // c'est une valeur propre à la machine, et un défaut en dur la
+            // reverse dans le dépôt à chaque commit du fichier de build.
+            "\"${setting("aule.supabaseUrl")}\"",
         )
         buildConfigField(
             "String",
