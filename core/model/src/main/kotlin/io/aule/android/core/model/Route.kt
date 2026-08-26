@@ -32,7 +32,35 @@ const val ROUTE_FALLBACK_COLOR = "#33BFA3"
  */
 const val ROUTE_ANCHOR_SNAP_M = 150.0
 
-enum class RouteMode { TRANSIT, CAR }
+/**
+ * Comment on veut y aller. [apiValue] **est** ce qui part sur le fil.
+ *
+ * ## ⚠️ La marche se demande `foot`, jamais `walk`
+ *
+ * Le moteur ne connaît que `foot`, `car`, `transit` — et **tout autre mot
+ * retombe sur « bus »**, donc sur le profil voiture (`dashboard/app/api/route/route.ts`,
+ * `parseMode`, puis `fetchRoadSegment(mode === "foot" ? "foot" : "driving", …)`).
+ * Il n'y a ni erreur ni avertissement : la réponse est un 200 d'apparence
+ * normale, avec une géométrie de voirie et une durée de véhicule qu'on affiche
+ * telle quelle.
+ *
+ * Mesuré côté iOS le 19/08/2026 sur une même paire de points nantais :
+ *
+ * | `mode` envoyé | distance rendue | durée rendue |
+ * | --- | --- | --- |
+ * | `walk` | 1 198,6 m | 191 s — soit la réponse **mot pour mot identique** à `car` |
+ * | `foot` | 713,5 m | 528 s, soit 1,35 m/s : une allure de piéton |
+ *
+ * C'est ce qui faisait annoncer « 1 min » là où Plan disait 8 : le trajet était
+ * calculé en voiture. Rien à l'écran ne distinguait les deux, et c'est pourquoi
+ * la valeur est portée par l'énumération et verrouillée par un test, plutôt que
+ * réécrite dans chaque `when`.
+ */
+enum class RouteMode(val apiValue: String) {
+    TRANSIT("transit"),
+    WALK("foot"),
+    CAR("car"),
+}
 
 /**
  * Ce qu'une variante apporte de mieux que les autres, décidé par le moteur.
@@ -167,10 +195,7 @@ object RouteApi {
     ): Map<String, String> {
         val params = mutableMapOf(
             "v" to ROUTE_ALGORITHM_VERSION,
-            "mode" to when (mode) {
-                RouteMode.TRANSIT -> "transit"
-                RouteMode.CAR -> "car"
-            },
+            "mode" to mode.apiValue,
             "from" to from.apiPair,
             "to" to to.apiPair,
         )

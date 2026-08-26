@@ -1,24 +1,16 @@
 package io.aule.android.feature.map
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.DirectionsBoat
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -32,36 +24,30 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.auleEnter
+import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleEmptyState
-import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.RealtimeDot
-import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.component.realtimeInk
 import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.markerColor
-import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.DepartureRow
 import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.NearbyDigest
-import io.aule.android.core.model.ServingLine
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.model.repository.StopRepository
-import java.text.DecimalFormatSymbols
 import java.time.Instant
 import kotlin.math.ceil
 import kotlinx.coroutines.delay
@@ -123,13 +109,9 @@ internal fun NearbySheet(
     val watched = stops.take(NEARBY_DETAIL_LIMIT).map { it.stop.departuresKey }
     LaunchedEffect(watched) { model.watch(watched) }
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(bottom = AuleSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-    ) {
+    // Les rangées de ce volet vont d'un bord à l'autre : la gouttière est portée
+    // par chaque cartouche, pas par le corps.
+    SheetBody(modifier = modifier, gutters = false) {
         NearbyHeader(stopCount = stops.size, farthestMeters = stops.lastOrNull()?.distanceMeters)
 
         if (modes.size > 1) {
@@ -164,6 +146,7 @@ internal fun NearbySheet(
                         // « Le plus proche » n'apprend rien quand il n'y a
                         // qu'un arrêt : il l'est forcément.
                         isClosest = index == 0 && stops.size > 1,
+                        rank = index,
                         onSelect = { onSelectStop(entry.stop) },
                     )
                 }
@@ -176,10 +159,11 @@ internal fun NearbySheet(
                         text = stringResource(R.string.nearby_section_vehicles),
                         modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                     )
-                vehicles.forEach { entry ->
+                vehicles.forEachIndexed { index, entry ->
                     NearbyVehicleCard(
                         entry = entry,
                         lineColor = linePalette.colorOf(entry.vehicle.lineId),
+                        rank = index,
                         onSelect = { onSelectVehicle(entry.vehicle) },
                     )
                 }
@@ -209,7 +193,10 @@ private fun NearbyHeader(stopCount: Int, farthestMeters: Double?) {
                 } else {
                     stringResource(R.string.nearby_summary_many, stopCount, bound)
                 },
-                style = MaterialTheme.typography.bodyMedium,
+                // Le cran d'un sous-titre, celui que `SheetHeading` donne déjà
+                // aux siens : à quatorze points sous un titre qui en fait
+                // seize, le compte se lisait aussi fort que ce qu'il précise.
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -250,9 +237,25 @@ private fun ModeFilterRow(
 /**
  * Un arrêt, et de quoi décider sans l'ouvrir.
  *
- * L'arrêt de tête prend l'aplat de marque : c'est le seul relief de la liste,
- * et il porte la seule recommandation qu'on puisse faire sans connaître la
- * destination — celui vers lequel on marchera le moins.
+ * ## L'arrêt de tête, et ce qu'il a cessé d'être
+ *
+ * Il prenait `primaryContainer` : un aplat pastel pleine largeur. Sur
+ * l'ancienne palette, ce conteneur valait `#B8F0F6` — un cyan de piscine — et
+ * c'est précisément lui qu'on désignait en disant que « les couleurs font mal
+ * aux yeux ». Le diagnostic était juste, mais la cause n'était pas la teinte :
+ * c'était le **rôle**. Un pastel clair posé en grand aplat au milieu de cartes
+ * grises attire l'œil sans rien porter ; il crie sans parler.
+ *
+ * L'arrêt de tête prend maintenant la surface de marque : le dégradé teal
+ * profond, l'encre claire, l'ombre teintée. Le même besoin — désigner une
+ * recommandation — servi par une surface qui **pèse** au lieu d'une surface qui
+ * éclaire. C'est aussi ce que fait n'importe quelle application où l'on choisit
+ * dans une liste, et pour la même raison : ce qu'on recommande doit avoir l'air
+ * plus **dense** que le reste, pas plus lumineux.
+ *
+ * C'est la seule surface de marque de ce volet. La deuxième la banaliserait.
+ *
+ * @param rank le rang dans la liste, qui porte la cascade d'apparition.
  */
 @Composable
 private fun NearbyStopCard(
@@ -260,6 +263,7 @@ private fun NearbyStopCard(
     detail: NearbyStopDetail?,
     now: Instant,
     isClosest: Boolean,
+    rank: Int,
     onSelect: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -328,25 +332,31 @@ private fun NearbyStopCard(
         }
     }
 
-    Card(
-        onClick = onSelect,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = AuleSpacing.lg)
-            .semantics(mergeDescendants = true) {
-                contentDescription = label
-                onClick(label = hint, action = null)
-            },
-        colors = CardDefaults.cardColors(
-            containerColor = if (isClosest) colors.primaryContainer else colors.surfaceContainerHigh,
-            contentColor = if (isClosest) colors.onPrimaryContainer else colors.onSurface,
-        ),
-    ) {
+    // L'encre secondaire de la carte de tête n'est pas un rôle du thème : sur le
+    // dégradé de marque, `onSurfaceVariant` écrirait en gris sombre sur du teal
+    // sombre. C'est l'encre de l'accent, voilée, qui joue ce rôle-là — le même
+    // rapport de lecture, transposé sur l'autre fond.
+    val secondaryInk = if (isClosest) {
+        AuleTheme.tokens.onAccent.color.copy(alpha = AuleAlpha.VEIL)
+    } else {
+        colors.onSurfaceVariant
+    }
+
+    val cardModifier = Modifier
+        .fillMaxWidth()
+        .padding(horizontal = AuleSpacing.lg)
+        .auleEnter(index = rank)
+        .semantics(mergeDescendants = true) {
+            contentDescription = label
+            onClick(label = hint, action = null)
+        }
+
+    val body: @Composable () -> Unit = {
         Row(
-            modifier = Modifier.padding(AuleSpacing.md),
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            modifier = Modifier.padding(AuleSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
         ) {
-            ModeAvatar(mode = entry.stop.mode)
+            ModeAvatar(mode = entry.stop.mode, onBrand = isClosest)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
@@ -354,19 +364,17 @@ private fun NearbyStopCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         text = entry.stop.departuresKey,
-                        style = MaterialTheme.typography.titleMedium,
+                        // Le nom d'arrêt est la réponse à « où » : c'est le seul
+                        // mot de la carte qu'on lit avant tous les autres.
+                        style = MaterialTheme.typography.titleSmallEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     Text(
                         text = distance,
-                        style = MaterialTheme.typography.labelLarge,
-                        color = if (isClosest) {
-                            colors.onPrimaryContainer
-                        } else {
-                            colors.onSurfaceVariant
-                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = secondaryInk,
                         modifier = Modifier.padding(start = AuleSpacing.sm),
                     )
                 }
@@ -380,11 +388,7 @@ private fun NearbyStopCard(
                     Text(
                         text = "$walk · $modeLabel",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = if (isClosest) {
-                            colors.onPrimaryContainer
-                        } else {
-                            colors.onSurfaceVariant
-                        },
+                        color = secondaryInk,
                     )
                     if (isClosest) {
                         ClosestTag(text = closest)
@@ -394,35 +398,64 @@ private fun NearbyStopCard(
                     // Les passages portent déjà leur ligne : ajouter la rangée
                     // des lignes desservies redirait la même chose deux fois,
                     // sur une carte qui doit rester en retrait de l'écran.
-                    rows.isNotEmpty() -> DepartureStrip(rows = rows, muted = isClosest)
+                    rows.isNotEmpty() -> DepartureStrip(rows = rows, onBrand = isClosest)
                     servingLines.isNotEmpty() -> ServingStrip(lines = servingLines)
                     quiet != null -> Text(
                         text = quiet,
                         style = MaterialTheme.typography.labelSmall,
-                        color = if (isClosest) {
-                            colors.onPrimaryContainer
-                        } else {
-                            colors.onSurfaceVariant
-                        },
+                        color = secondaryInk,
                     )
                 }
             }
         }
     }
+
+    if (isClosest) {
+        AuleBrandSurface(
+            modifier = cardModifier,
+            shape = MaterialTheme.shapes.medium,
+            // `RESTING` et non `FLOATING` : la carte est posée dans un volet qui
+            // porte déjà son ombre. Une ombre haute ferait flotter une surface
+            // au-dessus d'une surface, et l'œil ne saurait plus laquelle est le
+            // support de l'autre.
+            elevation = AuleElevation.RESTING,
+            onClick = onSelect,
+        ) {
+            body()
+        }
+    } else {
+        Card(
+            onClick = onSelect,
+            modifier = cardModifier,
+            colors = CardDefaults.cardColors(
+                containerColor = colors.surfaceContainerHigh,
+                contentColor = colors.onSurface,
+            ),
+        ) {
+            body()
+        }
+    }
 }
 
-/** L'étiquette de l'arrêt recommandé — un fait, pas une décoration. */
+/**
+ * L'étiquette de l'arrêt recommandé — un fait, pas une décoration.
+ *
+ * Elle **s'inverse**. Elle prenait l'aplat de marque sur un fond pastel ; la
+ * carte ayant pris cet aplat, la même étiquette y disparaîtrait. Elle passe
+ * donc à l'encre de l'accent en fond et à l'accent en texte : le rapport de
+ * contraste est le même, la hiérarchie aussi, seul le sens de lecture a changé.
+ */
 @Composable
 private fun ClosestTag(text: String) {
+    val tokens = AuleTheme.tokens
     Surface(
         shape = MaterialTheme.shapes.extraSmall,
-        color = MaterialTheme.colorScheme.primary,
-        contentColor = MaterialTheme.colorScheme.onPrimary,
+        color = tokens.onAccent.color,
+        contentColor = tokens.accent.color,
     ) {
         Text(
             text = text,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelSmallEmphasized,
             modifier = Modifier.padding(horizontal = AuleSpacing.sm, vertical = TAG_PADDING),
         )
     }
@@ -435,7 +468,7 @@ private fun ClosestTag(text: String) {
  * dès qu'un arrêt est desservi par deux lignes, et c'est le cas courant.
  */
 @Composable
-private fun DepartureStrip(rows: List<DepartureRow>, muted: Boolean) {
+private fun DepartureStrip(rows: List<DepartureRow>, onBrand: Boolean) {
     Row(
         modifier = Modifier
             .horizontalScroll(rememberScrollState())
@@ -457,13 +490,23 @@ private fun DepartureStrip(rows: List<DepartureRow>, muted: Boolean) {
                     isLive = row.isRealtime,
                     liveDescription = stringResource(R.string.stop_realtime),
                     scheduledDescription = stringResource(R.string.stop_scheduled),
+                    // Le point suit la carte : sur le dégradé de marque, son
+                    // gris de repli tombe sous le contraste d'un signe visible.
+                    // C'est l'anneau, et non plus la couleur, qui dit alors
+                    // « théorique ».
+                    onBrand = onBrand,
                 )
                 Text(
                     text = row.nextWait?.label().orEmpty(),
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.SemiBold,
+                    // L'attente est le chiffre qu'on lit en dernier et qui
+                    // décide de tout : elle prend le slot appuyé.
+                    style = MaterialTheme.typography.labelMediumEmphasized,
                     color = when {
-                        muted -> MaterialTheme.colorScheme.onPrimaryContainer
+                        // Sur le dégradé de marque, le vert du temps réel perd
+                        // son contraste et sa signification : l'information
+                        // « c'est mesuré » y est déjà portée par le point qui
+                        // pulse juste à côté.
+                        onBrand -> AuleTheme.tokens.onAccent.color
                         row.isRealtime -> realtimeInk()
                         else -> MaterialTheme.colorScheme.onSurface
                     },
@@ -473,35 +516,11 @@ private fun DepartureStrip(rows: List<DepartureRow>, muted: Boolean) {
     }
 }
 
-/**
- * Les lignes desservies, quand rien ne passe.
- *
- * La nuit, un arrêt n'annonce aucun passage mais dessert toujours les mêmes
- * lignes : c'est cette information-là qui reste utile.
- */
-@Composable
-private fun ServingStrip(lines: List<ServingLine>) {
-    Row(
-        modifier = Modifier
-            .horizontalScroll(rememberScrollState())
-            .padding(top = AuleSpacing.xs),
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        lines.forEach { serving ->
-            LineBadge(
-                line = serving.line,
-                colorHex = serving.lineColor,
-                contentDescription = stringResource(R.string.line_badge, serving.line),
-            )
-        }
-    }
-}
-
 @Composable
 private fun NearbyVehicleCard(
     entry: NearbyDigest.VehicleEntry,
     lineColor: String?,
+    rank: Int,
     onSelect: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
@@ -535,6 +554,7 @@ private fun NearbyVehicleCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = AuleSpacing.lg)
+            .auleEnter(index = rank)
             .semantics(mergeDescendants = true) {
                 contentDescription = label
                 onClick(label = hint, action = null)
@@ -545,8 +565,8 @@ private fun NearbyVehicleCard(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(AuleSpacing.md),
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            modifier = Modifier.padding(AuleSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             LineBadge(
@@ -560,7 +580,7 @@ private fun NearbyVehicleCard(
             ) {
                 Text(
                     text = destination,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleSmallEmphasized,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -582,46 +602,12 @@ private fun NearbyVehicleCard(
             }
             Text(
                 text = distance,
-                style = MaterialTheme.typography.labelLarge,
+                style = MaterialTheme.typography.labelMedium,
                 color = colors.onSurfaceVariant,
             )
         }
     }
 }
-
-/**
- * Le mode, dans sa teinte de carte.
- *
- * La même que celle du marqueur : reconnaître un arrêt de tram à sa couleur
- * dans la liste puis sur la carte est ce qui relie les deux vues.
- */
-@Composable
-private fun ModeAvatar(mode: TransportMode) {
-    val tint = mode.markerColor(AuleTheme.night).color
-    Box(
-        modifier = Modifier
-            .size(AVATAR_SIZE)
-            .background(color = tint.copy(alpha = AuleAlpha.TINT), shape = CircleShape),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = mode.icon(),
-            contentDescription = null,
-            tint = tint,
-            modifier = Modifier.size(AVATAR_ICON_SIZE),
-        )
-    }
-}
-
-private fun TransportMode.icon(): ImageVector = when (this) {
-    TransportMode.BUS -> AuleGlyph.BUS.asImageVector()
-    TransportMode.TRAM -> AuleGlyph.TRAM.asImageVector()
-    TransportMode.BOAT -> Icons.Outlined.DirectionsBoat
-}
-
-@Composable
-private fun formatDistance(meters: Double): String =
-    GeoMath.formatDistance(meters, DecimalFormatSymbols.getInstance().decimalSeparator)
 
 /**
  * Une borne ronde.
@@ -651,10 +637,6 @@ private const val NEARBY_DEPARTURE_COUNT = 3
 
 /** Au-delà, la rangée de badges devient une liste qu'il faut lire. */
 private const val NEARBY_LINE_COUNT = 6
-
-/** La pastille du mode : un cran de plus que l'icône, pour qu'elle respire. */
-private val AVATAR_SIZE = 40.dp
-private val AVATAR_ICON_SIZE = 22.dp
 
 /** L'étiquette respire moins que le reste : c'est ce qui la fait lire comme telle. */
 private val TAG_PADDING = 3.dp

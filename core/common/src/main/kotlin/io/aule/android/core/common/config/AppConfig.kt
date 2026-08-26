@@ -39,11 +39,6 @@ data class AppConfig(
     val environmentLabel: String,
     val versionName: String,
     val versionCode: Int,
-    /**
-     * La pastille de diagnostic — quel binaire, quelle source. Absente de la
-     * production : un usager n'a rien à faire de « development · production ».
-     */
-    val showsDiagnostics: Boolean = false,
 ) {
     init {
         require(apiBase.startsWith("https://")) {

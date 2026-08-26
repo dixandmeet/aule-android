@@ -39,6 +39,18 @@ android {
         buildConfig = true
     }
 
+    androidResources {
+        // L'archive des tracés est stockée **telle quelle**, sans compression.
+        //
+        // Deux raisons, et la seconde est la vraie. La première : PMTiles est
+        // déjà un format compressé, l'emballer une seconde fois ne gagne rien.
+        // La seconde : un asset compressé n'a pas de descripteur de fichier —
+        // `AssetManager.openFd` échoue — et on perd le seul moyen bon marché de
+        // savoir si la copie faite au premier lancement est encore à jour. Sans
+        // ça, l'archive se recopierait à chaque démarrage.
+        noCompress += "pmtiles"
+    }
+
     flavorDimensions += "environment"
     productFlavors {
         create("development") {

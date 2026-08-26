@@ -29,9 +29,9 @@ fun reduceMotionEnabled(): Boolean {
 /**
  * Plafonne le facteur de police, comme iOS le fait à `xxxLarge`.
  *
- * Aux tailles d'accessibilité, quatre lignes d'attribution mangeraient un
- * tiers de la carte. Le contenu reste entier pour TalkBack, qui en a la
- * version développée.
+ * Aux tailles d'accessibilité, un résumé de trajet replié sur quatre lignes
+ * mangerait un tiers de la carte. Le contenu reste entier pour TalkBack, qui
+ * en a la version développée.
  */
 @Composable
 fun AuleCappedFontScale(

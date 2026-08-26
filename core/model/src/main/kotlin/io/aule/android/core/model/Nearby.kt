@@ -3,6 +3,7 @@ package io.aule.android.core.model
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.geo.GeoMath
 import kotlin.math.ceil
+import kotlin.math.roundToInt
 
 /** Combien d'entrées au plus. Au-delà, une liste lue à voix haute cesse d'être une réponse. */
 const val NEARBY_LIMIT = 12
@@ -34,24 +35,44 @@ data class NearbyDigest(
     val isEmpty: Boolean get() = stops.isEmpty() && vehicles.isEmpty()
 
     data class StopEntry(val stop: TransitStop, val distanceMeters: Double) {
-        /**
-         * Combien de minutes de marche pour y arriver.
-         *
-         * Une distance répond « où », une durée répond « est-ce que j'y suis
-         * à temps » — et c'est la seconde question qu'on se pose devant une
-         * liste d'arrêts.
-         *
-         * **Jamais zéro.** « 0 min à pied » se lit comme une panne
-         * d'affichage, pas comme « vous y êtes ».
-         */
-        val walkMinutes: Int
-            get() = ceil(distanceMeters * WALK_DETOUR / WALK_SPEED_MPS / 60.0)
-                .toInt()
-                .coerceAtLeast(1)
+        /** Voir [walkMinutesOver]. */
+        val walkMinutes: Int get() = walkMinutesOver(distanceMeters)
     }
 
     data class VehicleEntry(val vehicle: TransportVehicle, val distanceMeters: Double)
 }
+
+/**
+ * Combien de minutes de marche pour couvrir cette distance à vol d'oiseau.
+ *
+ * Une distance répond « où », une durée répond « est-ce que j'y suis à
+ * temps » — et c'est la seconde question qu'on se pose devant une liste
+ * d'arrêts. La recherche la pose autant que « autour de vous » : le calcul vit
+ * donc ici, une fois, plutôt que dans chacune des deux listes.
+ *
+ * **Jamais zéro.** « 0 min à pied » se lit comme une panne d'affichage, pas
+ * comme « vous y êtes ».
+ */
+fun walkMinutesOver(distanceMeters: Double): Int =
+    ceil(distanceMeters * WALK_DETOUR / WALK_SPEED_MPS / 60.0)
+        .toInt()
+        .coerceAtLeast(1)
+
+/**
+ * La même marche, **en secondes**.
+ *
+ * [walkMinutesOver] arrondit au supérieur et ne descend jamais sous une minute :
+ * c'est ce qu'il faut pour l'écrire dans une liste, et c'est faux pour calculer.
+ * Le Guet soustrait cette durée d'une heure de passage ; un plancher d'une minute
+ * ferait partir soixante secondes trop tôt de l'arrêt sous ses pieds, et
+ * l'arrondi ferait dériver la marge de quai qu'on lui a demandé de tenir.
+ *
+ * Mêmes constantes — même détour, même vitesse : les deux fonctions décrivent la
+ * même marche, elles n'en donnent que deux lectures.
+ */
+fun walkSecondsOver(distanceMeters: Double): Int =
+    (distanceMeters.coerceAtLeast(0.0) * WALK_DETOUR / WALK_SPEED_MPS)
+        .roundToInt()
 
 object NearbyDigestBuilder {
 

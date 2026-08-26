@@ -46,3 +46,27 @@ class AuthException(
     val kind: AuthFailureKind,
     val serverMessage: String? = null,
 ) : Exception(serverMessage ?: kind.name)
+
+/**
+ * Ce qu'un échange PKCE en attente était venu faire.
+ *
+ * Les deux liens arrivent sur la **même** adresse — `io.aule.pro://login-callback/` —
+ * et ouvrent tous deux une session. Ce qui les sépare est ce qu'on a le droit de
+ * faire ensuite : une confirmation d'inscription entre dans l'application, une
+ * récupération n'ouvre que l'écran du nouveau mot de passe. Sans cette distinction,
+ * la boîte e-mail devient une porte d'entrée : il suffirait d'un vieux lien de
+ * réinitialisation pour se retrouver sur la carte sans jamais retaper de mot de passe.
+ *
+ * Le genre est écrit **au moment de la demande**, à côté du vérifieur, plutôt que
+ * relu dans l'URL de retour. GoTrue ne promet pas de reposer `type=recovery` sur un
+ * retour PKCE — le SDK iOS ne sait d'ailleurs le lire que sur le flux implicite,
+ * qu'Aule n'utilise pas — et une distinction de sécurité ne se fonde pas sur un
+ * paramètre facultatif. Ce qu'on a demandé, on le sait ; l'URL ne fait que confirmer.
+ */
+enum class AuthPkceFlow {
+    /** Confirmation d'e-mail après inscription : ouvre l'application. */
+    SIGN_UP,
+
+    /** Lien « mot de passe oublié » : n'ouvre que le choix d'un nouveau mot de passe. */
+    RECOVERY,
+}

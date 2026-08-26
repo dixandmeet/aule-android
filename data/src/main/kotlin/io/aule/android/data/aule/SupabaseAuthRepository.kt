@@ -4,6 +4,7 @@ import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.repository.AuthPkceStore
@@ -168,7 +169,7 @@ class SupabaseAuthRepository(
         }
         val verifier = createVerifier()
         val challenge = Pkce.challenge(verifier)
-        pkce.writeVerifier(verifier)
+        pkce.writeVerifier(verifier, AuthPkceFlow.SIGN_UP)
         val body = JsonObject(
             buildJsonObject {
                 put("email", trimmed)
@@ -193,7 +194,7 @@ class SupabaseAuthRepository(
         }
         val verifier = createVerifier()
         val challenge = Pkce.challenge(verifier)
-        pkce.writeVerifier(verifier)
+        pkce.writeVerifier(verifier, AuthPkceFlow.SIGN_UP)
         val body = buildJsonObject {
             put("type", "signup")
             put("email", trimmed)
@@ -207,6 +208,89 @@ class SupabaseAuthRepository(
         )
         logger.info(LogDomain.AUTH, "E-mail de confirmation renvoyé.")
     }
+
+    /**
+     * `POST /recover` — le lien « mot de passe oublié ».
+     *
+     * Même adresse de retour que l'inscription : c'est celle qui est déclarée
+     * dans les *Redirect URLs* du projet, et en ajouter une seconde n'apporterait
+     * qu'une valeur de plus à tenir à jour côté serveur. Le vérifieur PKCE est
+     * donc marqué [AuthPkceFlow.RECOVERY] : c'est lui, et non l'URL de retour,
+     * qui dira au retour que ce lien n'ouvre que le nouveau mot de passe.
+     *
+     * **Un compte inconnu répond 200.** GoTrue ne distingue pas, exprès, et on
+     * ne rattrape pas : dire « cette adresse n'existe pas » livrerait la liste
+     * des inscrits à qui prend le temps de la deviner.
+     */
+    override suspend fun sendPasswordRecovery(email: String) {
+        if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
+        val trimmed = email.trim().lowercase()
+        if (trimmed.isEmpty() || '@' !in trimmed) {
+            throw AuthException(AuthFailureKind.INVALID_EMAIL)
+        }
+        val verifier = createVerifier()
+        val challenge = Pkce.challenge(verifier)
+        pkce.writeVerifier(verifier, AuthPkceFlow.RECOVERY)
+        val body = buildJsonObject {
+            put("email", trimmed)
+            put("code_challenge", challenge)
+            put("code_challenge_method", "s256")
+        }.toString()
+        postAuth(
+            path = "/recover",
+            jsonBody = body,
+            query = mapOf("redirect_to" to EMAIL_CONFIRMATION_REDIRECT),
+        )
+        logger.info(LogDomain.AUTH, "Lien de récupération envoyé.")
+    }
+
+    /**
+     * `PUT /user` — le nouveau mot de passe, sous le jeton de la session.
+     *
+     * GoTrue ne redemande pas l'ancien : c'est le jeton qui autorise, qu'il
+     * vienne d'un lien de récupération ou d'une connexion ordinaire. Sans
+     * session ouverte, il n'y a rien à modifier — [AuthFailureKind.UNKNOWN],
+     * comme la suppression de compte.
+     *
+     * La réponse rend l'utilisateur, **pas** de jetons : la session en cours
+     * reste valable et n'est pas réécrite.
+     */
+    override suspend fun updatePassword(newPassword: String) {
+        val current = mutex.withLock { session }
+            ?: throw AuthException(AuthFailureKind.UNKNOWN)
+        if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
+        if (newPassword.length < MIN_PASSWORD_LENGTH) {
+            throw AuthException(AuthFailureKind.WEAK_PASSWORD)
+        }
+        val body = buildJsonObject {
+            put("password", newPassword)
+        }.toString()
+        val response = try {
+            client.putRaw(
+                url = "$authBase/user",
+                jsonBody = body,
+                headers = authHeaders(current.accessToken),
+            )
+        } catch (cancelled: ApiException.Cancelled) {
+            throw cancelled
+        } catch (transport: ApiException.Transport) {
+            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+        } catch (failure: ApiException) {
+            throw AuthException(AuthFailureKind.NETWORK, failure.message)
+        }
+        if (response.code !in 200..299) {
+            val error = runCatching {
+                json.decodeFromString(GoTrueErrorDto.serializer(), response.body)
+            }.getOrNull()
+            throw AuthException(
+                kind = authFailureKindOf(response.code, error),
+                serverMessage = error.serverMessage(),
+            )
+        }
+        logger.info(LogDomain.AUTH, "Mot de passe changé.")
+    }
+
+    override suspend fun pendingAuthFlow(): AuthPkceFlow? = pkce.readFlow()
 
     override suspend fun exchangeAuthCode(code: String): AuthSession = mutex.withLock {
         if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
@@ -384,12 +468,16 @@ class MemoryAuthSessionStore : AuthSessionStore {
 /** Vérifieur PKCE en mémoire — tests, et rien d'autre. */
 class MemoryAuthPkceStore : AuthPkceStore {
     @Volatile private var verifier: String? = null
-    override suspend fun writeVerifier(verifier: String) {
+    @Volatile private var flow: AuthPkceFlow? = null
+    override suspend fun writeVerifier(verifier: String, flow: AuthPkceFlow) {
         this.verifier = verifier
+        this.flow = flow
     }
     override suspend fun readVerifier(): String? = verifier
+    override suspend fun readFlow(): AuthPkceFlow? = flow
     override suspend fun clearVerifier() {
         verifier = null
+        flow = null
     }
 }
 

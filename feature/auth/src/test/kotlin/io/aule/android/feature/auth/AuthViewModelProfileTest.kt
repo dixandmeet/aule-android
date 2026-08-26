@@ -352,7 +352,10 @@ class AuthViewModelProfileTest {
             password: String,
         ) = error("non sollicité")
         override suspend fun resendSignupConfirmation(email: String) = error("non sollicité")
+        override suspend fun sendPasswordRecovery(email: String) = error("non sollicité")
+        override suspend fun updatePassword(newPassword: String) = error("non sollicité")
         override suspend fun exchangeAuthCode(code: String) = error("non sollicité")
+        override suspend fun pendingAuthFlow() = null
         override suspend fun deleteAccount() {
             deleted++
             if (failDelete) error("500")

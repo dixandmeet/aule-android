@@ -10,6 +10,7 @@ import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.rememberPlace
 import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.GpsTraceFile
 import io.aule.android.core.model.repository.GpsTraceRecorder
@@ -17,6 +18,7 @@ import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadRouter
 import io.aule.android.core.model.repository.RoutingRepository
+import io.aule.android.core.model.repository.SearchHistoryStore
 import io.aule.android.core.model.repository.StopRepository
 import io.aule.android.core.model.repository.VehicleRepository
 import java.time.Instant
@@ -102,6 +104,178 @@ class MapSearchViewModelTest {
             assertEquals("Commerce", viewModel.state.value.search.stops.first().label)
         } finally {
             Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `un lieu choisi entre dans l historique et s affiche a la reouverture`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val history = MemorySearchHistory()
+            val viewModel = MapViewModel(
+                stopRepository = FakeStops(listOf(commerce)),
+                vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
+                traces = NoTraces,
+                placeRepository = FakePlaces(),
+                routingRepository = FakeRouting(),
+                roadRouter = FakeRoadRouter(),
+                dispatchers = TestDispatchers(dispatcher),
+                logger = NoopLogger,
+                searchHistory = history,
+            )
+            advanceUntilIdle()
+
+            val beaujoire = Place(
+                label = "Beaujoire, 44300 Nantes",
+                coordinate = Coordinate(latitude = 47.2560, longitude = -1.5250),
+            )
+            viewModel.select(beaujoire)
+            advanceUntilIdle()
+
+            // Choisir referme la recherche : l'historique ne se voit qu'à la
+            // prochaine ouverture, et c'est là qu'il faut le lire.
+            assertTrue(viewModel.state.value.search.history.isEmpty())
+
+            viewModel.activateSearch()
+            advanceUntilIdle()
+
+            val search = viewModel.state.value.search
+            assertEquals(listOf("Beaujoire, 44300 Nantes"), search.history.map { it.label })
+            assertTrue(search.showsHistory)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `un arret choisi est retenu comme arret et non comme adresse`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val history = MemorySearchHistory()
+            val viewModel = MapViewModel(
+                stopRepository = FakeStops(listOf(commerce)),
+                vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
+                traces = NoTraces,
+                placeRepository = FakePlaces(),
+                routingRepository = FakeRouting(),
+                roadRouter = FakeRoadRouter(),
+                dispatchers = TestDispatchers(dispatcher),
+                logger = NoopLogger,
+                searchHistory = history,
+            )
+            advanceUntilIdle()
+
+            viewModel.setSearchQuery("commerce")
+            advanceTimeBy(400)
+            advanceUntilIdle()
+            viewModel.select(viewModel.state.value.search.stops.first())
+            advanceUntilIdle()
+
+            // C'est le mode, jamais le libellé, qui dira qu'on peut demander
+            // les passages de ce lieu.
+            val kept = history.read().single()
+            assertEquals("Commerce", kept.label)
+            assertEquals(TransportMode.TRAM, kept.stopMode)
+            // L'écran, lui, reçoit bien l'arrêt du catalogue, avec ses quais.
+            assertEquals(commerce, viewModel.state.value.selectedStop)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `repousser le volet garde la frappe et rend les resultats`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val viewModel = MapViewModel(
+                stopRepository = FakeStops(listOf(commerce)),
+                vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
+                traces = NoTraces,
+                placeRepository = FakePlaces(),
+                routingRepository = FakeRouting(),
+                roadRouter = FakeRoadRouter(),
+                dispatchers = TestDispatchers(dispatcher),
+                logger = NoopLogger,
+            )
+            advanceUntilIdle()
+
+            viewModel.setSearchQuery("commerce")
+            advanceTimeBy(400)
+            advanceUntilIdle()
+            assertTrue(viewModel.state.value.search.stops.isNotEmpty())
+
+            viewModel.collapseSearch()
+            advanceUntilIdle()
+
+            // Le champ garde ce qu'on a tapé — repousser n'est pas annuler —
+            // mais les réponses partent avec le volet.
+            val collapsed = viewModel.state.value.search
+            assertEquals("commerce", collapsed.query)
+            assertTrue(!collapsed.isActive)
+            assertTrue(collapsed.stops.isEmpty())
+
+            viewModel.activateSearch()
+            advanceTimeBy(400)
+            advanceUntilIdle()
+
+            // Rouvrir repose la question : sans cela, « Commerce » se serait
+            // rouvert sur « Aucun résultat pour commerce ».
+            val reopened = viewModel.state.value.search
+            assertEquals("commerce", reopened.query)
+            assertTrue(reopened.isActive)
+            assertEquals(listOf("Commerce"), reopened.stops.map { it.label })
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `sans historique branche la recherche marche a l identique`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val viewModel = MapViewModel(
+                stopRepository = FakeStops(listOf(commerce)),
+                vehicleRepository = FakeVehicles(),
+                linePaletteRepository = FakeLinePalette(),
+                traces = NoTraces,
+                placeRepository = FakePlaces(),
+                routingRepository = FakeRouting(),
+                roadRouter = FakeRoadRouter(),
+                dispatchers = TestDispatchers(dispatcher),
+                logger = NoopLogger,
+            )
+            advanceUntilIdle()
+
+            viewModel.select(
+                Place(label = "Beaujoire", coordinate = Coordinate.NANTES),
+            )
+            viewModel.activateSearch()
+            advanceUntilIdle()
+
+            assertTrue(viewModel.state.value.search.history.isEmpty())
+            assertTrue(!viewModel.state.value.search.showsHistory)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /** Le dépôt de `:app`, sans disque — la règle, elle, est déjà testée à part. */
+    private class MemorySearchHistory : SearchHistoryStore {
+        private var places = emptyList<Place>()
+        override fun read(): List<Place> = places
+        override fun remember(place: Place): List<Place> {
+            places = rememberPlace(place, places)
+            return places
+        }
+        override fun clear() {
+            places = emptyList()
         }
     }
 

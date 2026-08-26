@@ -357,7 +357,6 @@ class SupabaseDriverServiceRepository(
 
     private suspend fun activeServiceIds(session: AuthSession, date: LocalDate): List<String> {
         val iso = date.toString()
-        val weekday = date.dayOfWeek.value
         val regular = decodeList(
             client.getRaw(
                 url = "$restBase/gtfs_calendar",
@@ -381,45 +380,7 @@ class SupabaseDriverServiceRepository(
             ),
             GtfsCalendarDateDto.serializer(),
         )
-        val removed = exceptions.filter { it.exceptionType == 2 }.map { it.serviceId }.toSet()
-        val added = exceptions.filter { it.exceptionType == 1 }.map { it.serviceId }.toSet()
-        val active = mutableSetOf<String>()
-        for (row in regular) {
-            val runsToday = row.runsOn.size >= weekday && row.runsOn[weekday - 1]
-            if (runsToday && row.serviceId !in removed) active += row.serviceId
-        }
-        active += added
-        return active.toList()
-    }
-
-    private fun directionScore(headsign: String?, requested: String): Int {
-        val actual = normalizeStopName(headsign.orEmpty())
-        if (actual.isEmpty()) return 0
-        val expected = normalizeStopName(requested)
-        if (actual == expected) return 100
-        if (actual.contains(expected) || expected.contains(actual)) return 80
-        val aliases = requested.split('/', '|')
-            .map { normalizeStopName(it) }
-            .filter { it.length >= 3 }
-        for (alias in aliases) {
-            if (actual.contains(alias) || alias.contains(actual)) return 70
-        }
-        return 0
-    }
-
-    private suspend fun <T> fetchAllPages(
-        pageSize: Int = 1000,
-        fetch: suspend (offset: Int, limit: Int) -> List<T>,
-    ): List<T> {
-        val all = mutableListOf<T>()
-        var offset = 0
-        while (true) {
-            val page = fetch(offset, pageSize)
-            all += page
-            if (page.size < pageSize) break
-            offset += pageSize
-        }
-        return all
+        return activeServiceIds(regular = regular, exceptions = exceptions, date = date)
     }
 
     override suspend fun fetchActiveService(session: AuthSession): ActiveDriverService? {

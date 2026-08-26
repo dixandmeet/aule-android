@@ -28,11 +28,29 @@ compileSdk = "37"
 androidxCore = "1.18.0"
 androidxActivity = "1.12.0"
 androidxLifecycle = "2.10.0"
-# BOM 2026.08.00 → Compose 1.12.0. Material 3 n'y bouge pas : il reste en 1.4.0,
-# dernière stable, exactement comme dans le BOM précédent. Cette montée ne touche
-# donc que le cœur — ui, foundation, animation, runtime — et c'est elle qui
-# impose le compileSdk 37 ci-dessus.
+# BOM 2026.08.00 → Compose 1.12.0. Il porte le cœur — ui, foundation, animation,
+# runtime — et c'est lui qui impose le compileSdk 37 ci-dessus. Material 3 ne
+# vient plus de lui : voir `material3` juste en dessous.
 composeBom = "2026.08.00"
+
+# Material 3, épinglé **hors** du BOM.
+#
+# Le BOM 2026.08.00 sert material3 1.4.0, où l'expressivité de Material 3 n'est
+# pas encore ouverte : `MotionScheme` et `MaterialExpressiveTheme` y sont
+# `internal`, et `MaterialShapes`, `ButtonGroup`, `FloatingToolbar`,
+# `LoadingIndicator`, `ToggleButton` n'existent pas. Vérifié dans l'AAR le
+# 18/08/2026, symbole par symbole.
+#
+# La 1.5.0-alpha26 les publie toutes. C'est une alpha, et c'est assumé : sans
+# elle, l'application ne peut pas être expressive autrement qu'en réécrivant à
+# la main ce que le kit fait déjà. Elle réclame Compose 1.12.0-beta01 au
+# minimum — le BOM en sert la 1.12.0 stable, donc rien d'autre ne bouge — et
+# tire `androidx.graphics:graphics-shapes` 1.0.1, sur quoi reposent les formes
+# expressives.
+#
+# À rebasculer sur le BOM le jour où celui-ci sert une 1.5.0 stable.
+material3 = "1.5.0-alpha26"
+
 datastore = "1.2.0"
 
 kotlinxCoroutines = "1.11.0"
@@ -67,7 +85,7 @@ androidx-lifecycle-viewmodel-compose = { group = "androidx.lifecycle", name = "l
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
 androidx-compose-animation = { group = "androidx.compose.animation", name = "animation" }
-androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-compose-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
 androidx-compose-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
 androidx-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }

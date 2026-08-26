@@ -149,6 +149,9 @@ class ServiceViewModelTest {
         override suspend fun signUpProfessional(draft: ProRegistrationDraft, password: String) =
             error("unused")
         override suspend fun resendSignupConfirmation(email: String) = error("unused")
+        override suspend fun sendPasswordRecovery(email: String) = error("unused")
+        override suspend fun updatePassword(newPassword: String) = error("unused")
+        override suspend fun pendingAuthFlow() = null
         override suspend fun exchangeAuthCode(code: String) = error("unused")
         override suspend fun deleteAccount() = error("unused")
     }

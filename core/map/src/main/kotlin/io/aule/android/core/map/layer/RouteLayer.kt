@@ -137,6 +137,11 @@ class RouteLayer : MapLayer {
         style.removeLayer(CASING_LAYER)
         style.removeSource(ENDPOINTS_SOURCE)
         style.removeSource(LINE_SOURCE)
+        forgetStyle()
+    }
+
+    /** Le trajet posé reste su : c'est [mount] qui le republie. */
+    override fun forgetStyle() {
         lineSource = null
         endpointsSource = null
     }

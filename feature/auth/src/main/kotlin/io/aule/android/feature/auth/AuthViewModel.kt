@@ -7,6 +7,7 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.AgentAccess
 import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AvatarException
 import io.aule.android.core.model.AvatarFailureKind
@@ -49,6 +50,16 @@ data class AuthUiState(
     val avatarFailure: AvatarFailureKind? = null,
     val isDeletingAccount: Boolean = false,
     val deleteFailed: Boolean = false,
+    /**
+     * Vrai quand une session est ouverte **par un lien de récupération**, et
+     * qu'elle ne donne donc accès qu'au choix d'un nouveau mot de passe.
+     *
+     * Distinct de [isSignedIn], qui est vrai aussi : la session existe, mais la
+     * racine ne doit pas ouvrir la carte tant que ce drapeau tient.
+     */
+    val isResettingPassword: Boolean = false,
+    /** L'adresse à laquelle le lien vient d'être envoyé, ou `null` avant l'envoi. */
+    val recoverySentTo: String? = null,
 )
 
 class AuthViewModel(
@@ -253,11 +264,103 @@ class AuthViewModel(
     }
 
     /**
-     * Retour du lien de confirmation : échange PKCE, puis les mêmes
+     * Demande le lien « mot de passe oublié ».
+     *
+     * Le succès pose [AuthUiState.recoverySentTo] **sans rien promettre** : le
+     * serveur répond pareil pour une adresse inconnue, et l'écran dit « si un
+     * compte existe ». Un refus est une vraie panne — réseau, cadence — et
+     * s'affiche.
+     */
+    fun sendPasswordRecovery(email: String) {
+        if (_state.value.isSubmitting) return
+        val trimmed = email.trim().lowercase()
+        _state.value = _state.value.copy(isSubmitting = true, failure = null)
+        viewModelScope.launch {
+            try {
+                auth.sendPasswordRecovery(trimmed)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    failure = null,
+                    recoverySentTo = trimmed,
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: AuthException) {
+                logger.info(LogDomain.AUTH, "Lien de récupération refusé (${failure.kind}).")
+                _state.value = _state.value.copy(isSubmitting = false, failure = failure.kind)
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.AUTH, "Lien de récupération en échec.", failure)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    failure = AuthFailureKind.NETWORK,
+                )
+            }
+        }
+    }
+
+    /** Quitte l'écran « mot de passe oublié » et efface ce qu'il affichait. */
+    fun clearRecovery() {
+        _state.value = _state.value.copy(recoverySentTo = null, failure = null)
+    }
+
+    /**
+     * Pose le nouveau mot de passe, puis **entre dans l'application**.
+     *
+     * La session du lien devient une session ordinaire une fois le mot de passe
+     * choisi : renvoyer vers la connexion ferait retaper à l'instant ce qu'on
+     * vient de saisir deux fois. Les habilitations sont donc résolues ici, comme
+     * après [signIn] — et un compte sans habilitation ressort par le même
+     * chemin, mot de passe changé.
+     */
+    fun updatePassword(newPassword: String) {
+        if (_state.value.isSubmitting) return
+        _state.value = _state.value.copy(isSubmitting = true, failure = null)
+        viewModelScope.launch {
+            try {
+                auth.updatePassword(newPassword)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: AuthException) {
+                logger.info(LogDomain.AUTH, "Mot de passe refusé (${failure.kind}).")
+                _state.value = _state.value.copy(isSubmitting = false, failure = failure.kind)
+                return@launch
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.AUTH, "Changement de mot de passe en échec.", failure)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    failure = AuthFailureKind.NETWORK,
+                )
+                return@launch
+            }
+            val session = auth.currentSession()
+            if (session == null) {
+                // Le mot de passe est bien changé : la seule suite honnête est
+                // l'écran de connexion, sans bandeau d'erreur.
+                _state.value = AuthUiState(isReady = true, isSignedIn = false)
+                return@launch
+            }
+            _state.value = AuthUiState(
+                isReady = true,
+                isSignedIn = true,
+                isCheckingAccess = true,
+                email = session.user.email,
+                isLoadingProfile = true,
+            )
+            loadAccount(session)
+        }
+    }
+
+    /**
+     * Retour d'un lien reçu par e-mail : échange PKCE, puis les mêmes
      * habilitations que [signIn]. Sans vérifieur, ou sans habilitation, on
      * retombe sur l'écran de connexion.
+     *
+     * **Sauf pour un lien de récupération**, qui ouvre une session mais n'entre
+     * pas dans l'application : elle ne sert qu'à choisir un nouveau mot de passe,
+     * et les habilitations attendent ce moment-là. Le genre se lit dans le dépôt
+     * PKCE avant l'échange, qui le consomme.
      */
-    fun completeEmailConfirmation(code: String) {
+    fun completeAuthCallback(code: String) {
         if (_state.value.isCheckingAccess || _state.value.isSubmitting) return
         val trimmed = code.trim()
         if (trimmed.isEmpty()) return
@@ -267,8 +370,21 @@ class AuthViewModel(
             failure = null,
         )
         viewModelScope.launch {
+            val recovery = runCatching { auth.pendingAuthFlow() }.getOrNull() ==
+                AuthPkceFlow.RECOVERY
             try {
                 val session = auth.exchangeAuthCode(trimmed)
+                if (recovery) {
+                    logger.info(LogDomain.AUTH, "Session de récupération ouverte.")
+                    _state.value = AuthUiState(
+                        isReady = true,
+                        isSignedIn = true,
+                        isCheckingAccess = false,
+                        isResettingPassword = true,
+                        email = session.user.email,
+                    )
+                    return@launch
+                }
                 _state.value = AuthUiState(
                     isReady = true,
                     isSignedIn = true,

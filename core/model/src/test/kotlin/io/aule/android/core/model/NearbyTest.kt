@@ -100,6 +100,14 @@ class NearbyTest {
     }
 
     @Test
+    fun `le temps de marche se calcule sur une distance seule`() {
+        // La recherche n'a qu'une distance en main — pas d'entrée de liste — et
+        // doit pourtant annoncer la même durée que « autour de vous ».
+        val entry = NearbyDigest.StopEntry(stop("A", "Ranzay", 0.0), distanceMeters = 200.0)
+        assertEquals(entry.walkMinutes, walkMinutesOver(200.0))
+    }
+
+    @Test
     fun `le temps de marche croit avec la distance`() {
         val minutes = listOf(100.0, 500.0, 1000.0, 2000.0).map {
             NearbyDigest.StopEntry(stop("A", "Lieu", 0.0), distanceMeters = it).walkMinutes

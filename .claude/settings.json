@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew:*)",
+      "Bash(adb devices:*)",
+      "Bash(adb -s R3CRA0WV55H shell am start:*)",
+      "Bash(adb -s R3CRA0WV55H shell am force-stop:*)",
+      "Bash(adb -s R3CRA0WV55H shell dumpsys:*)",
+      "Bash(adb -s R3CRA0WV55H logcat:*)",
+      "Bash(adb -s R3CRA0WV55H install:*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Read(//Users/kevin/Aule/docs/**)"
+    ],
+    "deny": [
+      "Read(./local.properties)",
+      "Read(./**/*.keystore)",
+      "Read(./**/*.jks)"
+    ]
+  }
+}

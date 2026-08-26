@@ -77,9 +77,17 @@ class AulePaletteTest {
             // Le jour.
             Pair("onPrimary sur primary", AulePalette.Teal.T100, AulePalette.Teal.T30),
             Pair("onPrimaryContainer sur primaryContainer", AulePalette.Teal.T10, AulePalette.Teal.T90),
-            Pair("onSecondary sur secondary", AulePalette.Teal.T100, AulePalette.Green.T40),
+            Pair("onSecondary sur secondary", AulePalette.Teal.T100, AulePalette.Teal.T40),
             Pair(
                 "onSecondaryContainer sur secondaryContainer",
+                AulePalette.Teal.T10,
+                AulePalette.Teal.T80,
+            ),
+            // Le temps réel a quitté le `ColorScheme` mais reste un rôle métier :
+            // sa paire conteneur / encre se mesure toujours, elle est simplement
+            // servie par `AuleTokens.realtime` et non par `secondaryContainer`.
+            Pair(
+                "encre du temps réel sur son conteneur",
                 AulePalette.Hud.realtimeOnContainerDay,
                 AulePalette.Hud.realtimeContainerDay,
             ),
@@ -97,9 +105,14 @@ class AulePaletteTest {
                 AulePalette.Hud.nightOnFill,
                 AulePalette.Hud.nightFill,
             ),
-            Pair("onSecondary sur secondary, nuit", AulePalette.Hud.realtimeOnNight, AulePalette.Hud.realtimeNight),
+            Pair("onSecondary sur secondary, nuit", AulePalette.Neutral.T8, AulePalette.Teal.T60),
             Pair(
                 "onSecondaryContainer sur secondaryContainer, nuit",
+                AulePalette.Teal.T90,
+                AulePalette.Teal.T20,
+            ),
+            Pair(
+                "encre du temps réel sur son conteneur, nuit",
                 AulePalette.Hud.realtimeOnContainerNight,
                 AulePalette.Hud.realtimeContainerNight,
             ),

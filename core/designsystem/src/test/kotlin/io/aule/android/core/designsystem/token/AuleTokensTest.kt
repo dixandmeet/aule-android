@@ -1,6 +1,9 @@
 package io.aule.android.core.designsystem.token
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import io.aule.android.core.designsystem.auleDarkColorScheme
+import io.aule.android.core.designsystem.auleLightColorScheme
 import io.aule.android.core.model.TransportMode
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
@@ -77,6 +80,68 @@ class ContrastTest {
         }
     }
 
+    /**
+     * L'encre d'un rôle métier se lit sur **n'importe laquelle** des surfaces du
+     * thème, pas seulement sur la plus claire.
+     *
+     * C'est le test qui manquait, et son absence coûtait cher : « à l'approche »
+     * en vert et « +3 min » en ambre étaient écrits avec la couleur d'aplat du
+     * rôle, qui tombe à 2,00:1 et 1,62:1 sur le cartouche le plus soutenu. Les
+     * deux informations qu'un conducteur lit d'un coup d'œil étaient les moins
+     * lisibles de leur rangée, et rien ne pouvait le signaler : la couleur était
+     * juste, le texte était là, seul le rapport de contraste ne l'était pas.
+     *
+     * Les cinq crans de conteneur sont tous éprouvés, parce qu'un écran choisit
+     * le sien : le volet pose ses cartouches sur `surfaceContainerHigh`, la
+     * carte de relève sur `surfaceContainerHighest`, un menu sur
+     * `surfaceContainerLow`. Une encre qui ne tiendrait que sur la surface nue
+     * serait illisible sur la moitié du produit.
+     */
+    @ParameterizedTest(name = "nuit = {0}")
+    @ValueSource(booleans = [false, true])
+    fun `l encre d un role metier se lit sur toutes les surfaces`(night: Boolean) {
+        val t = tokens(night)
+        val scheme = if (night) auleDarkColorScheme() else auleLightColorScheme()
+        val surfaces = listOf(
+            "surface" to scheme.surface,
+            "surfaceContainerLowest" to scheme.surfaceContainerLowest,
+            "surfaceContainerLow" to scheme.surfaceContainerLow,
+            "surfaceContainer" to scheme.surfaceContainer,
+            "surfaceContainerHigh" to scheme.surfaceContainerHigh,
+            "surfaceContainerHighest" to scheme.surfaceContainerHighest,
+        )
+        listOf("temps réel" to t.realtime, "retard" to t.delay).forEach { (nom, role) ->
+            surfaces.forEach { (surfaceName, surface) ->
+                val ratio = role.ink.contrastRatio(surface.toRgba())
+                assertTrue(
+                    ratio >= 4.5,
+                    "encre « $nom » sur $surfaceName : ${"%.2f".format(ratio)}:1 pour 4,5 exigés",
+                )
+            }
+        }
+    }
+
+    /**
+     * L'aplat porte une encre, et c'est ce couple-là qui se mesure.
+     *
+     * [AuleSemanticRole.color] n'est pas fait pour être posé **sur** la surface
+     * — c'est le rôle d'[AuleSemanticRole.ink] — mais pour recevoir du contenu.
+     * Le premier écrit qui s'y posait était blanc, sur un vert clair : 2,60:1
+     * de jour, 2,11:1 pour l'ambre. La nuit prenait déjà une encre sombre et
+     * tenait ses 7:1 ; c'est cette **ressemblance apparente** entre les deux
+     * jeux qui avait caché l'erreur, parce qu'on relit toujours les valeurs qui
+     * diffèrent et jamais celles qui se répondent.
+     */
+    @ParameterizedTest(name = "nuit = {0}")
+    @ValueSource(booleans = [false, true])
+    fun `ce qui s ecrit sur l aplat d un role metier tient`(night: Boolean) {
+        val t = tokens(night)
+        for (role in listOf(t.realtime, t.delay)) {
+            val ratio = role.onColor.contrastRatio(role.color)
+            assertTrue(ratio >= 4.5, "onColor sur color : $ratio")
+        }
+    }
+
     @Test
     fun `le vert Aule est bien celui de la carte en production`() {
         assertEquals(AuleRgba(0x0D595E), AuleBrand.teal)
@@ -90,44 +155,73 @@ class ContrastTest {
         assertEquals(AuleRgba(0x0D595E), t.accent)
         assertEquals(AuleRgba(0xFFFFFF), t.onAccent)
         assertEquals(AuleRgba(0x0D595E), t.accentOnSurface)
-        assertEquals(AuleRgba(0x19B37B), t.realtime.color)
-        assertEquals(AuleRgba(0xFFFFFF), t.realtime.onColor)
-        assertEquals(AuleRgba(0xD1F4E6), t.realtime.container)
-        assertEquals(AuleRgba(0x005132), t.realtime.onContainer)
-        assertEquals(AuleRgba(0xE8A13C), t.delay.color)
-        assertEquals(AuleRgba(0xFFFFFF), t.delay.onColor)
-        assertEquals(AuleRgba(0xFFE3C2), t.delay.container)
-        assertEquals(AuleRgba(0x593600), t.delay.onContainer)
-        assertEquals(AuleRgba(0xD64545), t.alert)
+        assertEquals(AuleRgba(0x0D595E), t.accentSweep.from)
+        assertEquals(AuleRgba(0x05797E), t.accentSweep.to)
+        assertEquals(AuleRgba(0x44B4B6), t.accentGlow)
+        assertEquals(AuleRgba(0x2EB67A), t.realtime.color)
+        assertEquals(AuleRgba(0x005C39), t.realtime.ink)
+        assertEquals(AuleRgba(0x002716), t.realtime.onColor)
+        assertEquals(AuleRgba(0xC8EFD8), t.realtime.container)
+        assertEquals(AuleRgba(0x004A2D), t.realtime.onContainer)
+        assertEquals(AuleRgba(0xEAA53F), t.delay.color)
+        assertEquals(AuleRgba(0x8B5700), t.delay.ink)
+        assertEquals(AuleRgba(0x2D1800), t.delay.onColor)
+        assertEquals(AuleRgba(0xFFE3BE), t.delay.container)
+        assertEquals(AuleRgba(0x5B3700), t.delay.onContainer)
+        assertEquals(AuleRgba(0xD44543), t.alert)
         assertEquals(AuleRgba(0xFFFFFF), t.onAlert)
         assertEquals(AuleRgba(0xFFFFFF, alpha = 0.90), t.surface)
         assertEquals(AuleRgba(0xFFFFFF), t.surfaceSolid)
-        assertEquals(AuleRgba(0x171717, alpha = 0.08), t.hairline)
-        assertEquals(AuleRgba(0x171717), t.onSurface)
-        assertEquals(AuleRgba(0x4A4A4A), t.onSurfaceMuted)
+        assertEquals(AuleRgba(0x2B3536, alpha = 0.08), t.hairline)
+        assertEquals(AuleRgba(0x2B3536), t.onSurface)
+        assertEquals(AuleRgba(0x5B6768), t.onSurfaceMuted)
     }
 
     @Test
     fun `les jetons HUD de nuit sont ceux de la charte`() {
         val t = AuleTokens.night
-        assertEquals(AuleRgba(0x1A5C47), t.accent)
-        assertEquals(AuleRgba(0xF1F6F3), t.onAccent)
-        assertEquals(AuleRgba(0x8AC79B), t.accentOnSurface)
-        assertEquals(AuleRgba(0x41C895), t.realtime.color)
-        assertEquals(AuleRgba(0x003822), t.realtime.onColor)
-        assertEquals(AuleRgba(0x005234), t.realtime.container)
-        assertEquals(AuleRgba(0x67E5B0), t.realtime.onContainer)
-        assertEquals(AuleRgba(0xF0B45C), t.delay.color)
-        assertEquals(AuleRgba(0x432C00), t.delay.onColor)
-        assertEquals(AuleRgba(0x5E4000), t.delay.container)
-        assertEquals(AuleRgba(0xFFDCB3), t.delay.onContainer)
-        assertEquals(AuleRgba(0xE86060), t.alert)
-        assertEquals(AuleRgba(0x601410), t.onAlert)
-        assertEquals(AuleRgba(0x0D1512, alpha = 0.95), t.surface)
-        assertEquals(AuleRgba(0x0D1512), t.surfaceSolid)
+        assertEquals(AuleRgba(0x005255), t.accent)
+        assertEquals(AuleRgba(0xE8F6F6), t.onAccent)
+        assertEquals(AuleRgba(0x74D0D2), t.accentOnSurface)
+        assertEquals(AuleRgba(0x003E43), t.accentSweep.from)
+        assertEquals(AuleRgba(0x005255), t.accentSweep.to)
+        assertEquals(AuleRgba(0x74D0D2), t.accentGlow)
+        assertEquals(AuleRgba(0x52CC90), t.realtime.color)
+        assertEquals(AuleRgba(0x52CC90), t.realtime.ink)
+        assertEquals(AuleRgba(0x002F1B), t.realtime.onColor)
+        assertEquals(AuleRgba(0x004D2F), t.realtime.container)
+        assertEquals(AuleRgba(0x93EABA), t.realtime.onContainer)
+        assertEquals(AuleRgba(0xF0B058), t.delay.color)
+        assertEquals(AuleRgba(0xF0B058), t.delay.ink)
+        assertEquals(AuleRgba(0x3E2300), t.delay.onColor)
+        assertEquals(AuleRgba(0x643D00), t.delay.container)
+        assertEquals(AuleRgba(0xFDD298), t.delay.onContainer)
+        assertEquals(AuleRgba(0xE5635B), t.alert)
+        assertEquals(AuleRgba(0x370509), t.onAlert)
+        assertEquals(AuleRgba(0x0A1313, alpha = 0.95), t.surface)
+        assertEquals(AuleRgba(0x0A1313), t.surfaceSolid)
         assertEquals(AuleRgba(0xFFFFFF, alpha = 0.20), t.hairline)
-        assertEquals(AuleRgba(0xF3F5F7), t.onSurface)
-        assertEquals(AuleRgba(0xBFC7C3), t.onSurfaceMuted)
+        assertEquals(AuleRgba(0xEBF3F3), t.onSurface)
+        assertEquals(AuleRgba(0xB6C2C3), t.onSurfaceMuted)
+    }
+
+    /**
+     * Le dégradé de marque n'est pas deux couleurs : c'est deux **crans d'une
+     * même famille**. Deux teintes différentes donneraient un dégradé qu'on
+     * remarque en tant que dégradé, ce qui est exactement ce qu'on ne veut pas.
+     */
+    @ParameterizedTest(name = "nuit = {0}")
+    @ValueSource(booleans = [false, true])
+    fun `le degrade de marque reste dans la famille`(night: Boolean) {
+        val sweep = tokens(night).accentSweep
+        assertTrue(
+            sweep.to.relativeLuminance > sweep.from.relativeLuminance,
+            "le dégradé doit s'éclaircir dans le sens de lecture",
+        )
+        // Un dégradé dont les deux bouts sont trop proches ne se voit pas ; un
+        // dégradé dont ils sont trop éloignés se voit trop.
+        val gap = sweep.to.contrastRatio(sweep.from)
+        assertTrue(gap in 1.2..2.5, "écart des deux bouts : $gap")
     }
 
     /**
@@ -220,7 +314,7 @@ class LineColorTest {
         assertTrue(parseLineColor("#00a754").perceivedLuminance < LINE_BADGE_LUMINANCE_FLIP)
         assertTrue(parseLineColor("#e30613").perceivedLuminance < LINE_BADGE_LUMINANCE_FLIP)
 
-        assertEquals(AuleRgba(0x171717), badgeInk(parseLineColor("#FFFFFF")))
+        assertEquals(AuleRgba(0x2B3536), badgeInk(parseLineColor("#FFFFFF")))
         assertEquals(AuleRgba(0xFFFFFF), badgeInk(parseLineColor("#00a754")))
     }
 }
@@ -255,3 +349,17 @@ class TransportModeColorTest {
         }
     }
 }
+
+/**
+ * Le pont entre la couleur de Compose et celle qu'on sait mesurer.
+ *
+ * `AuleRgba` existe précisément pour que le contraste se calcule sans amorcer
+ * Compose ; le `ColorScheme`, lui, ne parle que `Color`. Cette conversion est
+ * le seul endroit où les deux se rencontrent, et elle ne sert qu'aux tests.
+ */
+private fun Color.toRgba(): AuleRgba = AuleRgba(
+    red = red.toDouble(),
+    green = green.toDouble(),
+    blue = blue.toDouble(),
+    alpha = alpha.toDouble(),
+)

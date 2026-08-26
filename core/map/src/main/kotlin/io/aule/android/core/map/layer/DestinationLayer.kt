@@ -53,6 +53,11 @@ class DestinationLayer : MapLayer {
     override fun unmount(style: Style) {
         style.removeLayer(LAYER)
         style.removeSource(SOURCE)
+        forgetStyle()
+    }
+
+    /** L'épingle reste posée dans [coordinate] : c'est [mount] qui la republie. */
+    override fun forgetStyle() {
         source = null
     }
 

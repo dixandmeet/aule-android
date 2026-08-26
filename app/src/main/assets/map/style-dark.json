@@ -19,10 +19,10 @@
     "position": [
       1.15,
       355.27765493478364,
-      84
+      32
     ],
-    "color": "#B9B1AC",
-    "intensity": 0.2525
+    "color": "#DCE6F5",
+    "intensity": 0.2
   },
   "sources": {
     "openmaptiles": {
@@ -36,7 +36,7 @@
       "id": "background",
       "type": "background",
       "paint": {
-        "background-color": "#191E2B"
+        "background-color": "#070A0E"
       }
     },
     {
@@ -60,7 +60,7 @@
         ]
       ],
       "paint": {
-        "fill-color": "#192A24",
+        "fill-color": "#071A04",
         "fill-opacity": 0.92
       }
     },
@@ -96,16 +96,16 @@
             "class"
           ],
           "meadow",
-          "#2D3F39",
+          "#222F24",
           "farmland",
-          "#2D3F39",
+          "#222F24",
           "scrub",
-          "#20332C",
+          "#172519",
           "orchard",
-          "#253931",
+          "#1C291E",
           "vineyard",
-          "#253931",
-          "#253630"
+          "#1C291E",
+          "#1E2C21"
         ],
         "fill-opacity": [
           "interpolate",
@@ -120,7 +120,7 @@
           13,
           1
         ],
-        "fill-outline-color": "#253931"
+        "fill-outline-color": "#1C291E"
       }
     },
     {
@@ -155,15 +155,15 @@
             "class"
           ],
           "garden",
-          "#253931",
+          "#1C291E",
           "cemetery",
-          "#2D3F39",
+          "#222F24",
           "pitch",
-          "#253630",
-          "#253931"
+          "#17291C",
+          "#1C291E"
         ],
         "fill-opacity": 0.86,
-        "fill-outline-color": "#253630"
+        "fill-outline-color": "#17291C"
       }
     },
     {
@@ -173,9 +173,9 @@
       "source-layer": "park",
       "minzoom": 10,
       "paint": {
-        "fill-color": "#253931",
+        "fill-color": "#10210C",
         "fill-opacity": 0.96,
-        "fill-outline-color": "#20332C"
+        "fill-outline-color": "#132317"
       }
     },
     {
@@ -210,7 +210,7 @@
         ]
       ],
       "paint": {
-        "fill-color": "#2C303D",
+        "fill-color": "#12171B",
         "fill-opacity": [
           "interpolate",
           [
@@ -262,7 +262,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#363C4B",
+        "line-color": "#1B2126",
         "line-width": 1
       }
     },
@@ -272,8 +272,8 @@
       "source": "openmaptiles",
       "source-layer": "water",
       "paint": {
-        "fill-color": "#10394F",
-        "fill-outline-color": "#07293D"
+        "fill-color": "#04253D",
+        "fill-outline-color": "#082B30"
       }
     },
     {
@@ -287,7 +287,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#07293D",
+        "line-color": "#0D304B",
         "line-width": [
           "interpolate",
           [
@@ -336,8 +336,8 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#383F4E",
-        "line-opacity": 0.55,
+        "line-color": "#2B2E32",
+        "line-opacity": 0.5,
         "line-dasharray": [
           2,
           2
@@ -395,7 +395,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#1D2331",
+        "line-color": "#2C3033",
         "line-width": [
           "interpolate",
           [
@@ -406,11 +406,11 @@
             "zoom"
           ],
           15,
-          1.4783333333333335,
+          1.5876666666666668,
           16,
-          3.7,
+          3.96,
           19,
-          10.1
+          10.459999999999999
         ]
       }
     },
@@ -449,7 +449,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#303743",
+        "line-color": "#3F4246",
         "line-width": [
           "interpolate",
           [
@@ -460,11 +460,11 @@
             "zoom"
           ],
           15,
-          0.8,
+          0.88,
           16,
-          2.6,
+          2.86,
           19,
-          9
+          9.36
         ]
       }
     },
@@ -505,7 +505,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#1D2331",
+        "line-color": "#33373B",
         "line-width": [
           "interpolate",
           [
@@ -516,13 +516,13 @@
             "zoom"
           ],
           13,
-          1.8883333333333334,
+          2.103333333333333,
           15,
-          5.3,
+          5.8999999999999995,
           16,
-          7.3,
+          8.200000000000001,
           19,
-          19.3
+          20.38
         ]
       }
     },
@@ -563,7 +563,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#383F4E",
+        "line-color": "#4E5257",
         "line-width": [
           "interpolate",
           [
@@ -574,13 +574,13 @@
             "zoom"
           ],
           13,
-          1,
+          1.15,
           15,
-          4,
+          4.6,
           16,
-          6,
+          6.9,
           19,
-          18
+          19.08
         ]
       }
     },
@@ -620,7 +620,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#191E29",
+        "line-color": "#454136",
         "line-width": [
           "interpolate",
           [
@@ -631,13 +631,13 @@
             "zoom"
           ],
           12,
-          2.025,
+          2.145,
           14,
-          5,
+          5.7,
           16,
-          9.5,
+          11.1,
           19,
-          23.5
+          25.26
         ]
       }
     },
@@ -677,7 +677,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#41495B",
+        "line-color": "#66635A",
         "line-width": [
           "interpolate",
           [
@@ -688,13 +688,13 @@
             "zoom"
           ],
           12,
-          1,
+          1.08,
           14,
-          3.5,
+          4.2,
           16,
-          8,
+          9.6,
           19,
-          22
+          23.76
         ]
       }
     },
@@ -723,8 +723,7 @@
           [
             "literal",
             [
-              "primary",
-              "busway"
+              "primary"
             ]
           ]
         ]
@@ -734,7 +733,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#191E29",
+        "line-color": "#55492F",
         "line-width": [
           "interpolate",
           [
@@ -745,13 +744,13 @@
             "zoom"
           ],
           11,
-          3.0133333333333336,
+          3.2586666666666666,
           14,
-          6.1,
+          7.225,
           16,
-          11.6,
+          14.1,
           19,
-          27.6
+          30.200000000000003
         ]
       }
     },
@@ -780,8 +779,7 @@
           [
             "literal",
             [
-              "primary",
-              "busway"
+              "primary"
             ]
           ]
         ]
@@ -791,7 +789,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#4B5468",
+        "line-color": "#7A7160",
         "line-width": [
           "interpolate",
           [
@@ -802,13 +800,125 @@
             "zoom"
           ],
           11,
-          1.6,
+          1.76,
           14,
-          4.5,
+          5.625,
           16,
-          10,
+          12.5,
           19,
-          26
+          28.6
+        ]
+      }
+    },
+    {
+      "id": "road-busway-casing",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 12,
+      "filter": [
+        "all",
+        [
+          "!=",
+          [
+            "get",
+            "brunnel"
+          ],
+          "tunnel"
+        ],
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "busway"
+            ]
+          ]
+        ]
+      ],
+      "layout": {
+        "line-join": "round",
+        "line-cap": "round"
+      },
+      "paint": {
+        "line-color": "#55492F",
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.4
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          3.2586666666666666,
+          14,
+          7.225,
+          16,
+          14.1,
+          19,
+          30.200000000000003
+        ]
+      }
+    },
+    {
+      "id": "road-busway",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 11,
+      "filter": [
+        "all",
+        [
+          "!=",
+          [
+            "get",
+            "brunnel"
+          ],
+          "tunnel"
+        ],
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "busway"
+            ]
+          ]
+        ]
+      ],
+      "layout": {
+        "line-join": "round",
+        "line-cap": "round"
+      },
+      "paint": {
+        "line-color": "#5A756E",
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.4
+          ],
+          [
+            "zoom"
+          ],
+          11,
+          1.76,
+          14,
+          5.625,
+          16,
+          12.5,
+          19,
+          28.6
         ]
       }
     },
@@ -848,7 +958,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#191E29",
+        "line-color": "#6B5229",
         "line-width": [
           "interpolate",
           [
@@ -859,13 +969,13 @@
             "zoom"
           ],
           10,
-          3.8,
+          4,
           14,
-          6.8,
+          8.05,
           16,
-          12.8,
+          15.55,
           19,
-          29.8
+          32.6
         ]
       }
     },
@@ -905,7 +1015,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#525C6E",
+        "line-color": "#94805F",
         "line-width": [
           "interpolate",
           [
@@ -916,13 +1026,13 @@
             "zoom"
           ],
           10,
-          2,
+          2.2,
           14,
-          5,
+          6.25,
           16,
-          11,
+          13.75,
           19,
-          28
+          30.8
         ]
       }
     },
@@ -959,10 +1069,11 @@
         ]
       ],
       "layout": {
+        "line-join": "round",
         "line-cap": "butt"
       },
       "paint": {
-        "line-color": "#707B8F",
+        "line-color": "#523F21",
         "line-dasharray": [
           2.5,
           3.5
@@ -1017,10 +1128,11 @@
         ]
       ],
       "layout": {
+        "line-join": "round",
         "line-cap": "butt"
       },
       "paint": {
-        "line-color": "#707B8F",
+        "line-color": "#36332A",
         "line-dasharray": [
           2.5,
           3.5
@@ -1076,10 +1188,11 @@
         ]
       ],
       "layout": {
+        "line-join": "round",
         "line-cap": "butt"
       },
       "paint": {
-        "line-color": "#707B8F",
+        "line-color": "#282C2F",
         "line-dasharray": [
           2.5,
           3.5
@@ -1097,6 +1210,64 @@
           0.6,
           19,
           1.4
+        ]
+      }
+    },
+    {
+      "id": "road-busway-marking",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 14,
+      "filter": [
+        "all",
+        [
+          "!=",
+          [
+            "get",
+            "brunnel"
+          ],
+          "tunnel"
+        ],
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "busway"
+            ]
+          ]
+        ]
+      ],
+      "layout": {
+        "line-join": "round",
+        "line-cap": "butt"
+      },
+      "paint": {
+        "line-color": "#8CBDB4",
+        "line-dasharray": [
+          1.5,
+          2.5
+        ],
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.4
+          ],
+          [
+            "zoom"
+          ],
+          14,
+          0.8,
+          16,
+          1.6,
+          19,
+          3.2
         ]
       }
     },
@@ -1137,7 +1308,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#363C4B",
+        "line-color": "#272B1E",
         "line-width": [
           "interpolate",
           [
@@ -1148,11 +1319,11 @@
             "zoom"
           ],
           15,
-          1.8,
+          2.07,
           17,
-          4,
+          4.24,
           19,
-          8
+          8.48
         ]
       }
     },
@@ -1182,7 +1353,6 @@
             [
               "path",
               "pedestrian",
-              "cycleway",
               "track"
             ]
           ]
@@ -1193,7 +1363,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#2C303D",
+        "line-color": "#414438",
         "line-width": [
           "interpolate",
           [
@@ -1204,11 +1374,64 @@
             "zoom"
           ],
           15,
-          0.8,
+          0.92,
           17,
-          2.4,
+          2.544,
           19,
-          5.5
+          5.83
+        ]
+      }
+    },
+    {
+      "id": "cycleway",
+      "type": "line",
+      "source": "openmaptiles",
+      "source-layer": "transportation",
+      "minzoom": 15,
+      "filter": [
+        "all",
+        [
+          "==",
+          [
+            "geometry-type"
+          ],
+          "LineString"
+        ],
+        [
+          "in",
+          [
+            "get",
+            "class"
+          ],
+          [
+            "literal",
+            [
+              "cycleway"
+            ]
+          ]
+        ]
+      ],
+      "layout": {
+        "line-join": "round",
+        "line-cap": "round"
+      },
+      "paint": {
+        "line-color": "#425644",
+        "line-width": [
+          "interpolate",
+          [
+            "exponential",
+            1.4
+          ],
+          [
+            "zoom"
+          ],
+          15,
+          0.92,
+          17,
+          2.544,
+          19,
+          5.83
         ]
       }
     },
@@ -1237,7 +1460,7 @@
         ]
       ],
       "paint": {
-        "line-color": "#363C4B",
+        "line-color": "#313524",
         "line-dasharray": [
           0.4,
           0.5
@@ -1294,7 +1517,7 @@
         "line-cap": "round"
       },
       "paint": {
-        "line-color": "#2D3340",
+        "line-color": "#191D22",
         "line-width": [
           "interpolate",
           [
@@ -1353,7 +1576,7 @@
         "line-cap": "butt"
       },
       "paint": {
-        "line-color": "#4A5163",
+        "line-color": "#32363A",
         "line-dasharray": [
           0.16,
           0.72
@@ -1414,7 +1637,7 @@
         "line-cap": "butt"
       },
       "paint": {
-        "line-color": "#6E7788",
+        "line-color": "#4D5054",
         "line-gap-width": [
           "interpolate",
           [
@@ -1465,7 +1688,7 @@
       "minzoom": 13,
       "maxzoom": 15.5,
       "paint": {
-        "fill-color": "#131721",
+        "fill-color": "#030507",
         "fill-translate": [
           2,
           2
@@ -1482,9 +1705,9 @@
           13,
           0,
           14,
-          0.55,
+          0.4,
           15,
-          0.55,
+          0.4,
           15.5,
           0
         ]
@@ -1498,7 +1721,7 @@
       "minzoom": 13,
       "maxzoom": 15.5,
       "paint": {
-        "fill-color": "#313B4D",
+        "fill-color": "#1C2126",
         "fill-opacity": [
           "interpolate",
           [
@@ -1525,7 +1748,28 @@
       "source-layer": "building",
       "minzoom": 15,
       "paint": {
-        "fill-extrusion-color": "#434E66",
+        "fill-extrusion-color": [
+          "interpolate",
+          [
+            "linear"
+          ],
+          [
+            "coalesce",
+            [
+              "get",
+              "render_height"
+            ],
+            8
+          ],
+          0,
+          "#363C41",
+          25,
+          "#3D4349",
+          70,
+          "#444C53",
+          150,
+          "#4D555E"
+        ],
         "fill-extrusion-height": [
           "case",
           [
@@ -1610,9 +1854,10 @@
           15,
           0,
           15.5,
-          1
+          0.92
         ],
-        "fill-extrusion-vertical-gradient": true
+        "fill-extrusion-vertical-gradient": true,
+        "fill-extrusion-rounded-corner-distance": 2
       }
     },
     {
@@ -1642,8 +1887,8 @@
         ]
       ],
       "paint": {
-        "line-color": "#ACB6C7",
-        "line-opacity": 0.18,
+        "line-color": "#65696F",
+        "line-opacity": 0.22,
         "line-dasharray": [
           3,
           3
@@ -1676,9 +1921,9 @@
         "symbol-placement": "line-center"
       },
       "paint": {
-        "text-color": "#10394F",
-        "text-halo-color": "#121721",
-        "text-halo-width": 1
+        "text-color": "#84ADB2",
+        "text-halo-color": "#02181A",
+        "text-halo-width": 1.2
       }
     },
     {
@@ -1724,9 +1969,9 @@
         "symbol-placement": "line"
       },
       "paint": {
-        "text-color": "#ACB6C7",
-        "text-halo-color": "#121721",
-        "text-halo-width": 1.2
+        "text-color": "#B5C0C0",
+        "text-halo-color": "#060D0D",
+        "text-halo-width": 1.4
       }
     },
     {
@@ -1771,10 +2016,10 @@
         "text-letter-spacing": 0.1
       },
       "paint": {
-        "text-color": "#ACB6C7",
+        "text-color": "#9BA7A8",
         "text-opacity": 0.75,
-        "text-halo-color": "#121721",
-        "text-halo-width": 1.2
+        "text-halo-color": "#060D0D",
+        "text-halo-width": 1.4
       }
     },
     {
@@ -1847,9 +2092,9 @@
         ]
       },
       "paint": {
-        "text-color": "#ACB6C7",
-        "text-halo-color": "#121721",
-        "text-halo-width": 1.4
+        "text-color": "#CCD7D7",
+        "text-halo-color": "#060D0D",
+        "text-halo-width": 1.6
       }
     }
   ]

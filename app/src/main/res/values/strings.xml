@@ -3,6 +3,7 @@
     <string name="app_name">Aule Pro</string>
 
     <!-- Écran d'amorçage du lot 1. Il disparaît quand la carte arrive. -->
+    <string name="boot_logo">Logo Aule Pro</string>
     <string name="boot_title">Aule Pro</string>
     <string name="boot_subtitle">Le socle est en place. La carte arrive au lot 4.</string>
     <string name="boot_build_label">Binaire : %1$s</string>
@@ -13,4 +14,6 @@
 
     <string name="handover_alert_channel_name">Relève de conducteur</string>
     <string name="handover_alert_channel_detail">Arrivée du véhicule à relever et confirmation de la passation.</string>
+    <string name="watch_alert_channel_name">Bus à l\'approche</string>
+    <string name="watch_alert_channel_detail">Le véhicule que vous suivez approche de votre arrêt.</string>
 </resources>

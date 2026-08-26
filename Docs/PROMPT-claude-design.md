@@ -119,7 +119,7 @@ GTFS **blanche**, et « N1 » s'écrivait en blanc sur blanc.
 
 `#FFFFFF` à 90 % (jour) / `#0D1512` à 95 % (nuit) est le seul aplat translucide
 autorisé, et **uniquement** pour un panneau qui flotte au-dessus du fond de
-carte (la barre de recherche, les pastilles). Un volet qui prend une part
+carte (les pastilles, les boutons de la carte). Un volet qui prend une part
 d'écran, un menu, une barre de navigation sont **opaques** : sinon un bâtiment
 qui défile derrière salit le texte.
 
@@ -145,6 +145,13 @@ Tout compteur, minutage, distance ou compte à rebours utilise `DATA` ou `HERO`
 en **chiffres tabulaires** : une ligne qui danse à chaque seconde est un défaut,
 pas un détail.
 
+**Les volets tiennent une échelle serrée**, parce qu'on n'en voit que la moitié
+haute : titre de volet `titleMediumEmphasized` (16 appuyé) · nom d'un cartouche
+`titleSmallEmphasized` (14 appuyé) · corps et méta `bodyMedium` (14) ·
+sous-titre, distance et intitulé de section `labelMedium` (12). Seul le chiffre
+qu'on vient chercher — l'attente, le temps restant — garde `DATA` : un volet où
+le titre est plus gros que la réponse a inversé sa hiérarchie.
+
 #### Mesures
 
 - **Espacements** (base 4) : 4 · 8 · 12 · 16 · 24 · 32. Rien entre.
@@ -152,11 +159,24 @@ pas un détail.
   `extraSmall` 8 · `small` 12 · `medium` 18 · `large` 24 · `extraLarge` 28 ·
   pilule 999. Aucune forme n'est écrite ailleurs que dans le thème.
 - **Cible tactile plancher : 48 dp**, partout, sans exception.
-- **Hauteurs de contrôle** : bouton principal et barre de recherche 52 ·
-  champ à libellé flottant 60 · grille d'icône 24 · portrait 52 · pastille
-  collée au portrait 22 · case à cocher 22.
+- **Hauteurs de contrôle**, dans une page : bouton principal 52 · champ à
+  libellé flottant 60 · grille d'icône 24 · portrait 52 · pastille collée au
+  portrait 22 · case à cocher 22.
+- **Hauteurs du chrome**, c'est-à-dire de ce qui flotte **au-dessus de la
+  carte** : champ de recherche, entrée de menu flottant et bouton d'action 48 —
+  le plancher tactile exactement · bouton de vue (cadrage) 40 · pastille d'état
+  et mention légale 32, dont le glyphe fait 18. Une échelle à part, plus serrée
+  d'un cran : chaque point pris ici est un point de ville qu'on ne voit plus.
+  Une pastille dessinée sous 48 dp reste touchable à 48 — Material agrandit
+  lui-même la cible autour d'une surface cliquable.
 - **Traits** : filet 1 · contour appuyé (champ actif ou en erreur) 1,4 ·
   trait de la famille d'icônes 1,75 sur la grille de 24.
+- **Mouvement des volets** : un cran plus lent que le reste. Material fait
+  redescendre un volet au régime des *effets rapides* — un dixième de seconde,
+  un régime de couleur —, ce qui sur une surface qui traverse l'écran se lit
+  comme une disparition et non comme un mouvement. Le volet de la carte reçoit
+  donc son propre régime : ressort doux à la montée, sans rebond à la descente.
+  Il n'enveloppe que ce sous-arbre.
 - **Élévations**, cinq crans, jour / nuit — la nuit monte parce qu'une ombre
   noire disparaît sur fond sombre : posé 0/0 · appuyé sur un bord 8/10 ·
   flottant au-dessus de la carte 10/14 · volet 16/20 · plein écran 22/28.
@@ -193,6 +213,14 @@ inapplicable — c'est du travail perdu :
 Les seuls composants non-Material tolérés sont ceux qui n'ont pas d'équivalent :
 bandeau d'alerte de service, badge de ligne, point temps réel pulsant, marque
 Aule, portrait d'identité. Ils consomment le thème comme les autres.
+
+**Une exception, une seule, et elle est chiffrée** : la rangée d'un passage
+(`DepartureRowItem`) est une `Row` écrite à la main là où `ListItem` ferait
+l'affaire. `ListItem` plancher ses rangées à deux lignes à 72 dp quand
+celle-ci n'a besoin que de 56, le plancher n'est pas contournable depuis
+l'appel, et c'est la seule liste de l'application qu'on parcourt en cherchant
+un chiffre : vingt points par rangée y valent deux passages de plus à l'écran.
+Toute autre liste reste un `ListItem`.
 
 ---
 
@@ -248,21 +276,42 @@ l'app, et le seul fait au calme — c'est le seul écran qui peut respirer.
 Une `MapView` plein écran sous un `BottomSheetScaffold` (volet en pic ~30 %,
 déployé ; la carte reste vivante dessous). Par-dessus, de haut en bas :
 - bandeau de service (`AuleBanner`) quand il y en a un ;
-- **barre de recherche** en verre, avec bouton menu à gauche ;
 - pastilles : diagnostic, état de la flotte (avec point temps réel pulsant),
   bandeau d'incident (localisation refusée, arrêts non chargés, position
   imprécise) ;
-- en bas, **une seule barre d'actions** (`NavigationBar`) : prendre / voir le
-  service, relève, signaler — une seule barre stabilise les cibles et évite de
-  faire parcourir les deux bords de l'écran au pouce ;
-- FAB de recadrage, bouton d'itinéraire, attribution MapLibre.
-En guidage : la recherche cède la place au **bandeau de manœuvre**, et une
-**barre de résumé de trajet** s'appuie sur le bord bas.
+- au milieu, rien : la carte ;
+- **en bas, le socle** : la recherche de destination, en volet et non en barre.
+  C'est le **volet du dessous** — rien ne l'ouvre, rien ne le ferme, il
+  réapparaît dès qu'aucun autre volet n'est présenté, et il refuse d'être
+  rejeté. Au repos c'est une **carte flottante**, écartée des trois bords : le
+  champ « Où allez-vous ? » — sans cartouche, un aplat dans un aplat ne se lit
+  pas — et l'avatar du compte au cran du chrome, plus petit que sa cible. Il
+  s'ouvre **au doigt posé sur le champ**, et par là seulement — le glissement
+  est coupé tant qu'il est fermé, une carte flottante ne promettant pas de
+  palier. Déployé, il redevient un volet — pleine largeur, poignée — et rend
+  les destinations récentes, les arrêts d'à côté, puis les résultats.
+  Redescendre **n'efface pas le champ** : repousser n'est pas annuler, et c'est
+  la croix du champ qui efface. Port de
+  `Native/Aule/Features/Search/SearchSheet.swift` ;
+- **l'avatar du compte** est dans le socle, à droite du champ, et c'est la
+  seule porte du menu — il a remplacé un bouton hamburger, qui disait qu'il y a
+  un menu là où un portrait dit de qui est la session ;
+- au-dessus de lui, tout ce qui s'engage depuis la carte — prendre / voir le
+  service, relève, itinéraire, lignes du réseau, signaler, correspondances —
+  se replie sous le **menu flottant** (`FloatingActionButtonMenu`) ancré à
+  droite. Une seule cible stabilise le geste et évite de faire parcourir les
+  deux bords de l'écran au pouce ;
+- FAB de recadrage, attribution MapLibre.
+En guidage : le socle cède la bande du bas à la **barre de résumé de trajet**,
+et le **bandeau de manœuvre** prend le haut.
 Contrainte propre : tout ce qui flotte doit rester lisible sur un fond de carte
 clair, sombre, ou saturé de bâtiments.
 
 #### 6. Les volets de la carte
-Tous dans le même `BottomSheetScaffold`, donc même grammaire :
+Tous dans le même `BottomSheetScaffold`, donc même grammaire — **le socle de
+recherche et le menu du compte compris** : il n'y a qu'un volet à l'écran, et
+c'est le socle quand il n'y en a pas d'autre. Le menu n'est plus un écran : on
+l'ouvre par-dessus la ville, et le refermer ne coûte pas un aller-retour.
 - **Arrêt** : nom, modes, passages temps réel (ligne, destination, attente),
   sections « prochains passages » et « lignes desservies », séparateurs.
   Trois états d'échec distincts qui ne se confondent pas : rien ne circule ·

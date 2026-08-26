@@ -144,6 +144,14 @@ class HandoverLayer : MapLayer {
         style.removeLayer(STOP_LAYER)
         style.removeSource(SOURCE)
         style.removeSource(STOP_SOURCE)
+        forgetStyle()
+    }
+
+    /**
+     * La relève suivie, sa cible et l'arrêt gardent leur place : [mount] les
+     * republie, et l'interpolation reprend où elle en était plutôt qu'à zéro.
+     */
+    override fun forgetStyle() {
         source = null
         stopSource = null
     }

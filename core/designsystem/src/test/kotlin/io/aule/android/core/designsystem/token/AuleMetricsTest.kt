@@ -87,6 +87,44 @@ class ControlMetricsTest {
     }
 }
 
+class ChromeMetricsTest {
+
+    /**
+     * Le chrome est plus serré que les contrôles d'une page — c'est sa raison
+     * d'être. Si un jour les deux échelles se rejoignaient, il ne resterait
+     * qu'une échelle en double, et le prochain arbitrage la ferait diverger
+     * dans l'autre sens sans que personne ne le voie.
+     */
+    @Test
+    fun `le chrome reste sous les controles d une page`() {
+        assertTrue(AuleChrome.bar < AuleControl.height)
+        assertTrue(AuleChrome.pillGlyph < AuleControl.icon)
+    }
+
+    /**
+     * Serré, mais pas au point de se manquer : la barre du chrome **est** le
+     * plancher tactile. C'est la seule valeur qui gagne des points sans en
+     * coûter au doigt, et la descendre d'un cran de plus se paierait sur chaque
+     * entrée du menu.
+     */
+    @Test
+    fun `la barre du chrome tient le plancher tactile`() {
+        assertEquals(AuleTouch.minimum, AuleChrome.bar)
+    }
+
+    /**
+     * Sous la barre : un bouton de vue, puis une pastille. L'ordre porte le
+     * rang — ce qui agit est plus gros que ce qui commande la vue, qui est plus
+     * gros que ce qui se contente d'informer.
+     */
+    @Test
+    fun `l echelle du chrome decroit par rang`() {
+        assertTrue(AuleChrome.bar > AuleChrome.button)
+        assertTrue(AuleChrome.button > AuleChrome.pill)
+        assertTrue(AuleChrome.pill > AuleChrome.pillGlyph)
+    }
+}
+
 class SpacingScaleTest {
 
     @Test

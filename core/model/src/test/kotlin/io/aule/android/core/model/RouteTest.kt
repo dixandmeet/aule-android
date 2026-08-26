@@ -42,10 +42,39 @@ class RouteTest {
     }
 
     @Test
+    fun `la marche se demande foot et jamais walk`() {
+        // Le verrou du lot 1.4, et il ne protège pas d'une faute de frappe : le
+        // moteur accepte `walk` avec un 200, et rend la réponse **voiture** —
+        // même géométrie, même durée. Mesuré côté iOS le 19/08/2026 : 1 198 m
+        // en 191 s pour `walk`, 713 m en 528 s pour `foot`. À l'écran, « 1 min »
+        // là où Plan dit 8, et rien pour dire pourquoi.
+        val walk = RouteApi.query(mode = RouteMode.WALK, from = from, to = to)
+        assertEquals("foot", walk["mode"])
+        assertEquals("foot", RouteMode.WALK.apiValue)
+
+        // Les trois seules valeurs que le moteur connaît. Toute autre retombe
+        // sur le profil voiture, en silence.
+        assertEquals(
+            setOf("transit", "foot", "car"),
+            RouteMode.entries.map { it.apiValue }.toSet(),
+        )
+    }
+
+    @Test
     fun `les preferences ne partent qu en transit`() {
         val car = RouteApi.query(mode = RouteMode.CAR, from = from, to = to)
         assertFalse(car.containsKey("accessible"))
         assertFalse(car.containsKey("maxTransfers"))
+
+        val walk = RouteApi.query(
+            mode = RouteMode.WALK,
+            from = from,
+            to = to,
+            preferences = RoutePreferences(accessible = true, maxTransfers = 1),
+        )
+        assertFalse(walk.containsKey("accessible"))
+        assertFalse(walk.containsKey("maxTransfers"))
+        assertFalse(walk.containsKey("avoidDisruptions"))
 
         val transit = RouteApi.query(
             mode = RouteMode.TRANSIT,

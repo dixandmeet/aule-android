@@ -1,19 +1,23 @@
 package io.aule.android.feature.map
 
+import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
-import io.aule.android.core.geo.GeoMath
-import java.text.DecimalFormatSymbols
 import io.aule.android.core.model.DeparturesOutcome
 import io.aule.android.core.model.FleetStatus
 import io.aule.android.core.model.ManeuverKind
 import io.aule.android.core.model.NextAction
 import io.aule.android.core.model.NextActionKind
+import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.SummaryMetric
 import io.aule.android.core.model.SummaryMetricKind
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.VehicleLoad
 import io.aule.android.core.model.Wait
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /**
  * Tout ce que l'application dit à l'usager sur son domaine.
@@ -23,6 +27,42 @@ import io.aule.android.core.model.Wait
  * un modèle qu'il faut rouvrir pour traduire, et rouvrir un modèle pour un
  * mot est exactement ce qui finit par en changer le sens.
  */
+
+/**
+ * L'horloge des passages : « 15:34 », dans le fuseau de l'appareil.
+ *
+ * Une heure de passage n'est **pas** une heure localisée au sens de
+ * `FormatStyle.SHORT` : celle-ci suit la locale et peut rendre « 3:34 PM », or
+ * une colonne d'horaires de bus se lit en 24 heures dans tout le réseau, sur
+ * les poteaux comme dans l'application. Le fuseau, lui, est bien celui de
+ * l'appareil — c'est l'heure qu'on lit sur sa montre en attendant.
+ *
+ * Partagée par la relève et par le volet d'une ligne : deux écrans qui
+ * afficheraient l'heure du même passage différemment n'auraient l'air ni l'un
+ * ni l'autre d'avoir raison.
+ */
+@Composable
+internal fun rememberPassageClock(): DateTimeFormatter {
+    val zone = ZoneId.systemDefault()
+    return remember(zone) { DateTimeFormatter.ofPattern("HH:mm").withZone(zone) }
+}
+
+/**
+ * Le jour qu'on regarde : « ven. 21 août ».
+ *
+ * Localisé, contrairement à l'heure des passages : un jour de la semaine et un
+ * mois s'écrivent dans la langue de l'appareil, quand une heure de bus se lit
+ * en 24 heures partout sur le réseau. L'année n'y figure pas — on choisit une
+ * date à quelques jours, et l'écrire ferait lire quatre chiffres inutiles à
+ * chaque fois.
+ */
+@Composable
+internal fun rememberDayFormatter(): DateTimeFormatter {
+    val locale = Locale.getDefault()
+    return remember(locale) {
+        DateTimeFormatter.ofPattern("EEE d MMMM", locale)
+    }
+}
 
 @Composable
 fun FleetStatus.label(): String = when (this) {
@@ -176,6 +216,16 @@ fun SummaryMetric.labelText(): String = when (kind) {
     SummaryMetricKind.TRANSFER_IN -> stringResource(R.string.nav_metric_transfer)
 }
 
-@Composable
-private fun formatDistance(meters: Double): String =
-    GeoMath.formatDistance(meters, DecimalFormatSymbols.getInstance().decimalSeparator)
+/**
+ * Le libellé d'un mode de déplacement, sur le sélecteur d'itinéraire.
+ *
+ * Le nom, ici, et la valeur du fil dans [RouteMode.apiValue] : ce sont deux
+ * choses différentes et la seconde a déjà coûté un bug — voir l'avertissement
+ * porté par l'énumération.
+ */
+@StringRes
+internal fun RouteMode.labelRes(): Int = when (this) {
+    RouteMode.TRANSIT -> R.string.route_mode_transit
+    RouteMode.WALK -> R.string.route_mode_walk
+    RouteMode.CAR -> R.string.route_mode_car
+}

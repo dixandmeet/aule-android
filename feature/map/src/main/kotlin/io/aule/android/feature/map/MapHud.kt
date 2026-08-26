@@ -1,14 +1,12 @@
 package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.EnterTransition
-import androidx.compose.animation.ExitTransition
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
@@ -20,9 +18,14 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.AssistChipDefaults
+import androidx.compose.material3.FloatingActionButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Surface
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SmallFloatingActionButton
 import androidx.compose.material3.Text
@@ -31,67 +34,90 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
-import io.aule.android.core.designsystem.AuleCappedFontScale
+import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.reduceMotionEnabled
+import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.RealtimeDot
+import io.aule.android.core.designsystem.component.realtimeInk
 import io.aule.android.core.designsystem.component.asImageVector
-import io.aule.android.core.designsystem.token.AuleControl
-import io.aule.android.core.designsystem.token.AuleMotion
+import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.token.AuleChrome
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.location.LocationAuthorization
-import io.aule.android.core.map.MAP_ATTRIBUTION
 import io.aule.android.core.map.camera.CameraMode
-import io.aule.android.core.model.Place
-import io.aule.android.core.model.StopSearchHit
+import io.aule.android.core.model.DepartureWatch
 
 /**
  * Ce qui flotte au-dessus de la carte.
  *
- * Recherche et pastilles hors guidage ; bandeau et barre d'arrivée dès
- * qu'un trajet est engagé. Le bouton de cadrage reste : après un geste,
- * c'est lui qui rend la navigation.
+ * Pastilles en haut hors guidage, bandeau de guidage à la même place dès qu'un
+ * trajet est engagé ; **la recherche en bas**, et la barre d'arrivée à sa place
+ * quand on roule. Le bouton de cadrage reste : après un geste, c'est lui qui
+ * rend la navigation.
+ *
+ * ## Ce que le HUD ne porte plus
+ *
+ * La recherche a vécu ici, en barre flottante. Elle est devenue un **volet** —
+ * le socle, porté par le `BottomSheetScaffold` de `MapScreen`, comme sur iOS.
+ * Un HUD pose ce qui flotte au-dessus de la carte ; un volet n'en est pas, et
+ * le garder ici aurait demandé de tenir sa hauteur à deux endroits. Voir
+ * [MapSearchSheet].
  */
 @Composable
 internal fun MapHud(
     state: MapUiState,
     authorization: LocationAuthorization,
     lastLocationError: String?,
-    showsDiagnostics: Boolean,
-    diagnosticsLabel: String,
     onShowNearby: () -> Unit,
     onRetryStops: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestPrecise: () -> Unit,
-    onSearchQuery: (String) -> Unit,
-    onSearchActivate: () -> Unit,
-    onSearchCancel: () -> Unit,
-    onSelectSearchStop: (StopSearchHit) -> Unit,
-    onSelectSearchPlace: (Place) -> Unit,
     onOpenTrip: () -> Unit = {},
     onSummaryHeightPx: (Float) -> Unit = {},
-    onOpenMenu: (() -> Unit)? = null,
     serviceBanner: String? = null,
     serviceBannerAction: String? = null,
     onServiceBannerAction: (() -> Unit)? = null,
+    /**
+     * La ligne dont on attend le passage, quand une veille tourne.
+     *
+     * Elle vient d'ailleurs que [state] — d'un modèle qui bat toutes les trente
+     * secondes — et c'est pour cela qu'elle est passée à part : le HUD n'a
+     * besoin que de son existence et de son nom, pas de son tableau.
+     */
+    watch: DepartureWatch? = null,
+    onOpenWatch: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val navigating = state.isNavigating
     val showingTrip = state.navigation?.showingTrip == true
+
     Column(
         modifier = modifier
             .fillMaxSize()
             .imePadding(),
     ) {
+        // La gouttière du haut est **serrée d'un cran**, et c'est de la carte
+        // qu'on récupère : quatre points au-dessus de ce qui s'y pose, sur
+        // toute la largeur de l'écran.
+        //
+        // L'écart **entre** les surfaces, lui, reste à huit : ce sont des
+        // cibles tactiles distinctes, et les serrer davantage ferait viser
+        // entre deux pastilles — le genre d'erreur qu'on ne fait qu'avec des
+        // gants, c'est-à-dire ici.
         Column(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = AuleSpacing.lg)
-                .padding(top = AuleSpacing.sm),
+                .padding(top = AuleSpacing.xs),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
         ) {
@@ -107,61 +133,91 @@ internal fun MapHud(
                 if (navigation != null) {
                     GuidanceBanner(state = navigation)
                 }
-            } else {
-                MapSearchBar(
-                    search = state.search,
-                    onQueryChange = onSearchQuery,
-                    onActivate = onSearchActivate,
-                    onCancel = onSearchCancel,
-                    onSelectStop = onSelectSearchStop,
-                    onSelectPlace = onSelectSearchPlace,
-                    onOpenMenu = onOpenMenu,
-                )
-                if (!state.search.isActive) {
-                    if (showsDiagnostics) {
-                        DiagnosticsPill(diagnosticsLabel)
-                    }
-                    if (state.showsFleetStatus) {
-                        FleetStatusPill(
-                            label = state.fleetStatus.label(),
-                            isLive = state.fleetStatus is io.aule.android.core.model.FleetStatus.LiveOnly ||
-                                state.fleetStatus is io.aule.android.core.model.FleetStatus.Mixed,
-                            onClick = onShowNearby,
-                        )
-                    }
-                    IssueBanner(
-                        state = state,
-                        authorization = authorization,
-                        lastLocationError = lastLocationError,
-                        onRetryStops = onRetryStops,
-                        onOpenSettings = onOpenSettings,
-                        onRequestPrecise = onRequestPrecise,
+            } else if (!state.search.isActive) {
+                if (watch != null) {
+                    WatchPill(watch = watch, onClick = onOpenWatch)
+                }
+                if (state.showsFleetStatus) {
+                    FleetStatusPill(
+                        label = state.fleetStatus.label(),
+                        isLive = state.fleetStatus is io.aule.android.core.model.FleetStatus.LiveOnly ||
+                            state.fleetStatus is io.aule.android.core.model.FleetStatus.Mixed,
+                        onClick = onShowNearby,
                     )
                 }
+                IssueBanner(
+                    state = state,
+                    authorization = authorization,
+                    lastLocationError = lastLocationError,
+                    onRetryStops = onRetryStops,
+                    onOpenSettings = onOpenSettings,
+                    onRequestPrecise = onRequestPrecise,
+                )
             }
         }
 
-        if (navigating || !state.search.isActive) {
-            Box(modifier = Modifier.weight(1f))
+        Box(modifier = Modifier.weight(1f))
 
-            val navigation = state.navigation
-            if (navigating && !showingTrip && navigation != null) {
-                TripSummaryBar(
-                    summary = navigation.summary,
-                    onOpen = onOpenTrip,
-                    onHeightPx = onSummaryHeightPx,
-                )
-            }
+        // La bande du bas appartient au **volet** — au socle de recherche hors
+        // guidage, à la barre d'arrivée dès qu'on roule. Le HUD n'y pose que la
+        // seconde : la première est un volet, et un volet ne flotte pas.
+        val navigation = state.navigation
+        if (navigating && !showingTrip && navigation != null) {
+            TripSummaryBar(
+                summary = navigation.summary,
+                onOpen = onOpenTrip,
+                onHeightPx = onSummaryHeightPx,
+            )
         }
     }
 }
 
+/**
+ * La preuve qu'une veille tourne, et le chemin pour la couper.
+ *
+ * Une alerte armée qu'on ne voit nulle part est une promesse invérifiable :
+ * l'usager qui a refermé le volet n'a plus aucun moyen de savoir si l'app
+ * surveille encore, ni de lui dire d'arrêter. La pastille le dit, et ramène
+ * d'un geste à la ligne — là où « Ne plus suivre » attend.
+ *
+ * Elle ne montre pas de compteur, alors qu'elle en aurait la place. Ce serait
+ * un deuxième chiffre vivant sur un écran qui en a déjà — celui du volet — et
+ * il faudrait une horloge dans le HUD pour le tenir à jour. La pastille répond
+ * à « est-ce que ça tourne, et sur quoi », pas à « dans combien de temps » :
+ * cette question-là a déjà son écran.
+ */
 @Composable
-private fun DiagnosticsPill(label: String) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+private fun WatchPill(watch: DepartureWatch, onClick: () -> Unit) {
+    val label = stringResource(R.string.watch_pill, watch.line, watch.destination)
+    val hint = stringResource(R.string.watch_pill_hint)
+    val colors = MaterialTheme.colorScheme
+    AssistChip(
+        onClick = onClick,
+        label = {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.NotificationsActive,
+                contentDescription = null,
+                modifier = Modifier.size(AssistChipDefaults.IconSize),
+            )
+        },
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = colors.surface,
+            labelColor = colors.onSurface,
+            leadingIconContentColor = realtimeInk(),
+        ),
+        border = null,
+        modifier = Modifier.semantics {
+            contentDescription = label
+            onClick(label = hint, action = null)
+        },
     )
 }
 
@@ -172,9 +228,16 @@ private fun FleetStatusPill(
     onClick: () -> Unit,
 ) {
     val hint = stringResource(R.string.fleet_nearby_hint)
+    val colors = MaterialTheme.colorScheme
     AssistChip(
         onClick = onClick,
-        label = { Text(label) },
+        // Le libellé descend d'un cran, appuyé. Une pastille d'état n'est pas
+        // une commande : elle répond à « est-ce que ça vit ? » d'un coup d'œil
+        // et rien ne se joue si on ne la lit pas. Au corps d'un libellé de
+        // bouton, elle se disputait le bandeau posé juste au-dessus.
+        label = {
+            Text(text = label, style = MaterialTheme.typography.labelMediumEmphasized)
+        },
         leadingIcon = {
             RealtimeDot(
                 isLive = isLive,
@@ -182,7 +245,18 @@ private fun FleetStatusPill(
                 scheduledDescription = label,
             )
         },
-        modifier = Modifier.semantics { contentDescription = "$label. $hint" },
+        // Une puce transparente posée sur une carte se lit sur ce qui passe
+        // dessous : au-dessus d'un toit sombre, « 22 à l'horaire » disparaissait.
+        // Le verre lui donne un fond sans la couper de la ville, et l'ombre la
+        // pose franchement au-dessus plutôt que dedans.
+        colors = AssistChipDefaults.assistChipColors(
+            containerColor = colors.surface.copy(alpha = AuleAlpha.GLASS),
+            labelColor = colors.onSurface,
+        ),
+        border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
+        modifier = Modifier
+            .auleShadow(AuleElevation.RESTING, AssistChipDefaults.shape)
+            .semantics { contentDescription = "$label. $hint" },
     )
 }
 
@@ -242,6 +316,19 @@ private fun IssueBanner(
     )
 }
 
+/**
+ * Le bouton qui rend la carte à l'utilisateur.
+ *
+ * Il est passé au **verre**, comme les pastilles au-dessus de lui. L'aplat
+ * plein qu'il portait le faisait lire comme un bouton d'action de plus, à
+ * quelques centimètres du FAB qui, lui, en est un : deux disques opaques
+ * empilés dans le même coin, dont un seul engage quelque chose. Le verre le
+ * range avec ce qu'il est — un contrôle de la vue, posé sur la carte et qui
+ * la laisse voir dessous — et rend l'aplat plein au seul bouton qui agit.
+ *
+ * Le suivi reste visible : le verre prend la teinte de la marque et le contour
+ * s'allume, plutôt que de repeindre le disque entier.
+ */
 @Composable
 internal fun RecenterButton(
     mode: CameraMode,
@@ -255,16 +342,39 @@ internal fun RecenterButton(
     )
     val colors = MaterialTheme.colorScheme
     val tokens = AuleTheme.tokens
-    val fill = if (active) tokens.accent.color else colors.surfaceContainerHigh
+    val shape = FloatingActionButtonDefaults.smallShape
+    val fill = if (active) tokens.accent.color else colors.surface
     val glyph = if (active) tokens.onAccent.color else colors.onSurface
+    val edge = if (active) tokens.accent.color else colors.outlineVariant
 
     SmallFloatingActionButton(
         onClick = {
             view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             onClick()
         },
-        modifier = modifier,
-        containerColor = fill,
+        // L'ombre du composant est éteinte au profit de celle du design system :
+        // quand le bouton suit le véhicule, elle prend la teinte de la marque et
+        // le bouton cesse d'être posé sur la carte pour se mettre à y flotter.
+        // Les deux ombres cumulées donneraient un halo deux fois trop lourd.
+        //
+        // Le contour, lui, n'est pas une décoration : sur du verre, c'est lui
+        // qui tient le bord du bouton au-dessus d'une tuile claire, là où
+        // l'aplat opaque se suffisait à lui-même.
+        modifier = modifier
+            .auleShadow(
+                level = AuleElevation.FLOATING,
+                shape = shape,
+                tint = if (active) AuleShadowTint.ACCENT else AuleShadowTint.NEUTRAL,
+            )
+            .border(AuleStroke.hairline, edge, shape),
+        shape = shape,
+        elevation = FloatingActionButtonDefaults.elevation(
+            defaultElevation = 0.dp,
+            pressedElevation = 0.dp,
+            focusedElevation = 0.dp,
+            hoveredElevation = 0.dp,
+        ),
+        containerColor = fill.copy(alpha = AuleAlpha.GLASS),
         contentColor = glyph,
     ) {
         Icon(
@@ -275,134 +385,108 @@ internal fun RecenterButton(
 }
 
 /**
- * L'action principale de la carte : ouvrir le calcul d'itinéraire.
+ * Les FAB du coin bas droit, et la pastille légale qui leur fait face.
  *
- * Un FAB, pas une destination de barre : le guide réserve la barre aux
- * écrans, et le FAB à **l'action** qu'on veut voir en premier. Taille
- * ordinaire, couleurs du composant (`primaryContainer`), icône 24 dp,
- * description pour le lecteur d'écran. Rien d'autre — forme et ombre
- * viennent de Material.
- */
-@Composable
-internal fun RouteActionButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val view = LocalView.current
-    val label = stringResource(R.string.rail_route_a11y)
-    FloatingActionButton(
-        onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            onClick()
-        },
-        modifier = modifier,
-        containerColor = AuleTheme.tokens.accent.color,
-        contentColor = AuleTheme.tokens.onAccent.color,
-    ) {
-        Icon(
-            imageVector = AuleGlyph.ROUTE.asImageVector(),
-            contentDescription = label,
-            modifier = Modifier.size(AuleControl.icon),
-        )
-    }
-}
-
-/**
- * La barre de navigation et les FAB, collés au bas de la fenêtre.
+ * Il n'y a plus de barre en bas. Elle occupait toute la largeur et quatre-vingts
+ * points de haut pour trois entrées, dont une — Découvrir — ne menait qu'à
+ * l'écran déjà affiché : une destination qui ne déplace personne. Signaler et
+ * Correspondances ont rejoint le menu flottant, où elles voisinent avec le
+ * service, la relève et l'itinéraire. Tout ce qu'on peut faire depuis la carte
+ * tient désormais sous un seul bouton, et la carte récupère son bord bas.
  *
- * Le FAB d'itinéraire est l'action principale : il reste **au-dessus**
- * de la barre, ancré à droite, à 16 dp du bord et de la barre — c'est
- * le placement Material 3, et il ne doit pas recouvrir la barre. Il ne
- * partage pas la ligne de l'attribution : un `Row` laissait le copyright
- * chasser les boutons hors de l'écran. Le cadrage, action secondaire,
- * s'empile au-dessus en small FAB.
+ * Le cadrage disparaît le temps que le menu soit ouvert. Il viendrait se
+ * ranger au milieu des actions déployées, avec la même forme et la même
+ * taille qu'elles, sans en être une. La pastille légale part avec lui : sous
+ * un voile de menu, elle serait touchable sans être lisible.
+ *
+ * Elle occupe le coin gauche que le copyright natif de MapLibre laissait vide,
+ * et ce n'est pas une coïncidence — c'est exactement ce qu'elle remplace.
  */
 @Composable
 internal fun MapActionChrome(
     cameraMode: CameraMode,
-    items: List<MapActionItem>,
     onRecenter: () -> Unit,
-    showAttribution: Boolean,
-    onRoute: (() -> Unit)? = null,
+    onOpenLegal: () -> Unit,
+    actions: List<MapFabAction> = emptyList(),
+    fabExpanded: Boolean = false,
+    onFabExpandedChange: (Boolean) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val barVisible = items.isNotEmpty()
-    Column(modifier = modifier.fillMaxWidth()) {
-        MapActionOverlay(
-            cameraMode = cameraMode,
-            onRecenter = onRecenter,
-            onRoute = onRoute,
-            showAttribution = showAttribution,
-            barVisible = barVisible,
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            // Plus rien ne couvre le bas de la fenêtre : les FAB écartent
+            // eux-mêmes la barre système, là où la barre de navigation s'en
+            // chargeait pour eux.
+            .windowInsetsPadding(
+                WindowInsets.safeDrawing.only(
+                    WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
+                ),
+            )
+            .padding(bottom = AuleSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+        horizontalAlignment = Alignment.End,
+    ) {
+        if (!fabExpanded) {
+            Row(
+                // La gouttière est posée ici et non sur la colonne : le menu
+                // flottant porte déjà la sienne, à la même valeur, et les deux
+                // s'additionnaient. Le bouton d'action se retrouvait à trente-deux
+                // points du bord quand le cadrage juste au-dessus était à seize —
+                // deux cibles du même coin, décalées l'une de l'autre sans raison.
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AuleSpacing.lg),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                LegalNoticeButton(onClick = onOpenLegal)
+                RecenterButton(mode = cameraMode, onClick = onRecenter)
+            }
+        }
+        MapFabMenu(
+            actions = actions,
+            expanded = fabExpanded,
+            onExpandedChange = onFabExpandedChange,
         )
-        MapActionBar(items = items)
     }
 }
 
 /**
- * Attribution à gauche, FAB à droite : deux calques, pas une ligne.
- * Sinon le copyright pousse les boutons hors de l'écran.
+ * La pastille ⓘ : le geste qui rend la carte conforme.
+ *
+ * Elle est **petite et en retrait**, et c'est le but : la licence demande que le
+ * crédit soit atteignable, pas qu'il concurrence la carte. Le verre la range
+ * avec ce qu'elle est — une mention posée sur la carte, qui la laisse voir
+ * dessous — au lieu d'un aplat plein qui la ferait passer pour une commande.
+ *
+ * Le contour tient son bord au-dessus d'une tuile claire, où le verre seul
+ * disparaîtrait ; c'est la même raison qu'au bouton de cadrage.
+ *
+ * Elle est dessinée au cran de la pastille, sous les 40 dp du bouton de cadrage
+ * qui lui fait face : la mention doit être atteignable, pas se mettre au rang
+ * d'une commande de la carte. La cible, elle, ne descend pas avec le dessin —
+ * Material l'agrandit au plancher autour de toute surface cliquable.
  */
 @Composable
-private fun MapActionOverlay(
-    cameraMode: CameraMode,
-    onRecenter: () -> Unit,
-    onRoute: (() -> Unit)?,
-    showAttribution: Boolean,
-    barVisible: Boolean,
-) {
-    val reduceMotion = reduceMotionEnabled()
-    Box(
+private fun LegalNoticeButton(onClick: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val shape = CircleShape
+    Surface(
+        onClick = onClick,
         modifier = Modifier
-            .fillMaxWidth()
-            .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
-                    if (barVisible) {
-                        WindowInsetsSides.Horizontal
-                    } else {
-                        WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
-                    },
-                ),
-            )
-            .padding(horizontal = AuleSpacing.lg)
-            .padding(bottom = AuleSpacing.lg),
+            .size(AuleChrome.pill)
+            .border(AuleStroke.hairline, colors.outlineVariant, shape),
+        shape = shape,
+        color = colors.surface.copy(alpha = AuleAlpha.GLASS),
+        contentColor = colors.onSurfaceVariant,
     ) {
-        AnimatedVisibility(
-            visible = showAttribution,
-            modifier = Modifier
-                .align(Alignment.BottomStart)
-                .fillMaxWidth()
-                .padding(end = AuleControl.height + AuleSpacing.xl),
-            enter = if (reduceMotion) {
-                EnterTransition.None
-            } else {
-                fadeIn(tween(AuleMotion.POP_MS))
-            },
-            exit = if (reduceMotion) {
-                ExitTransition.None
-            } else {
-                fadeOut(tween(AuleMotion.POP_MS))
-            },
-        ) {
-            val attributionA11y = stringResource(R.string.map_attribution_a11y)
-            AuleCappedFontScale {
-                Text(
-                    text = MAP_ATTRIBUTION,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.semantics { contentDescription = attributionA11y },
-                )
-            }
-        }
-        Column(
-            modifier = Modifier.align(Alignment.BottomEnd),
-            verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
-            horizontalAlignment = Alignment.End,
-        ) {
-            RecenterButton(mode = cameraMode, onClick = onRecenter)
-            if (onRoute != null) {
-                RouteActionButton(onClick = onRoute)
-            }
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                imageVector = Icons.Outlined.Info,
+                contentDescription = stringResource(R.string.legal_open),
+                modifier = Modifier.size(AuleChrome.pillGlyph),
+            )
         }
     }
 }

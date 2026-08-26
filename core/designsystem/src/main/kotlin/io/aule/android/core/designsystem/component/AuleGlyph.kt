@@ -9,6 +9,7 @@ import androidx.compose.material.icons.automirrored.outlined.Logout
 import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
+import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -20,6 +21,7 @@ import androidx.compose.material.icons.outlined.DarkMode
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
+import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
@@ -49,7 +51,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 enum class AuleGlyph {
     MAIL, LOCK, EYE, EYE_OFF, SHIELD, SEARCH, BACK, CLOSE, MENU, SIGN_OUT,
     HEADING, PERSON, CHEVRON, CAMERA, EDIT, IMAGE, TRASH, CHECK,
-    BUS, TICKET, PIN, TRAM, SUN, MOON, AUTO, FLAG, ROUTE, PLAY, SWAP,
+    BUS, TICKET, PIN, TRAM, SUN, MOON, AUTO, FLAG, ROUTE, PLAY, SWAP, EXPLORE,
 }
 
 /**
@@ -88,4 +90,5 @@ fun AuleGlyph.asImageVector(filled: Boolean = false): ImageVector = when (this) 
     AuleGlyph.ROUTE -> AuleIcons.Route
     AuleGlyph.PLAY -> if (filled) Icons.Filled.PlayArrow else Icons.Outlined.PlayArrow
     AuleGlyph.SWAP -> Icons.Outlined.SwapVert
+    AuleGlyph.EXPLORE -> if (filled) Icons.Filled.Explore else Icons.Outlined.Explore
 }

@@ -1,6 +1,5 @@
 package io.aule.android.feature.map
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -9,7 +8,6 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -22,8 +20,9 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleCappedFontScale
+import io.aule.android.core.designsystem.component.AuleGlassSurface
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
-import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.model.TripSummary
 import java.time.Duration
 import java.time.ZoneId
@@ -54,7 +53,11 @@ internal fun TripSummaryBar(
     val hint = stringResource(R.string.nav_trip_hint)
     val spoken = "$arrivalLabel $arrival. $remainingLabel $remaining. $thirdLabel $thirdValue. $hint"
     AuleCappedFontScale(maxScale = 1.3f) {
-        Surface(
+        // Du verre, et non un aplat de conteneur : cette barre flotte au-dessus
+        // de la carte, et un aplat opaque y découpe une bande dans le paysage.
+        // Le verre laisse deviner ce qui passe dessous — la rue qu'on suit —
+        // sans rien coûter à la lisibilité des trois chiffres.
+        AuleGlassSurface(
             modifier = modifier
                 .fillMaxWidth()
                 .onSizeChanged { onHeightPx(it.height.toFloat()) }
@@ -64,8 +67,7 @@ internal fun TripSummaryBar(
                     contentDescription = spoken
                 },
             shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            border = BorderStroke(AuleStroke.hairline, MaterialTheme.colorScheme.outlineVariant),
+            elevation = AuleElevation.FLOATING,
         ) {
             Row(
                 modifier = Modifier
@@ -83,10 +85,21 @@ internal fun TripSummaryBar(
     }
 }
 
+/**
+ * Un chiffre et ce qu'il mesure.
+ *
+ * Le chiffre prend le slot appuyé : c'est la seule chose qu'un conducteur lit
+ * sur cette barre, et il la lit de biais, à un mètre, dans un véhicule qui
+ * bouge. Les chiffres restent à chasse fixe — le slot appuyé de `titleLarge`
+ * conserve `tnum` — donc « 11:26 » ne danse pas quand la minute change.
+ *
+ * L'intitulé, lui, ne bouge pas d'un cheveu : il se lit une fois, au premier
+ * usage, et n'a plus jamais besoin d'être retrouvé.
+ */
 @Composable
 private fun SummaryColumn(value: String, label: String) {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(text = value, style = MaterialTheme.typography.titleLarge)
+        Text(text = value, style = MaterialTheme.typography.titleLargeEmphasized)
         Text(
             text = label,
             style = MaterialTheme.typography.labelSmall,

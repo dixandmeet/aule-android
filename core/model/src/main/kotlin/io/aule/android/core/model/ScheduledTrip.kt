@@ -6,7 +6,6 @@ import io.aule.android.core.geo.PolylinePath
 import io.aule.android.core.geo.PolylineProjection
 import java.time.Duration
 import java.time.Instant
-import kotlin.math.roundToLong
 
 /** Écart au tracé au-delà duquel le véhicule ne roule plus la course attendue. */
 const val HANDOVER_OFF_PATH_METERS = 120.0
@@ -232,33 +231,17 @@ class HandoverProgressEngine(
         return match
     }
 
-    private fun delayAt(progress: Double, now: Instant): Duration? {
-        val fractions = trip.path?.stopFractions ?: return null
-        val stops = trip.stops
-        if (fractions.size != stops.size || stops.size < 2) return null
-        if (progress <= fractions.first()) {
-            return Duration.between(stops.first().passageAt, now)
-        }
-        if (progress >= fractions.last()) {
-            return Duration.between(stops.last().passageAt, now)
-        }
-        for (i in 0 until fractions.size - 1) {
-            val from = fractions[i]
-            val to = fractions[i + 1]
-            if (progress < from || progress > to) continue
-            val span = to - from
-            val theoretical = if (span <= 0) {
-                stops[i].passageAt
-            } else {
-                val millis = Duration.between(stops[i].passageAt, stops[i + 1].passageAt)
-                    .toMillis()
-                val fraction = (progress - from) / span
-                stops[i].passageAt.plusMillis((millis * fraction).roundToLong())
-            }
-            return Duration.between(theoretical, now)
-        }
-        return null
-    }
+    /**
+     * Le retard : l'écart entre l'heure qu'il est et celle où la course aurait
+     * dû se trouver là.
+     *
+     * L'heure théorique à un avancement donné est celle du plan de ligne
+     * ([scheduleAt]), et elle ne se calcule qu'à un endroit : deux écrans qui
+     * annonceraient deux retards pour le même véhicule n'auraient l'air ni
+     * l'un ni l'autre d'avoir raison.
+     */
+    private fun delayAt(progress: Double, now: Instant): Duration? =
+        trip.scheduleAt(progress)?.let { Duration.between(it, now) }
 
     private fun stopsRemaining(progress: Double): Int? {
         val fractions = trip.path?.stopFractions ?: return null

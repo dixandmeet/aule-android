@@ -3,6 +3,16 @@ package io.aule.android.core.model
 import io.aule.android.core.geo.Coordinate
 import java.time.Duration
 import java.time.Instant
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.addJsonObject
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.doubleOrNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.put
 
 /**
  * Un arrêt ou un quai.
@@ -182,3 +192,65 @@ data class Place(
     val coordinate: Coordinate,
     val stopMode: TransportMode? = null,
 )
+
+/**
+ * Le catalogue d'arrêts, tel qu'il se pose sur le disque.
+ *
+ * Écrit à la main plutôt que par `@Serializable` : le modèle reste sans
+ * annotation — c'est ce qui lui permet de vivre dans un module que la
+ * sérialisation ne traverse pas — et le format du fichier devient une décision
+ * visible, pas un effet de bord d'un nom de champ.
+ *
+ * Les clés sont **courtes**. 2 635 arrêts avec des clés en toutes lettres pèsent
+ * un tiers de plus, pour un fichier que personne ne lit à l'œil.
+ */
+fun List<TransitStop>.encodeCatalog(): String = buildJsonArray {
+    forEach { stop ->
+        addJsonObject {
+            put("i", stop.id)
+            put("n", stop.name)
+            stop.code?.let { put("c", it) }
+            put("y", stop.coordinate.latitude)
+            put("x", stop.coordinate.longitude)
+            put("m", stop.mode.name)
+            stop.stationName?.let { put("s", it) }
+            if (stop.isWheelchairAccessible) put("a", true)
+        }
+    }
+}.toString()
+
+/**
+ * Relit le catalogue. Une entrée illisible est **sautée**, pas fatale.
+ *
+ * ⚠️ Un catalogue vide et un catalogue illisible se répondent de la même façon —
+ * une liste vide — et c'est l'appelant qui décide ce qu'elle vaut. Le décorateur
+ * de cache, lui, refuse de **servir** une liste vide : au lancement suivant elle
+ * passerait pour un cache valide, et l'application n'aurait plus un seul arrêt
+ * sans qu'aucune erreur ne le dise.
+ */
+fun decodeStopCatalog(raw: String?): List<TransitStop> {
+    if (raw.isNullOrBlank()) return emptyList()
+    val array = runCatching { Json.parseToJsonElement(raw).jsonArray }.getOrNull()
+        ?: return emptyList()
+    return array.mapNotNull { element ->
+        runCatching {
+            val obj = element.jsonObject
+            val id = obj["i"]?.jsonPrimitive?.contentOrNull ?: return@runCatching null
+            val name = obj["n"]?.jsonPrimitive?.contentOrNull ?: return@runCatching null
+            val lat = obj["y"]?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
+            val lng = obj["x"]?.jsonPrimitive?.doubleOrNull ?: return@runCatching null
+            val mode = obj["m"]?.jsonPrimitive?.contentOrNull
+                ?.let { value -> TransportMode.entries.firstOrNull { it.name == value } }
+                ?: return@runCatching null
+            TransitStop(
+                id = id,
+                name = name,
+                code = obj["c"]?.jsonPrimitive?.contentOrNull,
+                coordinate = Coordinate(latitude = lat, longitude = lng),
+                mode = mode,
+                stationName = obj["s"]?.jsonPrimitive?.contentOrNull,
+                isWheelchairAccessible = obj["a"]?.jsonPrimitive?.booleanOrNull ?: false,
+            )
+        }.getOrNull()
+    }
+}

@@ -1,12 +1,7 @@
 package io.aule.android.feature.map
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
 import androidx.compose.material.icons.outlined.Check
@@ -26,8 +21,8 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import io.aule.android.core.designsystem.AuleCappedFontScale
+import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.component.LineBadge
-import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.JourneyLeg
@@ -54,14 +49,7 @@ internal fun TripSheet(
     onStop: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = AuleSpacing.lg)
-            .padding(bottom = AuleSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
-    ) {
+    SheetBody(modifier = modifier) {
         SheetTitle(stringResource(R.string.nav_trip))
         SheetCard(modifier = Modifier.fillMaxWidth()) {
             state.plan.legs.forEachIndexed { index, leg ->
@@ -69,6 +57,7 @@ internal fun TripSheet(
                     leg = leg,
                     current = index == state.progress.legIndex,
                     done = index < state.progress.legIndex,
+                    rank = index,
                 )
                 if (index < state.plan.legs.lastIndex) {
                     SheetRowDivider()
@@ -95,7 +84,7 @@ internal fun TripSheet(
  * qui se calcule le plus facilement.
  */
 @Composable
-private fun TripLegRow(leg: JourneyLeg, current: Boolean, done: Boolean) {
+private fun TripLegRow(leg: JourneyLeg, current: Boolean, done: Boolean, rank: Int) {
     val colors = MaterialTheme.colorScheme
     val measure = leg.measureText()
     val stateLabel = when {
@@ -109,6 +98,7 @@ private fun TripLegRow(leg: JourneyLeg, current: Boolean, done: Boolean) {
         ListItem(
             modifier = Modifier
                 .defaultMinSize(minHeight = AuleTouch.minimum)
+                .auleEnter(index = rank)
                 .semantics(mergeDescendants = true) { contentDescription = spoken },
             leadingContent = {
                 val line = leg.line
@@ -127,13 +117,21 @@ private fun TripLegRow(leg: JourneyLeg, current: Boolean, done: Boolean) {
                     Icon(
                         imageVector = leg.mode.icon(),
                         contentDescription = null,
-                        tint = if (current) colors.onPrimaryContainer else colors.onSurfaceVariant,
+                        tint = if (current) colors.onPrimary else colors.onSurfaceVariant,
                     )
                 }
             },
             headlineContent = {
                 Text(
                     text = leg.title,
+                    // L'étape en cours s'appuie : sur une liste où trois états
+                    // coexistent, la graisse dit « c'est ici » avant que la
+                    // couleur n'ait été interprétée.
+                    style = if (current) {
+                        MaterialTheme.typography.titleMediumEmphasized
+                    } else {
+                        MaterialTheme.typography.titleMedium
+                    },
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -159,10 +157,17 @@ private fun TripLegRow(leg: JourneyLeg, current: Boolean, done: Boolean) {
             },
             colors = ListItemDefaults.colors(
                 // Transparent : la couleur vient du cartouche qui la porte.
-                containerColor = if (current) colors.primaryContainer else Color.Transparent,
-                headlineColor = if (current) colors.onPrimaryContainer else colors.onSurface,
+                //
+                // L'étape en cours prend l'aplat de marque **plein**, et non le
+                // conteneur pastel qu'elle portait. Le pastel se voyait, mais il
+                // ne pesait pas : posé au milieu de rangées grises, il se lisait
+                // comme une surbrillance de tableur. Le teal profond se lit comme
+                // une position — celle où l'on est.
+                containerColor = if (current) colors.primary else Color.Transparent,
+                headlineColor = if (current) colors.onPrimary else colors.onSurface,
+                leadingIconColor = if (current) colors.onPrimary else colors.onSurfaceVariant,
                 supportingColor = if (current) {
-                    colors.onPrimaryContainer
+                    colors.onPrimary
                 } else {
                     colors.onSurfaceVariant
                 },

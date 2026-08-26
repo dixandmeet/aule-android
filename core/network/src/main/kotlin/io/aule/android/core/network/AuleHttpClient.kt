@@ -133,6 +133,27 @@ class AuleHttpClient(
     }
 
     /**
+     * PUT JSON brut — pour GoTrue `/user`, qui ne connaît que ce verbe pour
+     * modifier le compte courant. PATCH y répond 405, et non 200 : le détour
+     * par `patchRaw` n'existe pas.
+     */
+    suspend fun putRaw(
+        url: String,
+        jsonBody: String,
+        headers: Map<String, String> = emptyMap(),
+        query: Map<String, String?> = emptyMap(),
+    ): RawHttpResponse {
+        val requestUrl = build(url, query)
+        val request = Request.Builder()
+            .url(requestUrl)
+            .header("Accept", "application/json")
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
+            .put(jsonBody.toRequestBody(JSON_MEDIA_TYPE))
+            .build()
+        return executeRaw(request)
+    }
+
+    /**
      * POST binaire — pour Storage, dont le corps est l'octet de l'image et
      * dont un 4xx JSON doit rester lisible par l'appelant.
      */

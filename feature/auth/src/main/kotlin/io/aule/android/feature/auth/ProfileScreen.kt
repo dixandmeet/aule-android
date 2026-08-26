@@ -11,13 +11,13 @@ import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
@@ -32,6 +32,8 @@ import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -39,24 +41,26 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+// `ExposedDropdownMenu` s'importe explicitement depuis Material 3 1.5 : la
+// version membre d'`ExposedDropdownMenuBoxScope` y est passée en obsolescence
+// masquée (`DeprecationLevel.HIDDEN`) au profit de cette extension. Sans cet
+// import, l'appel ne résout plus — et l'erreur ne dit pas que c'est une
+// dépréciation, elle dit que le symbole n'existe pas.
+import androidx.compose.material3.ExposedDropdownMenu
 import androidx.compose.material3.ExposedDropdownMenuAnchorType
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
-import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.SegmentedButtonDefaults
-import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
@@ -76,6 +80,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.RectangleShape
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
@@ -89,17 +95,23 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.auleEnter
+import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
+import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.asImageVector
@@ -131,6 +143,35 @@ import kotlinx.coroutines.launch
  * Deux onglets, comme Flutter : la fiche se soumet **en bloc**, l'apparence
  * s'applique au toucher. La déconnexion reste sans confirmation ; la
  * suppression de compte, elle, demande un second geste.
+ *
+ * ## La hiérarchie de l'écran, en trois plans
+ *
+ * L'écran est dense — identité, portrait, quatre champs, deux listes
+ * déroulantes, apparence, traces, compte — et il l'était **à plat** : chaque
+ * bloc s'annonçait par un intitulé gris de onze points et rien d'autre. Deux
+ * cartes seulement avaient un fond, le portrait et les traces, si bien que
+ * l'écran se lisait comme une longue liste de champs entrecoupée de deux
+ * boîtes. On y trouvait tout, à condition de chercher. Trois plans le
+ * rangent :
+ *
+ * 1. **L'en-tête d'identité** est la seule surface de marque de l'écran. Un
+ *    conducteur qui ouvre son profil vient vérifier *qui il est pour le
+ *    système* : son nom, son adresse, son portrait. Le dégradé teal le pose au
+ *    premier plan sans qu'aucun autre bloc n'ait à s'effacer.
+ * 2. **Les sections** vivent sur un cran de conteneur, pas dans un contour. La
+ *    nouvelle échelle de surfaces descend assez bas pour qu'un aplat suffise —
+ *    et un bloc sans contour se lit comme un bloc, là où le même cerné se lit
+ *    comme une boîte. Elles se distinguent donc du fond de la même façon de
+ *    jour et de nuit, ce qu'un trait ne faisait pas.
+ * 3. **La barre d'enregistrement** monte d'un cran encore, et porte l'ombre :
+ *    elle survient, elle ne fait pas partie de la page.
+ *
+ * L'écran porte la bascule Clair / Sombre / Auto : c'est le seul de
+ * l'application qu'on regarde forcément dans les deux ambiances, à une seconde
+ * d'intervalle. Rien n'y est réglé pour le jour puis rattrapé pour la nuit —
+ * la surface de marque est un teal profond dans les deux, l'échelle de
+ * conteneurs monte dans les deux, et la tuile choisie prend l'aplat HUD dans
+ * les deux.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -265,12 +306,17 @@ fun ProfileScreen(
                     Column {
                         Text(
                             text = title,
-                            style = MaterialTheme.typography.titleMedium,
+                            // Le slot appuyé de Material 3 Expressive : même
+                            // boîte que `titleMedium`, donc la barre ne bouge
+                            // pas d'un point, mais la graisse sépare enfin le
+                            // titre de sa légende. Les deux se lisaient au même
+                            // poids, à quatre points d'écart de taille.
+                            style = MaterialTheme.typography.titleMediumEmphasized,
                             modifier = Modifier.semantics { heading() },
                         )
                         Text(
                             text = subtitle,
-                            style = MaterialTheme.typography.labelSmall,
+                            style = MaterialTheme.typography.labelMedium,
                             color = colors.onSurfaceVariant,
                         )
                     }
@@ -308,6 +354,12 @@ fun ProfileScreen(
                     .padding(bottom = AuleSpacing.xl),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
             ) {
+                // Les rangs de la cascade sont fixes et suivent l'ordre de
+                // lecture : c'est ce qui fait qu'un même bloc entre toujours au
+                // même moment, que les bandeaux d'erreur soient là ou non. Un
+                // rang calculé sur les blocs présents ferait avancer la section
+                // Compte de deux crans dès qu'un envoi de photo échoue, et la
+                // cascade se mettrait à dépendre de l'état du réseau.
                 when (tab) {
                     ProfileTab.PROFIL -> {
                         val headerName = draft.displayName()
@@ -315,7 +367,7 @@ fun ProfileScreen(
                             .ifBlank { stringResource(R.string.profile_agent) }
                         val avatarError = state.avatarFailure?.message()
                             ?: pickerMessage?.let { stringResource(it) }
-                        AvatarBlock(
+                        IdentityHeader(
                             name = headerName,
                             email = state.email ?: state.profile?.email,
                             bytes = state.avatarBytes,
@@ -327,29 +379,38 @@ fun ProfileScreen(
                                 viewModel.clearAvatarFailure()
                                 avatarMenu = true
                             },
+                            modifier = Modifier.auleEnter(index = 0),
                         )
                         if (avatarError != null) {
-                            AuleBanner(message = avatarError, tone = AuleTone.ALERT)
+                            AuleBanner(
+                                message = avatarError,
+                                tone = AuleTone.ALERT,
+                                modifier = Modifier.auleEnter(index = 1),
+                            )
                         }
 
                         when {
                             state.isLoadingProfile && state.profile == null -> AuleBanner(
                                 message = stringResource(R.string.profile_loading),
+                                modifier = Modifier.auleEnter(index = 2),
                             )
                             state.profileFailed -> AuleBanner(
                                 message = stringResource(R.string.profile_load_error),
                                 tone = AuleTone.ALERT,
                                 action = stringResource(R.string.profile_retry),
                                 onAction = viewModel::retryProfile,
+                                modifier = Modifier.auleEnter(index = 2),
                             )
                             state.profile == null -> AuleBanner(
                                 message = stringResource(R.string.profile_missing),
+                                modifier = Modifier.auleEnter(index = 2),
                             )
                             else -> {
                                 if (state.profileSaveFailed) {
                                     AuleBanner(
                                         message = stringResource(R.string.profile_save_error),
                                         tone = AuleTone.ALERT,
+                                        modifier = Modifier.auleEnter(index = 2),
                                     )
                                 }
                                 IdentityEditor(
@@ -360,6 +421,7 @@ fun ProfileScreen(
                                         viewModel.clearProfileSaveFailure()
                                     },
                                     onNext = { focus.moveFocus(FocusDirection.Down) },
+                                    modifier = Modifier.auleEnter(index = 2),
                                 )
                                 AssignmentEditor(
                                     draft = draft,
@@ -370,6 +432,7 @@ fun ProfileScreen(
                                         draft = it
                                         viewModel.clearProfileSaveFailure()
                                     },
+                                    modifier = Modifier.auleEnter(index = 3),
                                 )
                             }
                         }
@@ -379,12 +442,14 @@ fun ProfileScreen(
                             onDeleteAccount = { confirmingDeleteAccount = true },
                             deleting = state.isDeletingAccount,
                             deleteFailed = state.deleteFailed,
+                            modifier = Modifier.auleEnter(index = 4),
                         )
                     }
                     ProfileTab.PREFERENCES -> {
                         AppearanceSection(
                             appearance = appearance,
                             onAppearance = onAppearance,
+                            modifier = Modifier.auleEnter(index = 0),
                         )
                         GpsTracesSection(
                             enabled = traces.enabled,
@@ -404,6 +469,7 @@ fun ProfileScreen(
                                 }
                             },
                             onDelete = { confirmingDeleteTraces = true },
+                            modifier = Modifier.auleEnter(index = 1),
                         )
                     }
                 }
@@ -503,8 +569,36 @@ fun ProfileScreen(
     }
 }
 
+/**
+ * L'en-tête d'identité : la seule surface de marque de l'écran.
+ *
+ * C'était une carte grise avec un portrait dedans, posée sur une page de la
+ * même famille de gris. Elle portait pourtant ce que le conducteur vient
+ * vérifier — son nom tel que le réseau l'écrit — et rien ne le disait. Le
+ * dégradé teal le dit d'un coup d'œil, et il le dit **de jour comme de nuit** :
+ * l'aplat de marque est un teal profond dans les deux ambiances, seule son
+ * encre change.
+ *
+ * ## Ce qui empêche la carte de tourner à la décoration
+ *
+ * Une seule surface de marque par écran, dit le kit, et c'est celle-ci. Rien
+ * d'autre ici n'est dégradé : les sections restent des aplats de conteneur.
+ * Sans cette règle, le teal cesserait d'être un rang pour devenir un fond, et
+ * l'en-tête ne désignerait plus rien.
+ *
+ * ## Le portrait et sa pastille, retournés
+ *
+ * Les deux aplats habituels ne fonctionnent pas sur un fond de marque :
+ * `primaryContainer` **est** la couleur d'arrivée du dégradé de nuit, et la
+ * pastille caméra était peinte à l'accent, c'est-à-dire à la couleur sur
+ * laquelle elle se pose maintenant. Les deux prennent donc l'encre de marque en
+ * aplat et l'aplat de marque en encre : une tuile claire, un glyphe teal, et le
+ * contraste est le même aux deux heures. La bordure de la pastille disparaît
+ * avec ce retournement — elle servait à détacher un rond teal d'un fond gris,
+ * un problème que cet en-tête n'a plus.
+ */
 @Composable
-private fun AvatarBlock(
+private fun IdentityHeader(
     name: String,
     email: String?,
     bytes: ByteArray?,
@@ -512,22 +606,16 @@ private fun AvatarBlock(
     uploading: Boolean,
     enabled: Boolean,
     onTap: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    val colors = MaterialTheme.colorScheme
+    val tokens = AuleTheme.tokens
     val action = stringResource(
         if (hasAvatar) R.string.profile_avatar_edit else R.string.profile_avatar_add,
     )
-    Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = AuleSpacing.sm),
-        shape = MaterialTheme.shapes.medium,
-        // La page est déjà `surface` : une carte de la même couleur ne se
-        // détache que par son ombre, invisible de nuit.
-        colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-        elevation = CardDefaults.cardElevation(
-            defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
-        ),
+    AuleBrandSurface(
+        modifier = modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        elevation = AuleElevation.FLOATING,
     ) {
         Row(
             modifier = Modifier.padding(AuleSpacing.lg),
@@ -545,18 +633,23 @@ private fun AvatarBlock(
                         }
                         .clickable(enabled = enabled, onClick = onTap),
                 ) {
-                    AvatarPortrait(name = name, bytes = bytes)
+                    AvatarPortrait(
+                        name = name,
+                        bytes = bytes,
+                        container = tokens.onAccent.color,
+                        onContainer = tokens.accent.color,
+                    )
                     if (uploading) {
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
                                 .clip(MaterialTheme.shapes.small)
-                                .background(colors.surface.copy(alpha = AuleAlpha.VEIL)),
+                                .background(tokens.accent.color.copy(alpha = AuleAlpha.VEIL)),
                             contentAlignment = Alignment.Center,
                         ) {
                             CircularProgressIndicator(
                                 modifier = Modifier.size(AuleControl.icon),
-                                color = colors.onSurface,
+                                color = tokens.onAccent.color,
                                 strokeWidth = AuleStroke.glyph,
                             )
                         }
@@ -569,8 +662,7 @@ private fun AvatarBlock(
                             .offset(x = AuleSpacing.xs, y = AuleSpacing.xs)
                             .size(AuleControl.avatarBadge)
                             .clip(CircleShape)
-                            .background(AuleTheme.tokens.accent.color)
-                            .border(AuleStroke.emphasis, colors.surface, CircleShape),
+                            .background(tokens.onAccent.color),
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
@@ -580,27 +672,40 @@ private fun AvatarBlock(
                                 AuleGlyph.CAMERA.asImageVector()
                             },
                             contentDescription = null,
-                            tint = AuleTheme.tokens.onAccent.color,
+                            tint = tokens.accent.color,
                             modifier = Modifier.size(AuleSpacing.md),
                         )
                     }
                 }
             }
             Column(
-                modifier = Modifier.padding(start = AuleSpacing.md),
+                modifier = Modifier
+                    .padding(start = AuleSpacing.md)
+                    .weight(1f),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
             ) {
                 Text(
                     text = name,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface,
+                    // Deux crans au-dessus de ce qu'il était. Le nom est le
+                    // sujet de l'écran ; à seize points il avait la taille d'un
+                    // intitulé de champ, et l'en-tête ressemblait à une rangée
+                    // de liste qu'on aurait agrandie.
+                    style = MaterialTheme.typography.headlineSmallEmphasized,
+                    color = tokens.onAccent.color,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
                 if (email != null) {
+                    // Pleine encre, et non un voile : sur une surface de marque
+                    // lue en plein soleil, un texte atténué disparaît avant
+                    // d'être secondaire. C'est l'écart de taille qui hiérarchise
+                    // ici, pas l'opacité.
                     Text(
                         text = email,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = colors.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.onAccent.color,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -624,6 +729,15 @@ private fun AvatarMenuDialog(
         sheetState = sheetState,
     ) {
         Column(modifier = Modifier.padding(bottom = AuleSpacing.lg)) {
+            // Le conteneur transparent n'est pas un détail : un `ListItem`
+            // peint `surface` par défaut, or le volet est posé sur
+            // `surfaceContainerLow`. Trois rangées blanches sur un volet gris
+            // clair, c'est trois rectangles qu'on voit avant de lire ce qu'ils
+            // contiennent — et de nuit, l'inverse.
+            //
+            // La cascade, elle, sert à ce que le volet **arrive** plutôt qu'il
+            // n'apparaisse : trois rangées qui se déroulent en cent vingt
+            // millisecondes disent d'où elles viennent.
             ListItem(
                 headlineContent = { Text(stringResource(R.string.profile_avatar_camera)) },
                 leadingContent = {
@@ -632,7 +746,10 @@ private fun AvatarMenuDialog(
                         contentDescription = null,
                     )
                 },
-                modifier = Modifier.clickable(onClick = onCamera),
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier
+                    .auleEnter(index = 0)
+                    .clickable(onClick = onCamera),
             )
             ListItem(
                 headlineContent = { Text(stringResource(R.string.profile_avatar_gallery)) },
@@ -642,7 +759,10 @@ private fun AvatarMenuDialog(
                         contentDescription = null,
                     )
                 },
-                modifier = Modifier.clickable(onClick = onGallery),
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier
+                    .auleEnter(index = 1)
+                    .clickable(onClick = onGallery),
             )
             if (hasAvatar) {
                 ListItem(
@@ -659,7 +779,10 @@ private fun AvatarMenuDialog(
                             tint = colors.error,
                         )
                     },
-                    modifier = Modifier.clickable(onClick = onDelete),
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier
+                        .auleEnter(index = 2)
+                        .clickable(onClick = onDelete),
                 )
             }
         }
@@ -728,63 +851,65 @@ private fun IdentityEditor(
     enabled: Boolean,
     onChange: (ProfileDraft) -> Unit,
     onNext: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    ProfileSection(title = stringResource(R.string.profile_identity)) {
-        Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-            OutlinedTextField(
-                value = draft.firstName,
-                onValueChange = { onChange(draft.copy(firstName = it)) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                label = { Text(stringResource(R.string.profile_first_name)) },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Next,
-                ),
-                keyboardActions = KeyboardActions(onNext = { onNext() }),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-            )
-            OutlinedTextField(
-                value = draft.lastName,
-                onValueChange = { onChange(draft.copy(lastName = it)) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                label = { Text(stringResource(R.string.profile_last_name)) },
-                keyboardOptions = KeyboardOptions(
-                    capitalization = KeyboardCapitalization.Words,
-                    imeAction = ImeAction.Next,
-                ),
-                keyboardActions = KeyboardActions(onNext = { onNext() }),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-            )
-            OutlinedTextField(
-                value = draft.phone,
-                onValueChange = { onChange(draft.copy(phone = it)) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                label = { Text(stringResource(R.string.profile_phone)) },
-                keyboardOptions = KeyboardOptions(
-                    keyboardType = KeyboardType.Phone,
-                    imeAction = ImeAction.Next,
-                ),
-                keyboardActions = KeyboardActions(onNext = { onNext() }),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-            )
-            OutlinedTextField(
-                value = draft.driverNumber,
-                onValueChange = { onChange(draft.copy(driverNumber = it)) },
-                modifier = Modifier.fillMaxWidth(),
-                enabled = enabled,
-                label = { Text(stringResource(R.string.profile_driver_number)) },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { onNext() }),
-                singleLine = true,
-                shape = MaterialTheme.shapes.medium,
-            )
-        }
+    ProfileSection(
+        title = stringResource(R.string.profile_identity),
+        modifier = modifier,
+    ) {
+        OutlinedTextField(
+            value = draft.firstName,
+            onValueChange = { onChange(draft.copy(firstName = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            label = { Text(stringResource(R.string.profile_first_name)) },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next,
+            ),
+            keyboardActions = KeyboardActions(onNext = { onNext() }),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+        )
+        OutlinedTextField(
+            value = draft.lastName,
+            onValueChange = { onChange(draft.copy(lastName = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            label = { Text(stringResource(R.string.profile_last_name)) },
+            keyboardOptions = KeyboardOptions(
+                capitalization = KeyboardCapitalization.Words,
+                imeAction = ImeAction.Next,
+            ),
+            keyboardActions = KeyboardActions(onNext = { onNext() }),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+        )
+        OutlinedTextField(
+            value = draft.phone,
+            onValueChange = { onChange(draft.copy(phone = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            label = { Text(stringResource(R.string.profile_phone)) },
+            keyboardOptions = KeyboardOptions(
+                keyboardType = KeyboardType.Phone,
+                imeAction = ImeAction.Next,
+            ),
+            keyboardActions = KeyboardActions(onNext = { onNext() }),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+        )
+        OutlinedTextField(
+            value = draft.driverNumber,
+            onValueChange = { onChange(draft.copy(driverNumber = it)) },
+            modifier = Modifier.fillMaxWidth(),
+            enabled = enabled,
+            label = { Text(stringResource(R.string.profile_driver_number)) },
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+            keyboardActions = KeyboardActions(onDone = { onNext() }),
+            singleLine = true,
+            shape = MaterialTheme.shapes.medium,
+        )
     }
 }
 
@@ -795,34 +920,36 @@ private fun AssignmentEditor(
     networks: List<TransportNetwork>,
     enabled: Boolean,
     onChange: (ProfileDraft) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val filtered = depots.forNetwork(draft.networkId)
-    ProfileSection(title = stringResource(R.string.profile_assignment)) {
-        Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.md)) {
-            OptionPicker(
-                label = stringResource(R.string.profile_network),
-                hint = stringResource(R.string.profile_select_network),
-                empty = stringResource(R.string.profile_no_choice),
-                options = networks.map { it.id to it.label },
-                selectedId = draft.networkId,
-                enabled = enabled,
-                onSelect = { id ->
-                    val kept = draft.depotId.takeIf { depotId ->
-                        depots.forNetwork(id).any { it.id == depotId }
-                    }
-                    onChange(draft.copy(networkId = id, depotId = kept))
-                },
-            )
-            OptionPicker(
-                label = stringResource(R.string.profile_depot),
-                hint = stringResource(R.string.profile_select_depot),
-                empty = stringResource(R.string.profile_no_choice),
-                options = filtered.map { it.id to it.directoryLabel },
-                selectedId = draft.depotId,
-                enabled = enabled,
-                onSelect = { onChange(draft.copy(depotId = it)) },
-            )
-        }
+    ProfileSection(
+        title = stringResource(R.string.profile_assignment),
+        modifier = modifier,
+    ) {
+        OptionPicker(
+            label = stringResource(R.string.profile_network),
+            hint = stringResource(R.string.profile_select_network),
+            empty = stringResource(R.string.profile_no_choice),
+            options = networks.map { it.id to it.label },
+            selectedId = draft.networkId,
+            enabled = enabled,
+            onSelect = { id ->
+                val kept = draft.depotId.takeIf { depotId ->
+                    depots.forNetwork(id).any { it.id == depotId }
+                }
+                onChange(draft.copy(networkId = id, depotId = kept))
+            },
+        )
+        OptionPicker(
+            label = stringResource(R.string.profile_depot),
+            hint = stringResource(R.string.profile_select_depot),
+            empty = stringResource(R.string.profile_no_choice),
+            options = filtered.map { it.id to it.directoryLabel },
+            selectedId = draft.depotId,
+            enabled = enabled,
+            onSelect = { onChange(draft.copy(depotId = it)) },
+        )
     }
 }
 
@@ -878,9 +1005,18 @@ private fun OptionPicker(
                 val selected = id == selectedId
                 DropdownMenuItem(
                     text = {
+                        // La graisse vient du slot appuyé et non d'un
+                        // `fontWeight` posé à la main : un menu de dépôts en
+                        // compte une vingtaine, et c'est exactement le genre
+                        // d'endroit où un « SemiBold » local finit par
+                        // diverger de celui du menu d'à côté.
                         Text(
                             text = title,
-                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            style = if (selected) {
+                                MaterialTheme.typography.bodyLargeEmphasized
+                            } else {
+                                MaterialTheme.typography.bodyLarge
+                            },
                             color = if (selected) colors.primary else colors.onSurface,
                         )
                     },
@@ -895,42 +1031,57 @@ private fun OptionPicker(
     }
 }
 
+/**
+ * Le compte : une rangée ordinaire, puis ce qui ne l'est pas.
+ *
+ * La déconnexion vit dans le cartouche de la section, avec le fond, l'ondulation
+ * et la cible tactile d'une rangée de réglage. La suppression de compte, elle,
+ * reste **hors** du cartouche, à même la page : ce n'est pas un réglage, et rien
+ * ne doit laisser croire qu'elle appartient au même ensemble que les autres.
+ */
 @Composable
 private fun AccountSection(
     onSignOut: () -> Unit,
     onDeleteAccount: () -> Unit,
     deleting: Boolean,
     deleteFailed: Boolean,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val label = stringResource(R.string.menu_sign_out)
     val deleteLabel = stringResource(R.string.profile_delete_account)
-    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
-        Text(
-            text = stringResource(R.string.profile_account).uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = colors.onSurfaceVariant,
-            modifier = Modifier.padding(start = AuleSpacing.xs),
-        )
-        ListItem(
-            headlineContent = {
-                Text(
-                    text = label,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            },
-            leadingContent = {
-                Icon(
-                    imageVector = AuleGlyph.SIGN_OUT.asImageVector(),
-                    contentDescription = null,
-                )
-            },
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onSignOut)
-                .semantics { contentDescription = label },
-        )
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+    ) {
+        ProfileSection(
+            title = stringResource(R.string.profile_account),
+            // Sans marge intérieure : un `ListItem` porte déjà la sienne, et la
+            // rangée doit toucher les bords du cartouche pour que l'ondulation
+            // couvre la largeur qu'on croit toucher. Le cartouche découpe à sa
+            // forme, donc l'ondulation s'arrête aux angles arrondis.
+            contentPadding = 0.dp,
+        ) {
+            ListItem(
+                headlineContent = {
+                    Text(
+                        text = label,
+                        style = MaterialTheme.typography.bodyLargeEmphasized,
+                    )
+                },
+                leadingContent = {
+                    Icon(
+                        imageVector = AuleGlyph.SIGN_OUT.asImageVector(),
+                        contentDescription = null,
+                    )
+                },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(onClick = onSignOut)
+                    .semantics { contentDescription = label },
+            )
+        }
         if (deleteFailed) {
             AuleBanner(
                 message = stringResource(R.string.profile_delete_error),
@@ -964,6 +1115,21 @@ private fun AccountSection(
     }
 }
 
+/**
+ * La barre d'enregistrement : ce qui survient, et qu'on ne peut pas manquer.
+ *
+ * Elle n'existe que lorsque la saisie s'écarte du serveur, donc son apparition
+ * est une information et non un décor. D'où la région vivante, sans laquelle un
+ * lecteur d'écran qui a le doigt dans un champ ne saurait jamais qu'il y a
+ * désormais quelque chose à enregistrer — et d'où l'entrée en ressort, qui la
+ * fait monter à sa place plutôt que se téléporter sous le contenu.
+ *
+ * Le filet d'un point qui la séparait de la page a disparu. Il compensait une
+ * barre de la **même** couleur que la page : sans lui, elle n'existait pas.
+ * Deux crans de conteneur au-dessus de la page et l'ombre du kit disent la même
+ * chose en la disant mieux — un trait sépare, une ombre éloigne, et c'est bien
+ * d'éloignement qu'il s'agit ici.
+ */
 @Composable
 private fun SaveBar(
     saving: Boolean,
@@ -973,15 +1139,13 @@ private fun SaveBar(
     val colors = MaterialTheme.colorScheme
     val notice = stringResource(R.string.profile_unsaved)
     Surface(
-        // La barre n'existe que lorsque la saisie s'écarte du serveur : son
-        // apparition est une information, pas un décor. Sans région vivante,
-        // un lecteur d'écran qui a le doigt dans un champ ne saurait jamais
-        // qu'il y a désormais quelque chose à enregistrer.
         modifier = Modifier
             .fillMaxWidth()
+            .auleEnter()
+            .auleShadow(AuleElevation.RESTING, RectangleShape)
             .semantics { liveRegion = LiveRegionMode.Polite },
-        color = colors.surface,
-        border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
+        color = colors.surfaceContainerHigh,
+        contentColor = colors.onSurface,
     ) {
         Column(
             modifier = Modifier.padding(
@@ -992,8 +1156,8 @@ private fun SaveBar(
         ) {
             Text(
                 text = notice,
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
+                style = MaterialTheme.typography.labelLargeEmphasized,
+                color = colors.onSurface,
             )
             Row(
                 horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
@@ -1032,21 +1196,60 @@ private fun SaveBar(
     }
 }
 
+/**
+ * Une section : un intitulé, puis un cartouche.
+ *
+ * L'intitulé seul ne suffisait pas. Onze points de gris au-dessus de contenus
+ * posés à même la page, c'est une table des matières, pas une hiérarchie : rien
+ * ne dit où une section finit, et l'écran se lit comme une liste continue de
+ * champs. Le cartouche donne à la section un **corps**, et c'est ce corps qu'on
+ * balaie du pouce quand on cherche « Affectation » plutôt que de lire les
+ * intitulés un à un.
+ *
+ * Il est un aplat et non un contour, et c'est neuf : la précédente échelle de
+ * surfaces tenait dans six centièmes de clarté, où un cartouche sans trait
+ * n'existait pas. Elle descend maintenant jusqu'à un gris franc, donc le cran
+ * suffit — de jour comme de nuit, ce qu'un trait d'un point ne faisait pas.
+ *
+ * L'intitulé est annoncé comme un titre. C'est ce qui permet à TalkBack de
+ * sauter d'« Identité » à « Affectation » sans traverser quatre champs de
+ * saisie, sur un écran qui en compte six.
+ *
+ * @param contentPadding la marge intérieure du cartouche. Nulle pour une
+ *   section faite de rangées, qui portent la leur et doivent toucher les bords.
+ */
 @Composable
 private fun ProfileSection(
     title: String,
-    content: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    contentPadding: Dp = AuleSpacing.md,
+    content: @Composable ColumnScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+    ) {
         Text(
             text = title.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.labelMediumEmphasized,
             color = colors.onSurfaceVariant,
-            modifier = Modifier.padding(start = AuleSpacing.xs),
+            modifier = Modifier
+                .padding(start = AuleSpacing.md)
+                .semantics { heading() },
         )
-        content()
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = MaterialTheme.shapes.large,
+            color = colors.surfaceContainer,
+            contentColor = colors.onSurface,
+        ) {
+            Column(
+                modifier = Modifier.padding(contentPadding),
+                verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+                content = content,
+            )
+        }
     }
 }
 
@@ -1055,14 +1258,21 @@ private enum class ProfileTab { PROFIL, PREFERENCES }
 /**
  * La bascule entre les deux pages de l'écran.
  *
- * Des **onglets**, et non une barre segmentée : la page des préférences en
- * porte une, pour l'apparence, et les deux se retrouvaient empilées à trois
- * centimètres l'une de l'autre — même dessin, même taille, deux rôles
- * étrangers. L'une change de page, l'autre règle un réglage ; les confondre
- * fait chercher le retour en arrière après avoir voulu choisir « Sombre ».
+ * Des **onglets**, et non une barre segmentée : la page des préférences porte
+ * elle aussi un choix — l'apparence — et les deux se retrouvaient empilées à
+ * trois centimètres l'une de l'autre. L'une change de page, l'autre règle un
+ * réglage ; les confondre fait chercher le retour en arrière après avoir voulu
+ * choisir « Sombre ».
  *
- * Material tranche d'ailleurs pareil : `TabRow` navigue, `SegmentedButton`
- * choisit dans un ensemble.
+ * Material tranche d'ailleurs pareil : `TabRow` navigue, et ce qui choisit dans
+ * un ensemble se dessine autrement. Le choix d'apparence est maintenant fait de
+ * tuiles, ce qui met entre les deux contrôles la distance que ce commentaire
+ * réclamait depuis le début — la barre segmentée gardait la silhouette d'une
+ * rangée d'onglets, des tuiles n'en ont plus rien.
+ *
+ * L'onglet actif prend le slot appuyé. La barre d'indicateur dit déjà où l'on
+ * est, mais elle le dit **sous** le texte : la graisse le dit dans le texte, et
+ * c'est ce qu'on lit d'abord.
  */
 @Composable
 private fun ProfileTabSwitcher(
@@ -1077,19 +1287,25 @@ private fun ProfileTabSwitcher(
         containerColor = MaterialTheme.colorScheme.surface,
     ) {
         tabs.forEach { tab ->
+            val selected = current == tab
             Tab(
-                selected = current == tab,
+                selected = selected,
                 onClick = { onChanged(tab) },
                 modifier = Modifier.defaultMinSize(minHeight = AuleTouch.minimum),
                 text = {
                     Text(
-                        stringResource(
+                        text = stringResource(
                             if (tab == ProfileTab.PROFIL) {
                                 R.string.profile_title
                             } else {
                                 R.string.profile_tab_preferences
                             },
                         ),
+                        style = if (selected) {
+                            MaterialTheme.typography.labelLargeEmphasized
+                        } else {
+                            MaterialTheme.typography.labelLarge
+                        },
                     )
                 },
             )
@@ -1097,33 +1313,136 @@ private fun ProfileTabSwitcher(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+/**
+ * Le choix d'ambiance : trois tuiles, dont une allumée.
+ *
+ * C'était une barre segmentée, et elle avait deux défauts qui ne se voient
+ * qu'à l'usage. Le premier : elle ressemblait aux onglets posés vingt points
+ * plus haut — même hauteur, même dessin, deux rôles étrangers. Le second, plus
+ * gênant : le segment sélectionné remplaçait l'icône du mode par une coche,
+ * donc le mode courant était le seul des trois à ne plus montrer son soleil ou
+ * sa lune. On perdait le repère exactement là où on venait le chercher.
+ *
+ * Les tuiles gardent l'icône du mode en toutes circonstances — pleine quand le
+ * mode est choisi, ajourée sinon — et disent la sélection par l'aplat de
+ * marque, qui est aussi ce que porte l'action principale ailleurs dans
+ * l'application. Elles offrent au passage une cible de la hauteur d'un bouton
+ * plutôt que d'un tiers de barre, ce qui compte pour un pouce ganté.
+ */
 @Composable
 private fun AppearanceSection(
     appearance: AppearanceMode,
     onAppearance: (AppearanceMode) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val modes = AppearanceMode.entries
-    ProfileSection(title = stringResource(R.string.profile_appearance)) {
-        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-            modes.forEachIndexed { index, mode ->
-                SegmentedButton(
+    ProfileSection(
+        title = stringResource(R.string.profile_appearance),
+        modifier = modifier,
+    ) {
+        Row(
+            // `selectableGroup` : TalkBack annonce « 2 sur 3 » au lieu de trois
+            // boutons sans rapport. C'est ce que la barre segmentée faisait
+            // toute seule, et c'est la seule chose qu'il faut lui reprendre.
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectableGroup(),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+        ) {
+            modes.forEach { mode ->
+                AppearanceTile(
+                    mode = mode,
                     selected = appearance == mode,
-                    onClick = { onAppearance(mode) },
-                    shape = SegmentedButtonDefaults.itemShape(index, modes.size),
-                    icon = {
-                        Icon(
-                            imageVector = if (appearance == mode) {
-                                AuleGlyph.CHECK.asImageVector(filled = true)
-                            } else {
-                                mode.glyph().asImageVector()
-                            },
-                            contentDescription = null,
-                        )
-                    },
-                    label = { Text(stringResource(mode.labelRes())) },
+                    onSelect = { onAppearance(mode) },
+                    modifier = Modifier.weight(1f),
                 )
             }
+        }
+    }
+}
+
+/**
+ * Une tuile d'ambiance.
+ *
+ * Les deux couleurs sont **animées**, sur le régime d'effets du schéma
+ * expressif. Un choix d'apparence bascule le thème de l'application entière au
+ * même instant : si la tuile changeait sèchement de couleur pendant que le
+ * fond, lui, est repeint par la recomposition, le geste donnerait deux
+ * événements pour un seul appui. Le ressort d'effets — celui qui ne dépasse
+ * jamais sa cible, contrairement au spatial — les remet ensemble.
+ *
+ * L'ombre teintée n'apparaît que sous la tuile choisie, et elle porte la
+ * couleur de la marque plutôt que du noir : c'est la même lueur que sous
+ * l'action principale de l'écran. Une ombre neutre sous un aplat teal le
+ * salirait.
+ */
+@Composable
+private fun AppearanceTile(
+    mode: AppearanceMode,
+    selected: Boolean,
+    onSelect: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val tokens = AuleTheme.tokens
+    val shape = MaterialTheme.shapes.medium
+    val container by animateColorAsState(
+        targetValue = if (selected) tokens.accent.color else colors.surfaceContainerHighest,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "fond de la tuile d'ambiance",
+    )
+    val ink by animateColorAsState(
+        targetValue = if (selected) tokens.onAccent.color else colors.onSurfaceVariant,
+        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+        label = "encre de la tuile d'ambiance",
+    )
+    Surface(
+        // L'ordre compte : l'ombre se pose autour de la tuile, le découpage
+        // arrive ensuite, et l'ondulation naît à l'intérieur du découpage.
+        // Inversés, l'ondulation déborderait des angles arrondis.
+        modifier = modifier
+            .auleShadow(
+                level = if (selected) AuleElevation.RESTING else AuleElevation.NONE,
+                shape = shape,
+                tint = AuleShadowTint.ACCENT,
+            )
+            .clip(shape)
+            .selectable(
+                selected = selected,
+                role = Role.RadioButton,
+                onClick = onSelect,
+            ),
+        shape = shape,
+        color = container,
+        contentColor = ink,
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(vertical = AuleSpacing.md),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
+        ) {
+            Icon(
+                imageVector = mode.glyph().asImageVector(filled = selected),
+                contentDescription = null,
+                modifier = Modifier.size(AuleControl.icon),
+            )
+            // Sans `maxLines` : aux tailles de police d'accessibilité,
+            // « Sombre » ne tient plus sur un tiers de largeur, et un mode
+            // d'affichage tronqué en « Somb… » est pire qu'une tuile plus
+            // haute que ses voisines. L'alignement centré tient le texte en
+            // place quand il passe à deux lignes.
+            Text(
+                text = stringResource(mode.labelRes()),
+                style = if (selected) {
+                    MaterialTheme.typography.labelLargeEmphasized
+                } else {
+                    MaterialTheme.typography.labelLarge
+                },
+                textAlign = TextAlign.Center,
+            )
         }
     }
 }
@@ -1136,6 +1455,7 @@ private fun GpsTracesSection(
     shareFailed: Boolean,
     onExport: () -> Unit,
     onDelete: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
     val deleteLabel = stringResource(R.string.profile_traces_delete)
@@ -1163,75 +1483,63 @@ private fun GpsTracesSection(
             )
         }
     }
-    ProfileSection(title = stringResource(R.string.profile_traces)) {
-        // `surface` sur une page `surface`, sans ombre : la carte n'existait
-        // que dans le code. Le cran de conteneur la pose pour de bon, comme
-        // celle du portrait plus haut.
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = MaterialTheme.shapes.medium,
-            colors = CardDefaults.cardColors(containerColor = colors.surfaceContainer),
-            elevation = CardDefaults.cardElevation(
-                defaultElevation = AuleElevation.RESTING.height(AuleTheme.night),
-            ),
-        ) {
-            Column(
-                modifier = Modifier.padding(AuleSpacing.md),
-                verticalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+    ProfileSection(
+        title = stringResource(R.string.profile_traces),
+        modifier = modifier,
+    ) {
+        if (loading) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = AuleTouch.minimum),
+                contentAlignment = Alignment.Center,
             ) {
-                if (loading) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = AuleTouch.minimum),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(AuleControl.icon),
-                            color = colors.onSurfaceVariant,
-                            strokeWidth = AuleStroke.glyph,
-                        )
-                    }
-                } else {
-                    Text(
-                        text = summary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = colors.onSurfaceVariant,
-                    )
-                }
-                if (shareFailed) {
-                    AuleBanner(
-                        message = stringResource(R.string.profile_traces_share_failed),
-                        tone = AuleTone.ALERT,
-                    )
-                }
-                if (files.isNotEmpty()) {
-                    Button(
-                        onClick = onExport,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = AuleControl.height),
-                        colors = auleAccentButtonColors(),
-                    ) {
-                        Text(stringResource(R.string.profile_traces_export))
-                    }
-                    // Même règle qu'au compte, et la même distance : une
-                    // cible tactile entière. Douze points suffisaient à
-                    // séparer deux blocs, pas à protéger un effacement
-                    // définitif du doigt qui visait « Exporter ». Il est
-                    // écrit en toutes lettres plutôt qu'en corbeille — une
-                    // icône seule laisse deviner ce qu'elle emporte.
-                    Spacer(Modifier.height(AuleTouch.minimum))
-                    TextButton(
-                        onClick = onDelete,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .defaultMinSize(minHeight = AuleTouch.minimum),
-                        colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
-                    ) {
-                        Text(deleteLabel)
-                    }
-                }
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    color = colors.onSurfaceVariant,
+                    strokeWidth = AuleStroke.glyph,
+                )
+            }
+        } else {
+            // Le décompte est la seule donnée de la section : il monte d'un
+            // cran de taille. Quatorze points de gris, c'était une note de bas
+            // de page pour la seule ligne que quelqu'un vient lire ici.
+            Text(
+                text = summary,
+                style = MaterialTheme.typography.bodyLarge,
+                color = colors.onSurfaceVariant,
+            )
+        }
+        if (shareFailed) {
+            AuleBanner(
+                message = stringResource(R.string.profile_traces_share_failed),
+                tone = AuleTone.ALERT,
+            )
+        }
+        if (files.isNotEmpty()) {
+            Button(
+                onClick = onExport,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = AuleControl.height),
+                colors = auleAccentButtonColors(),
+            ) {
+                Text(stringResource(R.string.profile_traces_export))
+            }
+            // Même règle qu'au compte, et la même distance : une cible
+            // tactile entière. Douze points suffisaient à séparer deux blocs,
+            // pas à protéger un effacement définitif du doigt qui visait
+            // « Exporter ». Il est écrit en toutes lettres plutôt qu'en
+            // corbeille — une icône seule laisse deviner ce qu'elle emporte.
+            Spacer(Modifier.height(AuleTouch.minimum))
+            TextButton(
+                onClick = onDelete,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .defaultMinSize(minHeight = AuleTouch.minimum),
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.error),
+            ) {
+                Text(deleteLabel)
             }
         }
     }

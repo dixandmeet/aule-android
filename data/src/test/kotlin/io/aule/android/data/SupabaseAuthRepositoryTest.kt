@@ -3,6 +3,7 @@ package io.aule.android.data
 import io.aule.android.core.common.log.NoopLogger
 import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AuthUser
 import io.aule.android.core.model.ProRegistrationDraft
@@ -316,6 +317,118 @@ class SupabaseAuthRepositoryTest {
         val body = recorded.body?.utf8().orEmpty()
         assertTrue("auth-code-1" in body)
         assertTrue("stored-verifier" in body)
+    }
+
+    @Test
+    fun `le lien de recuperation reprend le redirect PKCE et marque le genre`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        val verifier = "recover-verifier-abcdefghijklmnopqrstuvwxyz0123"
+        val recovering = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            createVerifier = { verifier },
+        )
+        respond("{}")
+
+        recovering.sendPasswordRecovery("Sam@Example.com")
+
+        val recorded = server.takeRequest()
+        assertTrue(recorded.url.encodedPath.endsWith("/auth/v1/recover"))
+        assertEquals(EMAIL_CONFIRMATION_REDIRECT, recorded.url.queryParameter("redirect_to"))
+        val body = recorded.body?.utf8().orEmpty()
+        assertTrue("sam@example.com" in body)
+        assertTrue("\"code_challenge_method\":\"s256\"" in body)
+        assertTrue(Pkce.challenge(verifier) in body)
+        assertEquals(verifier, pkce.readVerifier())
+        // Le genre est ce qui, au retour, interdira d'entrer dans l'application
+        // par la boîte e-mail. Il s'écrit ici et nulle part ailleurs.
+        assertEquals(AuthPkceFlow.RECOVERY, recovering.pendingAuthFlow())
+    }
+
+    @Test
+    fun `une inscription laisse le genre a SIGN_UP`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+        )
+        respond("{}")
+
+        signing.resendSignupConfirmation("sam@example.com")
+
+        assertEquals(AuthPkceFlow.SIGN_UP, signing.pendingAuthFlow())
+    }
+
+    @Test
+    fun `une adresse inconnue ne se distingue pas d une adresse connue`() = runTest {
+        // GoTrue répond 200 dans les deux cas, exprès : c'est ce qui empêche de
+        // découvrir qui est inscrit. Le dépôt ne rattrape rien.
+        respond("{}")
+        repository.sendPasswordRecovery("inconnu@example.com")
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `le nouveau mot de passe part en PUT sous le jeton de session`() = runTest {
+        respond(TOKEN_BODY)
+        val session = repository.signIn("agent@aule.fr", "secret")
+        server.takeRequest()
+        respond("""{"id":"user-1","email":"agent@aule.fr"}""")
+
+        repository.updatePassword("nouveau-secret")
+
+        val recorded = server.takeRequest()
+        assertEquals("PUT", recorded.method)
+        assertTrue(recorded.url.encodedPath.endsWith("/auth/v1/user"))
+        assertEquals("Bearer access-1", recorded.headers["Authorization"])
+        assertTrue("nouveau-secret" in recorded.body?.utf8().orEmpty())
+        // La réponse ne rend pas de jetons : la session en cours reste la même.
+        assertEquals(session, repository.currentSession())
+    }
+
+    @Test
+    fun `un mot de passe trop court ne part pas sur le reseau`() = runTest {
+        respond(TOKEN_BODY)
+        repository.signIn("agent@aule.fr", "secret")
+        server.takeRequest()
+
+        val failure = assertThrows<AuthException> { repository.updatePassword("court") }
+
+        assertEquals(AuthFailureKind.WEAK_PASSWORD, failure.kind)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun `sans session ouverte il n y a rien a changer`() = runTest {
+        val failure = assertThrows<AuthException> {
+            repository.updatePassword("un-mot-de-passe-valable")
+        }
+        assertEquals(AuthFailureKind.UNKNOWN, failure.kind)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `un refus GoTrue sur le mot de passe se traduit`() = runTest {
+        respond(TOKEN_BODY)
+        repository.signIn("agent@aule.fr", "secret")
+        server.takeRequest()
+        respond(
+            """{"error_code":"weak_password","msg":"Password is too weak"}""",
+            status = 422,
+        )
+
+        val failure = assertThrows<AuthException> {
+            repository.updatePassword("motdepasse")
+        }
+        assertEquals(AuthFailureKind.WEAK_PASSWORD, failure.kind)
     }
 
     @Test

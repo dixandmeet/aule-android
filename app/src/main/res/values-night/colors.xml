@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="aule_surface">#FF0D1512</color>
+    <!--
+      La surface de nuit, telle qu'AuleTokens la donne : Neutral.T8. Elle valait
+      encore 0D1512, le vert d'avant la recoloration en teal — un écart d'une
+      poignée de niveaux, invisible sur une capture, parfaitement visible au
+      lancement où la fenêtre peint ce vert pendant les quelques images qui
+      précèdent Compose, puis bascule.
+    -->
+    <color name="aule_surface">#FF0A1313</color>
 </resources>

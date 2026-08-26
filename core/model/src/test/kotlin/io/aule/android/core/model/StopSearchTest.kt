@@ -156,4 +156,21 @@ class StopSearchTest {
         assertEquals("Beaujoire", shortPlaceName("Beaujoire"))
         assertEquals("A", shortPlaceName("  A, B  "))
     }
+
+    @Test
+    fun `le sous-titre d une adresse ne repete pas son titre`() {
+        assertEquals(
+            "Nantes, France",
+            placeContext("12 Rue de Strasbourg, Nantes, France"),
+        )
+        assertEquals("B", placeContext("  A, B  "))
+    }
+
+    @Test
+    fun `une adresse sans virgule n a rien a preciser`() {
+        // Le géocodeur rend parfois un nom seul : le sous-titre serait alors la
+        // copie du titre, ce que la vue remplace par la nature du résultat.
+        assertEquals("", placeContext("Beaujoire"))
+        assertEquals("", placeContext("  Beaujoire  "))
+    }
 }

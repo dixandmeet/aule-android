@@ -175,6 +175,9 @@ class RegistrationViewModelTest {
             if (failKind != null) throw AuthException(failKind)
         }
         override suspend fun resendSignupConfirmation(email: String) = Unit
+        override suspend fun sendPasswordRecovery(email: String) = error("non sollicité")
+        override suspend fun updatePassword(newPassword: String) = error("non sollicité")
+        override suspend fun pendingAuthFlow() = null
         override suspend fun exchangeAuthCode(code: String) = AuthSession(
             user = AuthUser("u", "a@b.fr"),
             accessToken = "a",

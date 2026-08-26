@@ -12,3 +12,7 @@ captures/
 *.aab
 *.keystore
 *.jks
+
+# Les worktrees d'agents : des copies complètes du dépôt, `build/` et APK
+# compris — 330 Mo au moment où la règle est posée. Rien à versionner.
+.claude/worktrees/
