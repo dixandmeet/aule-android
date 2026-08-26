@@ -99,9 +99,11 @@ enum class LocationPurpose {
  *
  * [coordinate] est déjà passé par [MotionAnchor] : c'est la position à
  * afficher, pas la mesure brute. Le cap lissé vit à part ([stabilizedHeading],
- * [isHeadingFrozen]) parce que le puck et la caméra n'en font pas le même
- * usage — le cône disparaît dès que le cap est gelé ; la caméra, elle, garde
- * le dernier cap valable pour ne pas pivoter au nord à chaque feu rouge.
+ * [isHeadingFrozen]) parce que ses lecteurs n'en font pas le même usage — la
+ * flèche du puck retombe au disque dès que le cap est gelé ; la caméra, elle,
+ * garde le dernier cap valable pour ne pas pivoter au nord à chaque feu
+ * rouge ; et le cône de direction le mêle à la boussole ([HeadingFusion]),
+ * pour tenir même à l'arrêt.
  */
 data class LocationFix(
     val coordinate: Coordinate,

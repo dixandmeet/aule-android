@@ -118,6 +118,37 @@ Les formulations du domaine vivent dans `res/values/` (français source) et
    muet » mènent au même écran vide mais n'appellent pas la même réaction.
 6. **`android-sdk` n'est pas OpenGL.** L'AAR 13.5.0 embarque Vulkan. On prend
    `android-sdk-opengl` (ADR-002).
+7. **Un teal de marque en transparence n'est plus une couleur, c'est une
+   ombre.** Le teal Aule est un cran 30, très sombre : posé à 0,44 d'opacité
+   sur la chaussée beige de la carte claire, le cône de direction du puck
+   rendait un gris que rien ne distinguait de l'ombre d'un immeuble. La couche
+   était pourtant bien là, à la bonne taille et au bon cap — vérifié en la
+   peignant en rouge opaque. Le halo respirait du même défaut, en pire : une
+   aura qui assombrit ne se lit pas comme une lueur mais comme une tache
+   d'humidité sous le puck. Les objets translucides prennent `accentGlow`, le
+   cran de chroma maximale que le design system réserve aux lueurs ; les
+   aplats — disque et flèche — gardent le teal de marque, qui s'y tient très
+   bien.
+8. **`zoom()` ne se met pas où l'on veut dans une expression.** MapLibre la
+   refuse si elle n'est pas l'entrée directe d'un `interpolate` ou d'un `step`
+   de premier niveau. Glissée sous un `product`, elle échoue à la pose — « zoom
+   expression may only be used as input to a top-level step or interpolate »,
+   dans `logcat` et nulle part ailleurs — et la propriété retombe sur son
+   défaut sans que rien ne manque à l'écran. La multiplication descend dans les
+   sorties des paliers.
+9. **`circle-radius` se compte en pixels logiques, le `Canvas` en pixels
+   physiques.** Sur le S21 le facteur est trois : raisonner sur le mauvais
+   rend inoffensif tout seuil qui compare un rayon de couche à une icône
+   peinte. Voir `MapScale`, dont la conversion est verrouillée par un relevé de
+   `Projection.getMetersPerPixelAtLatitude` pris sur l'appareil.
+10. **Une couche du puck doit sortir du halo pour exister.** Le halo faisait
+   trente-cinq points de rayon : le cône, dessiné à vingt-huit, tenait
+   entièrement dessous, et l'anneau d'incertitude s'y noyait tant qu'il
+   annonçait moins de vingt mètres — le seul moment où il se voyait était donc
+   celui où plus rien n'était fiable. Le cône est monté à quarante-six, le halo
+   est redescendu à vingt-deux, soit une douzaine de mètres ; les trois
+   tiennent maintenant leur place, mais c'est un budget commun et toute couche
+   ajoutée là s'y mesure.
 
 ## Tests
 
@@ -126,8 +157,9 @@ Les formulations du domaine vivent dans `res/values/` (français source) et
 ```
 
 Les tests portent sur les modules purs et le décodage : profils de caméra,
-fenêtres de progression, stabilisation du cap, ancre de mouvement, contraste
-des tokens, échelle typographique, échelles d'élévation et de mesure,
+fenêtres de progression, stabilisation du cap, fusion boussole / cap de route,
+ancre de mouvement, échelle métrique de la carte, contraste des tokens,
+échelle typographique, échelles d'élévation et de mesure,
 classement de la recherche d'arrêts, règles des adresses favorites
 (remplacement, fusion, pierres tombales), et décodage des **captures réelles**
 des points d'entrée du BFF. Pas les vues, pas le `MapController`.

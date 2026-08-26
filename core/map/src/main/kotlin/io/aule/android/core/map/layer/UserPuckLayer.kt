@@ -1,12 +1,14 @@
 package io.aule.android.core.map.layer
 
 import com.google.gson.JsonObject
-import io.aule.android.core.designsystem.token.AuleBrand
+import io.aule.android.core.designsystem.token.AuleTokens
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.location.LocationFix
+import io.aule.android.core.map.MapAmbiance
 import io.aule.android.core.map.MapIcons
 import io.aule.android.core.map.MapLayer
+import io.aule.android.core.map.MapScale
 import kotlin.math.PI
 import kotlin.math.abs
 import kotlin.math.cos
@@ -31,12 +33,19 @@ import org.maplibre.geojson.Point
  * par sauts alors que celui-ci glisse.
  *
  * Trois éléments, du plus incertain au plus sûr : l'anneau de précision, le
- * cône de cap, le marqueur. Le cône disparaît dès que le cap est gelé —
- * afficher une direction qu'on ne connaît plus est pire que de n'en
- * afficher aucune —, et le marqueur change de forme avec lui : **disque à
- * l'arrêt, flèche en mouvement**. Le disque répond « je suis là », la
- * flèche répond « je suis là et je vais par là », qui est la question qu'on
- * se pose en marchant.
+ * cône de direction, le marqueur.
+ *
+ * **Deux caps, et ils ne répondent pas à la même question.** Le cône dit
+ * *vers où l'on est tourné* — cap fusionné boussole + route, il tient donc
+ * même à l'arrêt ; le marqueur dit *vers où l'on va* — cap de route seul, et
+ * il change de forme avec lui : **disque à l'arrêt, flèche en mouvement**.
+ * Le disque répond « je suis là », la flèche répond « je suis là et je vais
+ * par là », qui est la question qu'on se pose en marchant ; le cône, lui,
+ * répond à celle qu'on se pose en sortant du métro, immobile sur le
+ * trottoir, avant même d'avoir fait un pas.
+ *
+ * Chacun disparaît quand son cap n'existe plus — afficher une direction
+ * qu'on ne connaît plus est pire que de n'en afficher aucune.
  */
 class UserPuckLayer : MapLayer {
 
@@ -62,27 +71,40 @@ class UserPuckLayer : MapLayer {
     val displayedCoordinate: Coordinate? get() = displayed?.coordinate
     val displayedHeading: Double? get() = displayed?.heading
 
-    fun update(fix: LocationFix?, stabilizedHeading: Double?) {
+    /**
+     * [movementHeading] est le cap de **route**, `null` dès qu'il est gelé.
+     * [facingHeading] est celui du cône, déjà fusionné et lissé par
+     * `HeadingFusion` — ici on ne fait que combler les soixante-six
+     * millisecondes qui séparent deux battements du ticker.
+     */
+    fun update(fix: LocationFix?, movementHeading: Double?, facingHeading: Double?) {
         if (fix == null) {
             target = null
             return
         }
         val hadHeading = target?.heading != null
-        target = Target(fix.coordinate, stabilizedHeading, fix.accuracyMeters)
+        val hadFacing = target?.facing != null
+        target = Target(fix.coordinate, movementHeading, facingHeading, fix.accuracyMeters)
         if (displayed == null) {
             // Première position : on se pose dessus, sans glisser depuis nulle part.
-            displayed = Displayed(fix.coordinate, stabilizedHeading ?: 0.0)
+            displayed = Displayed(
+                fix.coordinate,
+                movementHeading ?: facingHeading ?: 0.0,
+                facingHeading ?: movementHeading ?: 0.0,
+            )
             redraw()
             return
         }
-        // ⚠️ **Le gel du cap doit être republié tout de suite.** C'est lui qui
-        // choisit entre le disque et la flèche, et il bascule précisément au
-        // moment où plus rien ne bouge : [onFrame] sort alors sans dessiner —
-        // le puck a rattrapé sa cible, le cap est figé — et la flèche resterait
-        // à pointer une direction qu'on n'a plus. On ne republie qu'au
-        // basculement, pas à chaque point : le reste du temps, l'interpolation
-        // fait très bien le travail.
-        if (hadHeading != (stabilizedHeading != null)) redraw()
+        // ⚠️ **L'apparition et le gel d'un cap doivent être republiés tout de
+        // suite.** Ils choisissent entre le disque et la flèche, et décident si
+        // le cône existe ; or ils basculent précisément au moment où plus rien
+        // ne bouge : [onFrame] sort alors sans dessiner — le puck a rattrapé sa
+        // cible, les caps sont figés — et la flèche resterait à pointer une
+        // direction qu'on n'a plus. On ne republie qu'au basculement, pas à
+        // chaque point : le reste du temps, l'interpolation fait le travail.
+        if (hadHeading != (movementHeading != null) || hadFacing != (facingHeading != null)) {
+            redraw()
+        }
     }
 
     override fun onFrame(elapsedSeconds: Double) {
@@ -95,13 +117,23 @@ class UserPuckLayer : MapLayer {
         val headingDelta = abs(
             GeoMath.shortestHeadingDelta(current.heading, target.heading ?: current.heading),
         )
-        if (distance <= 0.15 && headingDelta <= 0.3) return
+        // ⚠️ **Le cône doit peser dans cette garde.** À l'arrêt, la position ne
+        // bouge plus et le cap de route est gelé : sans ce troisième terme, on
+        // sortirait à chaque image, et le cône resterait cloué sur son premier
+        // cap pendant que l'utilisateur pivote sur place — c'est-à-dire dans le
+        // seul cas où il sert vraiment.
+        val facingDelta = abs(
+            GeoMath.shortestHeadingDelta(current.facing, target.facing ?: current.facing),
+        )
+        if (distance <= 0.15 && headingDelta <= 0.3 && facingDelta <= 0.3) return
 
         val factor = if (distance > 40) 0.5 else 0.12
         val nextCoordinate = GeoMath.interpolate(current.coordinate, target.coordinate, factor)
         val nextHeading = target.heading?.let { GeoMath.interpolateHeading(current.heading, it, 0.2) }
             ?: current.heading
-        displayed = Displayed(nextCoordinate, nextHeading)
+        val nextFacing = target.facing?.let { GeoMath.interpolateHeading(current.facing, it, 0.25) }
+            ?: current.facing
+        displayed = Displayed(nextCoordinate, nextHeading, nextFacing)
         redraw()
     }
 
@@ -112,24 +144,67 @@ class UserPuckLayer : MapLayer {
             GeoJsonOptions().withSynchronousUpdate(true).withBuffer(0).withTolerance(0f),
         ).also { style.addSource(it) }
 
-        // L'anneau d'incertitude, en mètres visuels : il doit grandir quand
-        // on dézoome, sinon il annonce une précision qu'on n'a pas. Les
-        // stops [12 → 0,5] / [22 → 512] sont ceux du proto iOS.
+        // L'anneau d'incertitude — **le rayon que le GPS annonce**, et non un
+        // rayon décoratif.
+        //
+        // ⚠️ Il ne l'a pas toujours été. Les stops [12 → 0,5] / [22 → 512]
+        // hérités du proto iOS faisaient bien grandir l'anneau au dézoom, mais
+        // à partir d'une constante : quelle que soit la précision mesurée, il
+        // dessinait les mêmes six mètres et demi. La couche publiait pourtant
+        // `accuracy` à chaque battement — personne ne la lisait. Et comme six
+        // mètres et demi tiennent sous le puck à tout zoom utile, l'anneau
+        // n'était jamais visible : un objet qui ne dit rien et qu'on ne voit
+        // pas ne se signale pas non plus comme cassé.
+        //
+        // Le rayon vient maintenant de la source, déjà converti en pixels au
+        // zoom de référence ([MapScale]) parce que la conversion a besoin de
+        // la latitude, que l'expression n'a pas. Il ne reste ici qu'à le
+        // laisser suivre l'échelle : un facteur deux par niveau de zoom, ce
+        // qui est exactement ce que fait une distance réelle.
+        //
+        // Conséquence voulue : **il ne parle que quand il a quelque chose à
+        // dire.** Au plancher de cinq mètres et au zoom d'ouverture, il tient
+        // dans l'ombre du puck au pixel près ; il s'ouvre à mesure que
+        // l'incertitude grandit, et une réception ordinaire de dix-sept mètres
+        // lui fait déjà trois fois le rayon du disque.
         style.addLayer(
             CircleLayer(ACCURACY_LAYER, SOURCE).withProperties(
+                // ⚠️ **`zoom()` ne se met pas où l'on veut.** MapLibre refuse
+                // l'expression si elle n'est pas l'entrée directe d'un
+                // `interpolate` ou d'un `step` de **premier niveau** : glissée
+                // dans un `product`, elle échoue à la pose avec « zoom
+                // expression may only be used as input to a top-level step or
+                // interpolate », la propriété retombe sur son défaut — cinq
+                // pixels — et l'anneau redevient invisible sous le puck. La
+                // multiplication descend donc **dans les sorties** des paliers,
+                // ce que `circle-radius` accepte puisqu'il est data-driven.
                 PropertyFactory.circleRadius(
                     Expression.interpolate(
                         Expression.exponential(2f),
                         Expression.zoom(),
-                        Expression.stop(12, 0.5f),
-                        Expression.stop(22, 512f),
+                        Expression.stop(
+                            MapScale.REFERENCE_ZOOM - ZOOM_SPAN,
+                            Expression.product(
+                                Expression.get(PROP_ACCURACY_PX),
+                                Expression.literal(1f / ZOOM_FACTOR),
+                            ),
+                        ),
+                        Expression.stop(
+                            MapScale.REFERENCE_ZOOM,
+                            Expression.get(PROP_ACCURACY_PX),
+                        ),
                     ),
                 ),
-                PropertyFactory.circleColor(AuleBrand.teal.argb),
+                // La teinte de jour, que [onAmbianceChange] corrigera dans la
+                // même trame. La poser quand même : le défaut de MapLibre pour
+                // `circle-color` est le **noir**, et une couche qui passerait
+                // entre les mailles du registre dessinerait une tache d'encre
+                // sous le puck plutôt que rien du tout.
+                PropertyFactory.circleColor(AuleTokens.of(night = false).accentGlow.argb),
+                PropertyFactory.circleStrokeColor(AuleTokens.of(night = false).accentGlow.argb),
                 PropertyFactory.circleOpacity(0.12f),
-                PropertyFactory.circleStrokeWidth(1f),
-                PropertyFactory.circleStrokeColor(AuleBrand.teal.argb),
-                PropertyFactory.circleStrokeOpacity(0.25f),
+                PropertyFactory.circleStrokeWidth(1.5f),
+                PropertyFactory.circleStrokeOpacity(0.35f),
                 PropertyFactory.circlePitchAlignment(ALIGNMENT_MAP),
             ),
         )
@@ -147,14 +222,28 @@ class UserPuckLayer : MapLayer {
             PropertyFactory.iconIgnorePlacement(true),
         ).also { style.addLayer(it) }
 
+        // Le cône de direction, **couché au sol** : ni `rotationAlignment` ni
+        // `pitchAlignment` ne sont mis à `viewport`, contrairement au marqueur.
+        //
+        // Ce n'est pas un oubli, c'est l'inverse du raisonnement. Le marqueur
+        // est petit et sa pointe *est* l'information : couché par
+        // l'inclinaison de la navigation, il s'écraserait jusqu'à ne plus rien
+        // désigner. Le cône, lui, est un faisceau posé sur la chaussée — la
+        // perspective qui l'étire vers l'horizon est précisément ce qui le
+        // rend lisible, et c'est ce que fait tout guidage à l'écran incliné.
+        //
+        // Il porte son propre cap ([PROP_FACING]) et son propre filtre : à
+        // l'arrêt, la boussole le tient debout alors que le marqueur est
+        // retombé au disque.
         style.addLayer(
             SymbolLayer(CONE_LAYER, SOURCE).withProperties(
                 PropertyFactory.iconImage(MapIcons.PUCK_HEADING),
-                PropertyFactory.iconRotate(Expression.get(PROP_HEADING)),
+                PropertyFactory.iconRotate(Expression.get(PROP_FACING)),
                 PropertyFactory.iconRotationAlignment(ALIGNMENT_MAP),
                 PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
             ).also {
-                it.setFilter(Expression.eq(Expression.get(PROP_HAS_HEADING), Expression.literal(1)))
+                it.setFilter(Expression.eq(Expression.get(PROP_HAS_FACING), Expression.literal(1)))
             },
         )
 
@@ -199,6 +288,22 @@ class UserPuckLayer : MapLayer {
         // au premier passage en mode sombre — et ne revient qu'au prochain
         // déplacement réel.
         redraw()
+    }
+
+    /**
+     * L'anneau est le seul élément du puck peint par **propriété de couche** et
+     * non par image : les trois autres passent par [MapIcons], que le contrôleur
+     * ré-enregistre à chaque bascule. Celui-ci doit donc être repeint ici.
+     *
+     * Même encre que le halo et le cône, et pour la même raison : c'est un objet
+     * translucide, et le teal de marque en transparence est une ombre.
+     */
+    override fun onAmbianceChange(ambiance: MapAmbiance, style: Style) {
+        val tokens = AuleTokens.of(ambiance == MapAmbiance.DARK)
+        (style.getLayer(ACCURACY_LAYER) as? CircleLayer)?.setProperties(
+            PropertyFactory.circleColor(tokens.accentGlow.argb),
+            PropertyFactory.circleStrokeColor(tokens.accentGlow.argb),
+        )
     }
 
     override fun unmount(style: Style) {
@@ -260,7 +365,18 @@ class UserPuckLayer : MapLayer {
         val props = JsonObject().apply {
             addProperty(PROP_HEADING, displayed.heading)
             addProperty(PROP_HAS_HEADING, if (target.heading != null) 1 else 0)
-            addProperty(PROP_ACCURACY, max(target.accuracy, 5.0))
+            addProperty(PROP_FACING, displayed.facing)
+            addProperty(PROP_HAS_FACING, if (target.facing != null) 1 else 0)
+            // Le plancher n'est pas de la coquetterie : un GPS qui annonce un
+            // mètre ne les tient pas, et un anneau plus petit que le puck se
+            // lirait comme un liseré du puck plutôt que comme une incertitude.
+            addProperty(
+                PROP_ACCURACY_PX,
+                max(target.accuracy, MIN_ACCURACY_METERS) * MapScale.pixelsPerMeter(
+                    latitude = displayed.coordinate.latitude,
+                    zoom = MapScale.REFERENCE_ZOOM.toDouble(),
+                ),
+            )
         }
         source.setGeoJson(
             Feature.fromGeometry(
@@ -272,13 +388,17 @@ class UserPuckLayer : MapLayer {
 
     private data class Target(
         val coordinate: Coordinate,
+        /** Cap de route — le marqueur. `null` quand il est gelé. */
         val heading: Double?,
+        /** Cap fusionné — le cône. Tient à l'arrêt tant que la boussole répond. */
+        val facing: Double?,
         val accuracy: Double,
     )
 
     private data class Displayed(
         val coordinate: Coordinate,
         val heading: Double,
+        val facing: Double,
     )
 
     private companion object {
@@ -291,7 +411,25 @@ class UserPuckLayer : MapLayer {
 
         const val PROP_HEADING = "heading"
         const val PROP_HAS_HEADING = "hasHeading"
-        const val PROP_ACCURACY = "accuracy"
+        const val PROP_FACING = "facing"
+        const val PROP_HAS_FACING = "hasFacing"
+
+        /** Le rayon d'incertitude, **en pixels au zoom de référence**. */
+        const val PROP_ACCURACY_PX = "accuracyPx"
+
+        /** En dessous, un GPS annonce une précision qu'il ne tient pas. */
+        const val MIN_ACCURACY_METERS = 5.0
+
+        /**
+         * La plage sur laquelle l'anneau suit l'échelle, et son rapport.
+         *
+         * Dix niveaux de zoom, donc un facteur mille vingt-quatre. En dehors,
+         * MapLibre retient la valeur du stop le plus proche : sous le zoom
+         * douze, l'anneau cesse de rétrécir — mais il y vaut déjà une fraction
+         * de pixel, et personne ne verra la différence.
+         */
+        const val ZOOM_SPAN = 10
+        const val ZOOM_FACTOR = 1024f
 
         /**
          * La respiration du halo, et son pas.

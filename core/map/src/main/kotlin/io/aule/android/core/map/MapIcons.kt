@@ -56,10 +56,43 @@ internal object MapIcons {
     private const val VEHICLE_SIZE_DP = 32f
 
     /**
-     * Le halo du puck, à son ampleur maximale — le double du disque, comme sur
-     * le web, où trente et un pixels de halo entourent une pastille de quinze.
+     * Le halo du puck, à son ampleur maximale.
+     *
+     * ⚠️ **Il est contraint par l'anneau d'incertitude, pas par l'esthétique.**
+     * Il valait soixante-dix points — plus de deux fois et demie le disque,
+     * là où le web n'en met que deux. Trente-cinq points de rayon, c'est
+     * l'anneau à **vingt mètres** de précision au zoom d'ouverture : autrement
+     * dit, tout ce qu'un GPS de ville annonce d'ordinaire disparaissait sous
+     * l'aura, et le seul moment où l'anneau se voyait était celui où plus rien
+     * n'était fiable.
+     *
+     * Quarante-quatre le ramènent à vingt-deux de rayon, soit une douzaine de
+     * mètres. L'aura reste une aura — elle déborde du disque de cinq points au
+     * repos et de treize au sommet de sa respiration — mais elle laisse
+     * désormais passer l'anneau bien avant que la position ne devienne
+     * douteuse.
      */
-    private const val PUCK_HALO_DP = 70f
+    internal const val PUCK_HALO_DP = 44f
+
+    /**
+     * Le faisceau de direction, et son ouverture.
+     *
+     * ⚠️ **Il doit sortir du halo.** À vingt-huit points de rayon, il tenait
+     * tout entier sous les trente-cinq qu'occupait alors le halo — teal sur
+     * teal, à travers un dégradé qui monte à 0,55 : il n'y avait rien à voir,
+     * et c'est pourquoi personne ne l'a jamais remarqué sur la carte.
+     * Quarante-six l'en font sortir franchement, et le resserrement du halo à
+     * vingt-deux lui a depuis rendu le double de marge — mais c'est le cône
+     * qui doit tenir seul, le halo pouvant toujours regrossir.
+     *
+     * Il démarre à [PUCK_CONE_START] du rayon, soit au bord exact du disque du
+     * puck : un faisceau qui partirait du centre serait masqué sur sa première
+     * moitié, et un faisceau détaché du puck se lirait comme un objet de plus
+     * sur la carte plutôt que comme une émanation de la position.
+     */
+    private const val PUCK_CONE_DP = 92f
+    private const val PUCK_CONE_HALF_ANGLE = 24f
+    private const val PUCK_CONE_START = 0.2f
 
     /**
      * L'ombre du jeton : assez pour le décoller de la ville, pas assez pour
@@ -114,9 +147,9 @@ internal object MapIcons {
         style.addImage(DESTINATION, destinationPin(tokens))
         style.addImage(VEHICLE_HEADING, headingChevron(tokens))
         style.addImage(PUCK, puckDot())
-        style.addImage(PUCK_HALO, puckHalo())
+        style.addImage(PUCK_HALO, puckHalo(tokens))
         style.addImage(PUCK_MOVING, puckArrow())
-        style.addImage(PUCK_HEADING, puckCone())
+        style.addImage(PUCK_HEADING, puckCone(tokens))
         style.addImage(HANDOVER_VEHICLE, handoverVehicle(filled = true, tokens))
         style.addImage(HANDOVER_VEHICLE_STALE, handoverVehicle(filled = false, tokens))
         style.addImage(HANDOVER_STOP, handoverStop(arrived = false, tokens))
@@ -461,19 +494,30 @@ internal object MapIcons {
      * de soi, et il doit se retrouver d'un coup d'œil après qu'on a fait défiler
      * la ville.
      *
-     * Un **dégradé** et non un aplat : à 0,5 d'opacité uniforme sur cinquante
-     * points, le teal fait une tache qui mange la rue. Le web l'a en
-     * `radial-gradient` transparent aux sept dixièmes, et c'est cette douceur
-     * qui lui permet d'être large sans peser.
+     * Un **dégradé** et non un aplat : à 0,5 d'opacité uniforme, la teinte
+     * fait une tache qui mange la rue. Le web l'a en `radial-gradient`
+     * transparent aux sept dixièmes, et c'est cette douceur qui lui permet
+     * d'entourer le puck sans peser — d'autant plus depuis qu'il est resserré.
      *
      * Peint à sa taille **haute** : la respiration réduit l'image plutôt que de
      * l'agrandir, et un dégradé qu'on rétrécit reste net là où un dégradé
      * étiré se met à baver.
+     *
+     * ⚠️ **`accentGlow`, pour la raison qui vaut déjà pour [puckCone].** Le
+     * halo était peint au teal de marque, cran 30 : sombre, il n'éclairait
+     * rien en transparence — il **assombrissait**, et une aura qui assombrit
+     * ne se lit pas comme une lueur mais comme la tache d'humidité sous le
+     * puck. C'est ce qu'on voyait sur le S21 : un rond gris qui respirait.
+     * Le halo et le cône sont les deux émanations du puck et partagent donc
+     * la même encre ; le disque et la flèche, eux, restent au teal de marque,
+     * qui est un aplat et se tient très bien comme tel.
+     *
+     * 0,50 et non 0,55 : sur une teinte claire, le même chiffre pèse plus.
      */
-    private fun puckHalo(): Bitmap =
+    private fun puckHalo(tokens: AuleTokens): Bitmap =
         bitmap(sizeDp = PUCK_HALO_DP) { canvas, size ->
             val center = size / 2f
-            val teal = AuleBrand.teal
+            val glow = tokens.accentGlow
             canvas.drawCircle(
                 center,
                 center,
@@ -483,8 +527,8 @@ internal object MapIcons {
                         center,
                         center,
                         center,
-                        intArrayOf(teal.opacity(0.55).argb, teal.opacity(0.0).argb),
-                        // Le teal s'éteint au **bord** de l'image, et non aux
+                        intArrayOf(glow.opacity(0.50).argb, glow.opacity(0.0).argb),
+                        // La teinte s'éteint au **bord** de l'image, et non aux
                         // sept dixièmes comme sur le web. Là-bas, le halo
                         // entoure une pastille immobile ; ici il entoure une
                         // flèche qui en masque le cœur — la partie dense du
@@ -540,14 +584,41 @@ internal object MapIcons {
         }
 
     /**
-     * Le cône de direction, en dégradé — il indique un cap, pas une certitude.
+     * Le faisceau de direction, en dégradé — il indique un cap, pas une
+     * certitude.
      *
-     * Dessiné pointe en haut : MapLibre le fera tourner de `heading` degrés.
+     * Dessiné pointe en haut : MapLibre le fera tourner du cap fusionné, et
+     * le posera **à plat sur la chaussée**. C'est l'entonnoir des guidages,
+     * et sa forme dit deux choses à la fois : d'où l'on regarde, par sa
+     * pointe posée sur le puck ; et avec quelle assurance, par une ouverture
+     * qui reste large — quarante-huit degrés, l'ordre de grandeur de ce
+     * qu'une boussole de téléphone sait vraiment.
+     *
+     * **Un `drawPath` avec le dégradé pour encre, et non un `clipPath` sur un
+     * disque.** Le découpage d'un `Canvas` logiciel n'est pas antialiasé :
+     * les deux bords du secteur sortaient en escalier, ce qui se voit d'autant
+     * plus qu'ils sont longs. Un tracé, lui, est lissé.
+     *
+     * Trois arrêts et non deux : à deux, la teinte a déjà perdu la moitié de
+     * sa force à mi-chemin, et le faisceau se réduit à une auréole autour du
+     * puck. Le palier intermédiaire lui fait tenir les deux premiers tiers,
+     * puis l'éteint franchement — un faisceau qui porte, sans bord net au bout.
+     *
+     * ⚠️ **`accentGlow` et non le teal de marque**, seul endroit du puck où
+     * les deux divergent. Le teal Aule est un cran 30 : très sombre. En aplat
+     * il est l'identité, mais **en transparence il n'est plus une couleur, il
+     * est une ombre** — posé à 0,44 sur la chaussée beige de la carte claire,
+     * il rendait un gris que rien ne distinguait de l'ombre d'un immeuble.
+     * Vérifié sur le S21 : la couche était bien là, à la bonne taille et au
+     * bon cap, et on ne la voyait pas. `accentGlow` est le cran de chroma
+     * maximale, celui que le design system réserve précisément aux lueurs, et
+     * il suit déjà l'ambiance — clair sur la carte de jour, plus clair encore
+     * sur celle de nuit.
      */
-    private fun puckCone(): Bitmap =
-        bitmap(sizeDp = 60f) { canvas, size ->
+    private fun puckCone(tokens: AuleTokens): Bitmap =
+        bitmap(sizeDp = PUCK_CONE_DP) { canvas, size ->
             val center = size / 2f
-            val radius = 28f * DENSITY_SCALE
+            val radius = center
             val wedge = Path().apply {
                 moveTo(center, center)
                 arcTo(
@@ -557,24 +628,31 @@ internal object MapIcons {
                         center + radius,
                         center + radius,
                     ),
-                    -90f - 24f,
-                    48f,
+                    // `arcTo` compte depuis l'est : -90° met la pointe au nord,
+                    // qui est le cap zéro.
+                    -90f - PUCK_CONE_HALF_ANGLE,
+                    2f * PUCK_CONE_HALF_ANGLE,
                 )
                 close()
             }
-            val teal = AuleBrand.teal
-            val shader = RadialGradient(
-                center,
-                center,
-                radius,
-                intArrayOf(teal.opacity(0.42).argb, teal.opacity(0.0).argb),
-                floatArrayOf(4f / 28f, 1f),
-                Shader.TileMode.CLAMP,
+            val glow = tokens.accentGlow
+            canvas.drawPath(
+                wedge,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        center,
+                        center,
+                        radius,
+                        intArrayOf(
+                            glow.opacity(0.62).argb,
+                            glow.opacity(0.42).argb,
+                            glow.opacity(0.0).argb,
+                        ),
+                        floatArrayOf(PUCK_CONE_START, 0.70f, 1f),
+                        Shader.TileMode.CLAMP,
+                    )
+                },
             )
-            canvas.save()
-            canvas.clipPath(wedge)
-            canvas.drawCircle(center, center, radius, Paint(Paint.ANTI_ALIAS_FLAG).apply { this.shader = shader })
-            canvas.restore()
         }
 
     /**

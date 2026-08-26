@@ -53,6 +53,15 @@ class FusedLocationProvider(
     private val headingStabilizer = HeadingStabilizer()
     private val motionAnchor = MotionAnchor()
 
+    /**
+     * La boussole suit le flux : elle démarre et s'arrête avec lui.
+     *
+     * Elle n'a besoin d'aucune autorisation, mais elle n'a de sens que quand
+     * une carte regarde — un capteur qui tourne pour personne est une part de
+     * batterie prise à quelqu'un qui consulte un horaire.
+     */
+    private val compass = DeviceCompass(context)
+
     private val _authorization = MutableStateFlow(readAuthorization())
     override val authorization: StateFlow<LocationAuthorization> = _authorization.asStateFlow()
 
@@ -64,6 +73,8 @@ class FusedLocationProvider(
 
     private val _lastError = MutableStateFlow<String?>(null)
     override val lastError: StateFlow<String?> = _lastError.asStateFlow()
+
+    override val deviceHeadingDegrees: Double? get() = compass.heading
 
     private var purpose: LocationPurpose = LocationPurpose.READY
     private var isUpdating = false
@@ -92,6 +103,7 @@ class FusedLocationProvider(
         if (!isUpdating) return
         isUpdating = false
         _isAcquiring.value = false
+        compass.stop()
         client.removeLocationUpdates(callback)
         logger.info(LogDomain.GPS, "Flux arrêté.")
     }
@@ -143,6 +155,7 @@ class FusedLocationProvider(
         if (!_authorization.value.allowsUpdates) return
         isUpdating = true
         _isAcquiring.value = _lastFix.value == null
+        compass.start()
         requestUpdates()
         requestLastKnown()
         logger.info(LogDomain.GPS, "Flux démarré (${purpose.name.lowercase()}).")
@@ -194,6 +207,9 @@ class FusedLocationProvider(
 
         headingStabilizer.ingest(course, speed)
         val settled = motionAnchor.settle(coordinate, speed, accuracy)
+        // La position brute, pas l'ancrée : la déclinaison ne se joue pas à
+        // douze mètres, et l'ancre peut tenir sur un point vieux d'une minute.
+        compass.setReference(coordinate)
 
         _lastError.value = null
         _isAcquiring.value = false

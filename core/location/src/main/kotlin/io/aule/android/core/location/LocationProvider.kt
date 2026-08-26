@@ -24,6 +24,19 @@ interface LocationProvider {
     val authorization: StateFlow<LocationAuthorization>
     val lastFix: StateFlow<LocationFix?>
 
+    /**
+     * Le cap de l'appareil — où le téléphone **regarde**, en degrés depuis le
+     * nord vrai. `null` quand rien ne répond : pas de magnétomètre, flux
+     * arrêté, ou capteur déclaré inexploitable.
+     *
+     * Il vit ici et non dans [LocationFix] parce qu'il n'a pas la même
+     * cadence : une position arrive une fois par seconde, un cap de boussole
+     * cinquante. Le publier dans le flux ferait recomposer l'arbre Compose à
+     * chaque frémissement du poignet — d'où cette propriété nue, qu'on **lit**
+     * depuis le ticker caméra et qui n'émet rien (ADR-006).
+     */
+    val deviceHeadingDegrees: Double?
+
     /** Vrai dès qu'on a demandé le flux et qu'aucune position n'est encore arrivée. */
     val isAcquiring: StateFlow<Boolean>
 
