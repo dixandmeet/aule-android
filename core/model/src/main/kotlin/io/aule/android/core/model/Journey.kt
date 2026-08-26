@@ -63,11 +63,47 @@ data class JourneyPlan(
 }
 
 /**
+ * Ce qu'on fait pendant une jambe unique — le trajet porte-à-porte.
+ *
+ * ## ⚠️ La demande prime sur la réponse, sauf là où la demande ne dit rien
+ *
+ * « Voiture » et « à pied » désignent chacun un comportement, et le moteur ne
+ * peut pas les contredire : `mode=foot` et `mode=car` rendent la **même forme**
+ * — une géométrie, une distance, une durée, des manœuvres — sans un mot pour
+ * les distinguer, ni `segments` ni `steps` (`docs/CONTRAT-BFF.md` §10, et
+ * `dashboard/app/api/route/route.ts`, chemin non-transit). Lire ses `steps`,
+ * comme on le faisait, revenait donc à interroger une information qu'il
+ * n'envoie pas : la liste étant toujours vide, tout trajet en voiture
+ * retombait sur [LegMode.WALK].
+ *
+ * **[RouteMode.TRANSIT] est le seul mode qui laisse le moteur trancher**, et
+ * c'est légitime : une demande de transports qui revient sans le moindre
+ * tronçon est une demande à laquelle il a répondu autrement — par une marche,
+ * ou par une voirie s'il l'a jugée seule praticable. Là, sa parole est la
+ * seule qu'on ait.
+ *
+ * Port de `Native/Aule/Models/Journey.swift`, `doorToDoorLegMode`.
+ */
+fun RouteMode.doorToDoorLegMode(steps: List<RouteStep>): LegMode = when (this) {
+    RouteMode.CAR -> LegMode.CAR
+    RouteMode.WALK -> LegMode.WALK
+    RouteMode.TRANSIT -> if (steps.firstOrNull()?.kind == RouteStepKind.CAR) {
+        LegMode.CAR
+    } else {
+        LegMode.WALK
+    }
+}
+
+/**
  * Le trajet que décrit un candidat de `/api/route`.
  *
  * Rend `null` quand la géométrie ne vaut rien. Un plan vide serait pire
  * qu'aucun plan : l'écran afficherait une barre de résumé sur un trajet
  * qui n'existe pas.
+ *
+ * [mode] est le mode **demandé**, et il n'a pas de défaut : sans tronçons, la
+ * réponse ne dit pas comment on avance, et c'est lui seul qui le sait — voir
+ * [doorToDoorLegMode].
  *
  * ⚠️ La structure vient de `segments`, seuls. Les `steps` n'habillent une
  * jambe que si l'appariement se **vérifie** — un écart d'une entrée rend
@@ -75,6 +111,7 @@ data class JourneyPlan(
  */
 fun journeyFromCandidate(
     candidate: RouteCandidate,
+    mode: RouteMode,
     destinationLabel: String? = null,
 ): JourneyPlan? {
     val segments = candidate.segments
@@ -103,11 +140,7 @@ fun journeyFromCandidate(
     if (points.size < 2) return null
 
     if (segments.isEmpty()) {
-        val mode = if (candidate.steps.isNotEmpty() && candidate.steps.first().kind == RouteStepKind.CAR) {
-            LegMode.CAR
-        } else {
-            LegMode.WALK
-        }
+        val legMode = mode.doorToDoorLegMode(candidate.steps)
         val title = candidate.steps.firstOrNull()?.label
             ?: if (destinationLabel == null) "Continuer" else "Jusqu'à $destinationLabel"
         return JourneyPlan(
@@ -118,7 +151,7 @@ fun journeyFromCandidate(
             duration = Duration.ofMinutes(candidate.durationMinutes.toLong()),
             legs = listOf(
                 JourneyLeg(
-                    mode = mode,
+                    mode = legMode,
                     title = title,
                     startT = 0.0,
                     endT = 1.0,
@@ -143,15 +176,15 @@ fun journeyFromCandidate(
         val startT = PolylineProjection.tAtIndex(points, span.first)
         val endT = PolylineProjection.tAtIndex(points, span.last)
         val line = segment.routeId?.trim()?.takeIf { it.isNotEmpty() }
-        val mode = if (segment.walk) LegMode.WALK else LegMode.TRANSIT
-        val deduced = if (mode == LegMode.TRANSIT && index == boarding?.segmentIndex) {
+        val legMode = if (segment.walk) LegMode.WALK else LegMode.TRANSIT
+        val deduced = if (legMode == LegMode.TRANSIT && index == boarding?.segmentIndex) {
             boarding.at
         } else {
             null
         }
         legs += JourneyLeg(
-            mode = mode,
-            title = titles[index] ?: fallbackTitle(mode, line, destinationLabel),
+            mode = legMode,
+            title = titles[index] ?: fallbackTitle(legMode, line, destinationLabel),
             startT = startT,
             endT = endT,
             startIndex = span.first,

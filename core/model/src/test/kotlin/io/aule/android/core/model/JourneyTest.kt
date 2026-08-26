@@ -82,16 +82,18 @@ class JourneyTest {
         )
     }
 
+    private fun troisJambesCandidate() = candidate(segments = troisJambes(), distanceM = 1250)
+
     @Test
     fun `une jambe par troncon, dans l ordre du trajet`() {
-        val plan = journeyFromCandidate(candidate(segments = troisJambes(), distanceM = 1250))!!
+        val plan = journeyFromCandidate(troisJambesCandidate(), mode = RouteMode.TRANSIT)!!
         assertEquals(listOf(LegMode.WALK, LegMode.TRANSIT, LegMode.WALK), plan.legs.map { it.mode })
         assertEquals("C1", plan.legs[1].line)
     }
 
     @Test
     fun `les frontieres couvrent le trajet sans trou`() {
-        val plan = journeyFromCandidate(candidate(segments = troisJambes(), distanceM = 1250))!!
+        val plan = journeyFromCandidate(troisJambesCandidate(), mode = RouteMode.TRANSIT)!!
         assertEquals(0.0, plan.legs.first().startT, 1e-9)
         assertEquals(1.0, plan.legs.last().endT, 1e-9)
         for (i in 1 until plan.legs.size) {
@@ -101,7 +103,7 @@ class JourneyTest {
 
     @Test
     fun `les frontieres sont dans la metrique de la progression`() {
-        val plan = journeyFromCandidate(candidate(segments = troisJambes(), distanceM = 1250))!!
+        val plan = journeyFromCandidate(troisJambesCandidate(), mode = RouteMode.TRANSIT)!!
         assertEquals(0.2, plan.legs[1].startT, 1e-3)
         assertEquals(0.8, plan.legs[1].endT, 1e-3)
     }
@@ -120,10 +122,11 @@ class JourneyTest {
                     segment(walk = false, fromLng = b, meters = 300.0, routeId = "11"),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         assertTrue(withTransfer.hasTransfer)
         assertFalse(
-            journeyFromCandidate(candidate(segments = troisJambes(), distanceM = 1250))!!.hasTransfer,
+            journeyFromCandidate(troisJambesCandidate(), mode = RouteMode.TRANSIT)!!.hasTransfer,
         )
     }
 
@@ -141,6 +144,7 @@ class JourneyTest {
                     step(RouteStepKind.TRAM, "C1 direction Gare de Chantenay"),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         assertEquals("Marche jusqu'à l'arrêt Ranzay", plan.legs[0].title)
         assertEquals("C1 direction Gare de Chantenay", plan.legs[1].title)
@@ -161,6 +165,7 @@ class JourneyTest {
                     step(RouteStepKind.TRAM, "C1 direction Gare de Chantenay"),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         assertEquals("Marche", plan.legs[0].title)
         assertEquals("Ligne C1", plan.legs[1].title)
@@ -175,12 +180,53 @@ class JourneyTest {
                 steps = listOf(step(RouteStepKind.CAR, "En voiture jusqu'au dépôt")),
             ),
             destinationLabel = "Dépôt",
+            mode = RouteMode.CAR,
         )!!
         assertEquals(1, plan.legs.size)
         assertEquals(LegMode.CAR, plan.legs.single().mode)
         assertEquals("En voiture jusqu'au dépôt", plan.legs.single().title)
         assertEquals(0.0, plan.legs.single().startT)
         assertEquals(1.0, plan.legs.single().endT)
+    }
+
+    /**
+     * Le cas du terrain : `mode=car` rend une géométrie **et rien d'autre** —
+     * ni `segments`, ni `steps`. Lire la réponse ne dit donc pas qu'on roule,
+     * et c'est la demande qui doit trancher. Sans ce verrou, tout trajet en
+     * voiture repart en marche : profil OSRM piéton, tracé en pointillé,
+     * caméra qui cadre une manœuvre à vingt mètres au lieu de quarante-cinq.
+     */
+    @Test
+    fun `un porte-a-porte muet suit le mode demande`() {
+        val muet = candidate(distanceM = 4700, durationMin = 10, steps = emptyList())
+
+        assertEquals(
+            LegMode.CAR,
+            journeyFromCandidate(muet, mode = RouteMode.CAR)!!.legs.single().mode,
+        )
+        assertEquals(
+            LegMode.WALK,
+            journeyFromCandidate(muet, mode = RouteMode.WALK)!!.legs.single().mode,
+        )
+    }
+
+    /**
+     * Une demande de transports qui revient sans tronçon est une demande à
+     * laquelle le moteur a répondu autrement. Là seulement, sa parole compte.
+     */
+    @Test
+    fun `en transports sans troncon, le moteur tranche`() {
+        assertEquals(
+            LegMode.CAR,
+            journeyFromCandidate(
+                candidate(steps = listOf(step(RouteStepKind.CAR, "En voiture"))),
+                mode = RouteMode.TRANSIT,
+            )!!.legs.single().mode,
+        )
+        assertEquals(
+            LegMode.WALK,
+            journeyFromCandidate(candidate(), mode = RouteMode.TRANSIT)!!.legs.single().mode,
+        )
     }
 
     @Test
@@ -199,6 +245,7 @@ class JourneyTest {
                     alertCount = 0,
                     profiles = emptyList(),
                 ),
+                mode = RouteMode.TRANSIT,
             ),
         )
     }
@@ -226,6 +273,7 @@ class JourneyTest {
                     ),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         assertEquals(published, plan.legs[1].departureAt)
     }
@@ -248,6 +296,7 @@ class JourneyTest {
                     segment(walk = true, fromLng = fin, meters = 434.0),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         val boarding = assertNotNull(plan.legs[1].departureAt)
         val announced = Instant.parse("2026-08-14T12:39:01Z")
@@ -275,6 +324,7 @@ class JourneyTest {
                     segment(walk = false, fromLng = c, meters = 2000.0, routeId = "C6"),
                 ),
             ),
+            mode = RouteMode.TRANSIT,
         )!!
         assertTrue(plan.legs.all { it.departureAt == null })
     }

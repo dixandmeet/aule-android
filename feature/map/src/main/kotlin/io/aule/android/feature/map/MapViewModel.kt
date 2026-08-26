@@ -1297,7 +1297,7 @@ class MapViewModel(
     fun startGuidance(around: Coordinate? = null): Boolean {
         val route = _state.value.route ?: return false
         val candidate = route.selected ?: return false
-        val plan = journeyFromCandidate(candidate, route.destination.label) ?: return false
+        val plan = journeyFromCandidate(candidate, route.mode, route.destination.label) ?: return false
         stopGuidanceInternal()
         // Ouvert ici et refermé avec le guidage : la trace couvre exactement
         // le trajet, sans les minutes passées à choisir la destination.

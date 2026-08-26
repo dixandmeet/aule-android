@@ -89,6 +89,7 @@ import io.aule.android.core.map.layer.VehiclesLayer
 import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.HandoverFix
 import io.aule.android.core.model.HandoverSummary
+import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlace
 import io.aule.android.core.model.SavedPlace
 import io.aule.android.core.model.SavedPlaceSlot
@@ -318,10 +319,15 @@ fun MapScreen(
     LaunchedEffect(state.selectedPlace) {
         destinationLayer.setCoordinate(state.selectedPlace?.coordinate)
     }
-    LaunchedEffect(state.route?.selected?.id, state.route?.status) {
+    LaunchedEffect(state.route?.selected?.id, state.route?.status, state.route?.mode) {
         val route = state.route
         val candidate = route?.selected?.takeIf { route.status == RouteLoadStatus.READY }
-        routeLayer.setTrace(candidate, route?.origin, route?.destination)
+        routeLayer.setTrace(
+            candidate = candidate,
+            mode = route?.mode ?: RouteMode.TRANSIT,
+            origin = route?.origin,
+            destination = route?.destination,
+        )
     }
 
     LaunchedEffect(vehiclesLayer) {

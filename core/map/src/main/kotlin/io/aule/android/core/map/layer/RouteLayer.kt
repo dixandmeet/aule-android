@@ -3,9 +3,12 @@ package io.aule.android.core.map.layer
 import com.google.gson.JsonObject
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.map.MapLayer
+import io.aule.android.core.model.LegMode
 import io.aule.android.core.model.ROUTE_FALLBACK_COLOR
 import io.aule.android.core.model.RouteCandidate
+import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlace
+import io.aule.android.core.model.doorToDoorLegMode
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -37,11 +40,23 @@ class RouteLayer : MapLayer {
     private var endpointsSource: GeoJsonSource? = null
 
     private var candidate: RouteCandidate? = null
+    private var mode: RouteMode = RouteMode.TRANSIT
     private var origin: RoutePlace? = null
     private var destination: RoutePlace? = null
 
-    fun setTrace(candidate: RouteCandidate?, origin: RoutePlace?, destination: RoutePlace?) {
+    /**
+     * [mode] est le mode **demandé**. Sans lui, un porte-à-porte se peindrait
+     * toujours en pointillé : le moteur ne rend aucun `segments` sur ce chemin,
+     * et rien dans sa réponse ne dit qu'on roule — voir [redraw].
+     */
+    fun setTrace(
+        candidate: RouteCandidate?,
+        mode: RouteMode,
+        origin: RoutePlace?,
+        destination: RoutePlace?,
+    ) {
         this.candidate = candidate
+        this.mode = mode
         this.origin = origin
         this.destination = destination
         redraw()
@@ -155,13 +170,17 @@ class RouteLayer : MapLayer {
             return
         }
 
+        // Le porte-à-porte arrive sans `segments` : `mode=foot` et `mode=car`
+        // rendent la même forme, une géométrie seule. Le pointillé ne se pose
+        // donc pas sur la réponse mais sur la **demande**, par la règle du
+        // domaine — sinon un trajet en voiture se peint comme une marche.
         val segments = candidate.segments.ifEmpty {
             if (candidate.coordinates.size >= 2) {
                 listOf(
                     io.aule.android.core.model.RouteSegment(
                         coordinates = candidate.coordinates,
                         color = ROUTE_FALLBACK_COLOR,
-                        walk = true,
+                        walk = mode.doorToDoorLegMode(candidate.steps) != LegMode.CAR,
                     ),
                 )
             } else {
