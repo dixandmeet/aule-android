@@ -1,6 +1,7 @@
 package io.aule.android.auth
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AuthUser
 import io.aule.android.core.model.repository.AuthSessionStore
@@ -36,17 +37,19 @@ class PreferencesAuthSessionStore(
     }
 
     override suspend fun write(session: AuthSession) {
-        prefs.edit()
-            .putString(KEY_USER_ID, session.user.id)
-            .putString(KEY_EMAIL, session.user.email)
-            .putString(KEY_ACCESS, session.accessToken)
-            .putString(KEY_REFRESH, session.refreshToken)
-            .putLong(KEY_EXPIRES, session.expiresAtEpochSeconds)
-            .apply()
+        prefs.edit {
+            putString(KEY_USER_ID, session.user.id)
+            putString(KEY_EMAIL, session.user.email)
+            putString(KEY_ACCESS, session.accessToken)
+            putString(KEY_REFRESH, session.refreshToken)
+            putLong(KEY_EXPIRES, session.expiresAtEpochSeconds)
+        }
     }
 
     override suspend fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit {
+            clear()
+        }
     }
 
     private companion object {

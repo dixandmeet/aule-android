@@ -66,15 +66,18 @@ fun nextAction(
         progress.legIndex > 0 &&
         legs[progress.legIndex - 1].mode == LegMode.TRANSIT
     if (isTransfer) {
-        val target = transferStopName ?: next?.line
+        // `isTransfer` a déjà exigé `next?.mode == LegMode.TRANSIT` : le
+        // compilateur sait ici que `next` n'est pas nul, et un appel sûr de
+        // plus laisserait croire le contraire au lecteur.
+        val target = transferStopName ?: next.line
         return NextAction(
             kind = NextActionKind.TRANSFER,
             title = target.orEmpty(),
             leadIsTransfer = true,
             detail = transferPlatform,
             mode = leg.mode,
-            line = next?.line,
-            lineColor = next?.lineColor,
+            line = next.line,
+            lineColor = next.lineColor,
         )
     }
 

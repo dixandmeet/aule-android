@@ -1,6 +1,7 @@
 package io.aule.android.welcome
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.repository.WelcomeStore
 
 /**
@@ -19,7 +20,9 @@ class PreferencesWelcomeStore(
     override fun hasSeenWelcome(): Boolean = prefs.getBoolean(KEY, false)
 
     override fun markWelcomeSeen() {
-        prefs.edit().putBoolean(KEY, true).apply()
+        prefs.edit {
+            putBoolean(KEY, true)
+        }
     }
 
     private companion object {

@@ -10,7 +10,6 @@
     <string name="boot_supabase_missing">Supabase non configuré — renseignez local.properties</string>
 
     <!-- Dialogue système de localisation. Android l'affiche tel quel. -->
-    <string name="permission_location_rationale">Aule utilise votre position pour vous situer sur la carte et afficher les arrêts autour de vous.</string>
 
     <string name="handover_alert_channel_name">Relève de conducteur</string>
     <string name="handover_alert_channel_detail">Arrivée du véhicule à relever et confirmation de la passation.</string>

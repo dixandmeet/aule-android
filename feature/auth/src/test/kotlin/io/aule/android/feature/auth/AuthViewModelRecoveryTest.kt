@@ -253,7 +253,7 @@ class AuthViewModelRecoveryTest {
         )
         override suspend fun updateProfile(
             session: AuthSession,
-            profileId: String,
+            driverId: String,
             update: DriverProfileUpdate,
         ) = error("non sollicité")
         override suspend fun uploadAvatar(

@@ -1,6 +1,7 @@
 package io.aule.android.auth
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.repository.AuthPkceStore
 import io.aule.android.core.model.repository.RegistrationDraftStore
@@ -17,10 +18,10 @@ class PreferencesAuthPkceStore(
     private val prefs = context.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
     override suspend fun writeVerifier(verifier: String, flow: AuthPkceFlow) {
-        prefs.edit()
-            .putString(KEY_VERIFIER, verifier)
-            .putString(KEY_FLOW, flow.name)
-            .apply()
+        prefs.edit {
+            putString(KEY_VERIFIER, verifier)
+            putString(KEY_FLOW, flow.name)
+        }
     }
 
     override suspend fun readVerifier(): String? =
@@ -39,7 +40,9 @@ class PreferencesAuthPkceStore(
     }
 
     override suspend fun clearVerifier() {
-        prefs.edit().remove(KEY_VERIFIER).remove(KEY_FLOW).apply()
+        prefs.edit {
+            remove(KEY_VERIFIER).remove(KEY_FLOW)
+        }
     }
 
     private companion object {
@@ -66,14 +69,16 @@ class PreferencesRegistrationDraftStore(
     override suspend fun readStep(): String? = prefs.getString(KEY_STEP, null)
 
     override suspend fun write(draftJson: String, step: String) {
-        prefs.edit()
-            .putString(KEY_DRAFT, draftJson)
-            .putString(KEY_STEP, step)
-            .apply()
+        prefs.edit {
+            putString(KEY_DRAFT, draftJson)
+            putString(KEY_STEP, step)
+        }
     }
 
     override suspend fun clear() {
-        prefs.edit().clear().apply()
+        prefs.edit {
+            clear()
+        }
     }
 
     private companion object {

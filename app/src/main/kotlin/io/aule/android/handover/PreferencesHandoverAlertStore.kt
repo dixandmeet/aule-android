@@ -1,6 +1,7 @@
 package io.aule.android.handover
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.HandoverAlertPrefs
 import io.aule.android.core.model.repository.HandoverAlertPrefsStore
 
@@ -18,7 +19,9 @@ class PreferencesHandoverAlertStore(
         HandoverAlertPrefs.decode(prefs.getString(ALERTS_KEY, null))
 
     override fun write(prefs: HandoverAlertPrefs) {
-        this.prefs.edit().putString(ALERTS_KEY, prefs.encode()).apply()
+        this.prefs.edit {
+    putString(ALERTS_KEY, prefs.encode())
+}
     }
 
     override fun readRecentLines(): List<String> =
@@ -33,7 +36,9 @@ class PreferencesHandoverAlertStore(
         if (id.isEmpty()) return readRecentLines()
         val next = listOf(id) + readRecentLines().filter { it != id }
         val clipped = next.take(RECENT_MAX)
-        prefs.edit().putString(RECENT_KEY, clipped.joinToString(SEPARATOR)).apply()
+        prefs.edit {
+            putString(RECENT_KEY, clipped.joinToString(SEPARATOR))
+        }
         return clipped
     }
 

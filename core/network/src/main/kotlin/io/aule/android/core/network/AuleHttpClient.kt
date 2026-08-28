@@ -222,7 +222,7 @@ class AuleHttpClient(
             throw ApiException.Transport(failure)
         }
         response.use {
-            return RawHttpResponse(code = it.code, body = it.body?.string().orEmpty())
+            return RawHttpResponse(code = it.code, body = it.body.string())
         }
     }
 
@@ -236,7 +236,7 @@ class AuleHttpClient(
             throw ApiException.Transport(failure)
         }
         response.use {
-            return RawHttpBytes(code = it.code, body = it.body?.bytes() ?: ByteArray(0))
+            return RawHttpBytes(code = it.code, body = it.body.bytes())
         }
     }
 
@@ -251,7 +251,7 @@ class AuleHttpClient(
         }
 
         response.use {
-            val body = it.body?.string().orEmpty()
+            val body = it.body.string()
             when (val status = it.code) {
                 in 200..299 -> return body
                 404 -> throw ApiException.NotFound(serverMessage(body))

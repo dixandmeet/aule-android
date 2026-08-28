@@ -1,6 +1,7 @@
 package io.aule.android.appearance
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.AppearanceMode
 import io.aule.android.core.model.repository.AppearanceStore
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -20,7 +21,9 @@ class PreferencesAppearanceStore(
         AppearanceMode.fromStorage(prefs.getString(KEY, null))
 
     override fun write(mode: AppearanceMode) {
-        prefs.edit().putString(KEY, mode.storageName).apply()
+        prefs.edit {
+            putString(KEY, mode.storageName)
+        }
     }
 
     private companion object {

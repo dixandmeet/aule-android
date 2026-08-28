@@ -1211,7 +1211,7 @@ fun MapScreen(
                                 // Le menu passe devant : on l'a demandé
                                 // expressément, et il se referme sur ce qu'on
                                 // regardait.
-                                menuOpen -> menuSheet!!()
+                                menuOpen -> menuSheet()
                                 showingTrip && state.navigation != null -> {
                                     TripSheet(
                                         state = state.navigation!!,

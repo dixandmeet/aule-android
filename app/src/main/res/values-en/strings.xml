@@ -6,7 +6,6 @@
     <string name="boot_subtitle">The foundation is in place. The map arrives in milestone 4.</string>
     <string name="boot_build_label">Build: %1$s</string>
     <string name="boot_supabase_missing">Supabase is not configured — fill in local.properties</string>
-    <string name="permission_location_rationale">Aule uses your location to place you on the map and show the stops around you.</string>
     <string name="handover_alert_channel_name">Driver handover</string>
     <string name="handover_alert_channel_detail">Arrival of the vehicle you are taking over, and confirmation of the transfer.</string>
     <string name="watch_alert_channel_name">Vehicle approaching</string>

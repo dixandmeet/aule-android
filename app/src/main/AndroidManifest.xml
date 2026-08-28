@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
@@ -16,6 +17,10 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <!-- `enableOnBackInvokedCallback` n'a d'effet qu'à partir de l'API 33 : le
+         geste de retour prédictif n'existe pas en dessous, et l'attribut y est
+         simplement ignoré. Lint le signale, c'est attendu — d'où le `tools:ignore`,
+         qui dit qu'on l'a lu plutôt que de le laisser s'accumuler. -->
     <application
         android:name=".AuleApplication"
         android:allowBackup="false"
@@ -26,16 +31,28 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:enableOnBackInvokedCallback="true"
+        tools:ignore="UnusedAttribute"
         android:theme="@style/Theme.Aule">
 
         <!-- Portrait seul : tout le cadrage de la carte se calcule sur la hauteur
              (décalage du puck dans le tiers bas, détentes du volet, marges de
-             contenu). Le Flutter Pro pose le même verrou, pour la même raison. -->
+             contenu). Le Flutter Pro pose le même verrou, pour la même raison.
+
+             Lint le signale deux fois, et les deux fois il a raison de le dire :
+             `LockedOrientationActivity` parce qu'un verrou prive l'usager d'un
+             choix, `DiscouragedApi` parce qu'Android 16 cesse de l'honorer sur
+             les grands écrans. C'est assumé, et le coût en est mesuré : le
+             cadrage lit la hauteur **réelle** de la vue
+             (`MapController.viewportHeightDp`), donc un paysage forcé donnerait
+             un cadre dégradé — plus bas, moins de route devant — et non un
+             cadre faux. À rouvrir le jour où une tablette entre dans le parc.
+ -->
         <activity
             android:name=".MainActivity"
             android:exported="true"
             android:launchMode="singleTop"
             android:screenOrientation="portrait"
+            tools:ignore="LockedOrientationActivity,DiscouragedApi"
             android:configChanges="keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize"

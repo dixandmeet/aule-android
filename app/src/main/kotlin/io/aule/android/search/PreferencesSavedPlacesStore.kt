@@ -1,6 +1,7 @@
 package io.aule.android.search
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.SavedPlace
 import io.aule.android.core.model.decodeSavedPlaces
 import io.aule.android.core.model.encodeSavedPlaces
@@ -29,7 +30,9 @@ class PreferencesSavedPlacesStore(
         decodeSavedPlaces(prefs.getString(key(owner), null))
 
     override fun write(owner: String?, places: List<SavedPlace>) {
-        prefs.edit().putString(key(owner), places.encodeSavedPlaces()).apply()
+        prefs.edit {
+            putString(key(owner), places.encodeSavedPlaces())
+        }
     }
 
     /**

@@ -1,6 +1,7 @@
 package io.aule.android.guet
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.repository.GuetPreferencesStore
 
 /**
@@ -23,7 +24,9 @@ class PreferencesGuetStore(
     override fun read(): String? = prefs.getString(KEY, null)
 
     override fun write(encoded: String) {
-        prefs.edit().putString(KEY, encoded).apply()
+        prefs.edit {
+            putString(KEY, encoded)
+        }
     }
 
     private companion object {

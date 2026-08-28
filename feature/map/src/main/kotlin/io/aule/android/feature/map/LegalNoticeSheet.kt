@@ -16,7 +16,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.SheetValue
+import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,7 +59,14 @@ internal fun LegalNoticeSheet(
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    // `enabledValues` sans `PartiallyExpanded` **est** l'ancien
+    // `skipPartiallyExpanded = true` : l'état en dérive
+    // (`SheetState.skipPartiallyExpanded`), et le palier intermédiaire
+    // n'existe alors plus du tout. Migration à comportement identique.
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
     AuleTheme {
         ModalBottomSheet(
             onDismissRequest = onClose,

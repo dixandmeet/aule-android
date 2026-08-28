@@ -1,6 +1,7 @@
 package io.aule.android.search
 
 import android.content.Context
+import androidx.core.content.edit
 import io.aule.android.core.model.Place
 import io.aule.android.core.model.decodeSearchHistory
 import io.aule.android.core.model.encodeHistory
@@ -28,12 +29,16 @@ class PreferencesSearchHistoryStore(
 
     override fun remember(place: Place): List<Place> {
         val next = rememberPlace(place, read())
-        prefs.edit().putString(KEY, next.encodeHistory()).apply()
+        prefs.edit {
+            putString(KEY, next.encodeHistory())
+        }
         return next
     }
 
     override fun clear() {
-        prefs.edit().remove(KEY).apply()
+        prefs.edit {
+            remove(KEY)
+        }
     }
 
     private companion object {

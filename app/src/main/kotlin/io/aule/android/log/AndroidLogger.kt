@@ -13,7 +13,17 @@ import io.aule.android.core.common.log.LogDomain
  *
  * [verbose] est faux en production : le niveau DEBUG porte des coordonnées et des
  * corps de réponse, qui n'ont rien à faire dans le journal d'un appareil livré.
+ *
+ * ## Pourquoi pas Timber, que Lint propose
+ *
+ * `AuleLogger` **est** l'abstraction que Timber apporterait, et elle vit dans
+ * `:core:common` — donc lisible par des modules JVM purs, qu'une dépendance
+ * Android empêcherait de tester sur l'hôte. Cette classe est la seule
+ * implémentation Android de ce contrat : c'est ici, et ici seulement, que
+ * `android.util.Log` a le droit d'apparaître, et la règle est donc éteinte
+ * ici plutôt que subie partout.
  */
+@Suppress("LogNotTimber")
 class AndroidLogger(private val verbose: Boolean) : AuleLogger {
 
     override fun log(level: AuleLogger.Level, domain: LogDomain, message: String, error: Throwable?) {
