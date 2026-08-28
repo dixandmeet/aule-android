@@ -1058,6 +1058,122 @@ est un risque de régression à chaque montée.
 raison. » Une ligne d'avertissement au démarrage du build n'est pas une raison.
 
 
+---
+
+## 6 quater. La campagne sur appareil
+
+Le S21 a été branché le 28/08/2026 à 09h28. `adb devices` ne le voyait pas au
+premier essai — le démon n'était pas démarré ; un `adb kill-server` / `start-server`
+a suffi.
+
+### Ce que l'appareil a permis de vérifier
+
+| | Résultat |
+|---|---|
+| **AND-001** — lancement à froid | `TotalTime: 908 ms`, `LaunchState: COLD`, aucun plantage. |
+| **Carte, 3D, interpolation** | Bâtiments en volume, eau, végétation, labels, arrêts, puck avec son cône. Journal : **interpolation 119 Hz, rendu 116 à 185 ips, coût moyen 325-528 µs pour un budget de 8 333 µs à 120 Hz.** L'ADR-006 tient sur l'appareil. |
+| **Favoris, arrêts, recherche** | Domicile / Travail persistés, « À proximité » avec Ranzay 150 m et Terray 200 m et leurs lignes. Le volet d'itinéraire porte bien **les trois durées à la fois** — Transports 16, À pied 56, Voiture 9. |
+| **Mode voiture** | Tracé en ruban plein sur la voirie, caméra `NAVIGATION`, inclinaison plafonnée à 59,99° par le moteur et journalisée comme prévu (ADR-009). |
+| **AND-BUG-002** — session hors réseau | **Vérifié.** Voir ci-dessous. |
+| **AND-BUG-001** — retour pendant le guidage | **Vérifié.** |
+| **AND-BUG-009** — balayage du multitâche | **Vérifié.** |
+| **AND-BUG-006** — sortie de rond-point | **Vérifié à l'écran** : « Prendre la 2e sortie ». |
+| **AND-BUG-007** — vitesse | **Vérifié à l'écran** : « 0 km/h », à l'arrêt, sans disparaître. |
+| **§ 23** — arrière-plan et écran verrouillé | **Vérifié.** |
+
+### AND-BUG-002, en conditions réelles
+
+L'appareil portait une session dont le jeton d'accès était **périmé depuis
+7 h 24** — exactement le cas du rapport. Le protocole, après sauvegarde de la
+session sur l'appareil :
+
+1. lancement avec Wi-Fi → le jeton se rafraîchit, la carte s'ouvre, et la
+   **réserve d'habilitation se constitue** (`io.aule.android.auth.access.xml`
+   apparaît) ;
+2. `expires_at` remis dans le passé, mode avion, relancement.
+
+`ping` confirme l'absence totale de réseau (`unknown host www.aule.fr`). Le
+journal, mot pour mot :
+
+```
+W Aule.Auth: Session conservée sans vérification — refus non définitif (NETWORK).
+W Aule.Auth: Fiche agent illisible.
+W Aule.Auth: Habilitations injoignables — ouverture sur la dernière connue (MIXTE).
+```
+
+Les deux moitiés du correctif ont tiré. **La carte s'est ouverte**, avec ses
+2 635 arrêts servis depuis le disque, le bandeau disant « Positions non
+rafraîchies » et l'avatar retombé sur les initiales — la signature visible de
+`profileFailed`. Les deux jetons étaient toujours sur le disque.
+
+Réseau rétabli, relancement : `expires_at` reprend une valeur fraîche. **La
+session s'est réparée seule, sans que personne retape quoi que ce soit** —
+ce qui est tout l'objet de la garder plutôt que de l'effacer.
+
+### AND-BUG-001 et AND-BUG-009
+
+Guidage engagé vers Travail (4,8 km, 9 min), le service et le verrou sont bien
+là : `isForeground=true types=0x00000008` (location), notification sur
+`aule_navigating_v1`, et `PARTIAL_WAKE_LOCK 'aule:navigating' ACQ=-7s978ms`.
+
+**Retour** → le dialogue « Arrêter le guidage ? » s'ouvre, et
+`mCurrentFocus` reste `MainActivity` : l'activité ne se termine plus. « Arrêter »
+la referme proprement — service à **0**, verrou à **0**, caméra recadrée sur le
+trajet. « Continuer » la laisse tourner.
+
+**Balayage du multitâche**, guidage relancé → la carte Aule disparaît des
+récents, le bandeau Samsung « 1 application active » avec elle, et service et
+verrou retombent à zéro. `onTaskRemoved` fait son travail.
+
+### § 23 — arrière-plan et écran verrouillé
+
+Accueil puis extinction de l'écran, guidage engagé : `mWakefulness=Dozing`, et
+le service comme le verrou **tiennent**. Surtout, `dumpsys location` montre la
+demande toujours active :
+
+```
+ProviderRequest[@+1s0ms, HIGH_ACCURACY, WorkSource{10432 io.aule.android.development}]
+```
+
+Une position par seconde, en haute précision, écran éteint. C'est ce que le
+rapport ne pouvait qu'espérer.
+
+### Deux défauts que seul l'écran pouvait montrer
+
+La campagne a trouvé **deux régressions dans les correctifs eux-mêmes**, toutes
+deux invisibles aux 908 tests :
+
+1. **Le dialogue d'arrêt rendait en violet Material**, pas en teal Aule : il
+   était composé juste avant `AuleTheme` au lieu d'être dedans. Au milieu d'une
+   application entièrement teal, il ressemblait à un dialogue système.
+2. **Le cadran de vitesse passait sous la pastille ⓘ** — le « 0 » disparaissait
+   derrière elle. Les deux extrémités de la bande basse sont prises ; le cadran
+   est passé au milieu, par alignement et non par une marge chiffrée.
+
+Les deux sont corrigées et revérifiées à l'écran. C'est l'argument le plus net
+de tout ce rapport en faveur des tests instrumentés (AND-BUG-011) : deux défauts
+d'interface, dans du code écrit et relu le jour même, qu'aucune suite JVM ne
+pouvait attraper.
+
+### Ce qui reste bloqué, et pourquoi
+
+**Le déplacement réel.** Les sections 6 (GPS en mouvement), 16 à 22 (virages,
+rond-points en situation, recalcul déclenché, vitesse à 30 et 50 km/h) et 35
+(scénario complet) exigent de rouler. La position simulée n'est pas accessible
+par `adb` sur un appareil non rooté : il faut une application de position
+factice désignée dans les options de développement.
+
+**L'écran, à partir de 09h41.** Le téléphone s'est verrouillé pendant le test
+d'arrière-plan et demande un code (`mCurrentFocus=Bouncer`, `deviceLocked=1`).
+Je n'en saisis pas. Tout ce qui suit — mode sombre à l'écran, grande taille de
+texte, TalkBack, profilage sur trente minutes, § 26 constructeurs — attend que
+l'appareil soit déverrouillé.
+
+L'appareil a été rendu dans l'état où il a été trouvé : mode nuit remis à `no`,
+mode avion à `0`, sauvegarde de test effacée, application arrêtée, service et
+verrou libérés.
+
+
 ## 7. Décision révisée
 
 **GO AVEC RÉSERVES** pour un trajet automobile prolongé — au lieu du `NO GO` de
@@ -1090,26 +1206,30 @@ silence sur le tracé, a maintenant une garde chiffrée et journalisée.
 
 ### Ce qui empêche toujours un `GO` sec
 
-**Une seule chose, et ce n'est pas une question de code : rien n'a été vu à
-l'écran.** Onze correctifs, 26 tests JVM écrits pour les couvrir — c'est la
-bonne couverture pour des chemins de contrôle aussi courts, et c'est tout ce que
-ce dépôt sait exécuter. Mais un dialogue de confirmation, un cadran de vitesse,
-un bandeau de recalcul et un service qui s'arrête se jugent sur un écran. La
-fluidité, les FPS, la 3D, la tenue thermique, la consommation sur trente
-minutes, la récupération après tunnel, le comportement Samsung/Pixel : tout cela
-reste **entièrement inconnu**.
+**Le trajet lui-même.** La campagne du § 6 quater a levé la première moitié de
+la réserve : l'application a été vue tourner, les quatre correctifs les plus
+lourds sont vérifiés à l'écran, la fluidité est mesurée (119 Hz d'interpolation,
+116-185 ips, 325-528 µs pour un budget de 8 333), et le guidage tient écran
+éteint avec une position par seconde. Ce n'est plus une inconnue.
 
-On ne prononce pas un `GO` sec sur une application de conduite dont personne n'a
-mesuré le comportement sur la route.
+Reste ce qui exige de **rouler** : GPS en mouvement, virages, rond-points en
+situation, recalcul déclenché pour de vrai, vitesse à 30 et 50 km/h, et le
+scénario complet du § 35. La position simulée n'est pas accessible par `adb` sur
+un appareil non rooté ; il faut soit une application de position factice, soit
+un véhicule.
+
+Et la campagne a rappelé pourquoi c'est nécessaire : elle a trouvé **deux
+défauts d'interface dans les correctifs eux-mêmes**, écrits et relus le jour
+même, qu'aucun des 908 tests ne pouvait voir.
 
 ### La marche à suivre pour lever la réserve
 
-1. Brancher le S21 et rejouer les sections 6 à 9, 12 à 28, 31 et 33 de la
-   mission, Profiler compris, sur un trajet de 30 à 60 minutes.
-2. Vérifier en priorité les huit chemins qui viennent de changer : retour
-   pendant un guidage, démarrage en mode avion avec un jeton expiré, sortie de
-   tracé volontaire, bandeau de recalcul, cadran de vitesse, consigne de
-   rond-point, arrivée (la notification doit disparaître), et balayage du
-   multitâche (elle doit disparaître aussi).
-3. Décider d'AND-BUG-010 et d'AND-BUG-011 — les deux seuls P2 restants — une
-   fois l'appareil disponible.
+1. **Rouler.** C'est la seule chose qui manque encore : sortie de tracé
+   volontaire pour voir le recalcul, plusieurs virages et rond-points, vitesse
+   comparée à une référence, arrivée réelle (la notification doit disparaître),
+   et le scénario complet du § 35 sur 30 à 60 minutes, Profiler ouvert.
+2. **Déverrouiller le téléphone** pour la poignée de vérifications d'écran
+   restées en suspens : mode sombre, grande taille de texte, TalkBack.
+3. Décider d'AND-BUG-010 et d'AND-BUG-011 — les deux seuls P2 restants. Le
+   second a maintenant un argument de terrain : deux régressions d'interface
+   trouvées par une capture, aucune par les tests.
