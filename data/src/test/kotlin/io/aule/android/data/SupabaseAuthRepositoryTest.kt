@@ -143,6 +143,92 @@ class SupabaseAuthRepositoryTest {
         assertTrue(recorded.url.toString().contains("grant_type=refresh_token"))
     }
 
+    /**
+     * Le défaut de la recette : un dépôt en sous-sol déconnectait un conducteur.
+     *
+     * Le jeton d'accès GoTrue vit une heure. Passé ce délai, tout relancement
+     * sans réseau jetait un jeton de rafraîchissement parfaitement valide et
+     * renvoyait à un écran de connexion qui, sans réseau, ne peut pas aboutir.
+     */
+    @Test
+    fun `un serveur muet au rafraichissement garde la session`() = runTest {
+        val stored = AuthSession(
+            user = AuthUser("user-1", "a@b.fr"),
+            accessToken = "old",
+            refreshToken = "refresh-1",
+            expiresAtEpochSeconds = 1_000L,
+        )
+        store.write(stored)
+        respond("""{"message":"service indisponible"}""", status = 503)
+
+        val restored = assertNotNull(repository.restore(), "la session doit survivre à une panne")
+        assertEquals("refresh-1", restored.refreshToken)
+        assertNotNull(store.read(), "et rester sur le disque pour le prochain démarrage")
+        assertEquals(restored, repository.currentSession())
+    }
+
+    /**
+     * Une limitation de débit n'est pas non plus un refus : elle dit
+     * « pas maintenant », et le prochain démarrage retentera.
+     */
+    @Test
+    fun `un 429 au rafraichissement garde la session`() = runTest {
+        store.write(
+            AuthSession(
+                user = AuthUser("user-1", "a@b.fr"),
+                accessToken = "old",
+                refreshToken = "refresh-1",
+                expiresAtEpochSeconds = 1_000L,
+            ),
+        )
+        respond("""{"error_code":"over_request_rate_limit"}""", status = 429)
+
+        assertNotNull(repository.restore())
+        assertNotNull(store.read())
+    }
+
+    /**
+     * L'autre moitié du contrat : un jeton que le serveur **condamne** s'en va.
+     * Sans cela, on garderait indéfiniment une session que Supabase a révoquée.
+     */
+    @Test
+    fun `un jeton revoque efface la session`() = runTest {
+        store.write(
+            AuthSession(
+                user = AuthUser("user-1", "a@b.fr"),
+                accessToken = "old",
+                refreshToken = "refresh-1",
+                expiresAtEpochSeconds = 1_000L,
+            ),
+        )
+        respond("""{"error_code":"invalid_grant"}""", status = 400)
+
+        assertNull(repository.restore())
+        assertNull(store.read(), "un jeton révoqué ne se garde pas")
+        assertNull(repository.currentSession())
+    }
+
+    /**
+     * L'écran ne voit pas `:core:network` : sans ce genre, il ne pouvait que
+     * rattraper `Throwable` et fermer la session. Un 503 doit donc arriver
+     * jusqu'à lui en disant « je n'ai pas pu demander ».
+     */
+    @Test
+    fun `un role staff injoignable leve un echec reseau`() = runTest {
+        respond("""{"message":"upstream"}""", status = 503)
+        val failure = assertThrows<AuthException> {
+            repository.fetchStaffRole(
+                AuthSession(
+                    user = AuthUser("user-1", "a@b.fr"),
+                    accessToken = "token",
+                    refreshToken = "refresh",
+                    expiresAtEpochSeconds = 1_800_000_000L,
+                ),
+            )
+        }
+        assertEquals(AuthFailureKind.NETWORK, failure.kind)
+    }
+
     @Test
     fun `un role staff se lit dans user_profiles`() = runTest {
         respond("""[{"role":"driver"}]""")

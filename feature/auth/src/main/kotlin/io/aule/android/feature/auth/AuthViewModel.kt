@@ -16,6 +16,7 @@ import io.aule.android.core.model.DriverProfile
 import io.aule.android.core.model.DriverProfileUpdate
 import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.resolveAgentAccess
+import io.aule.android.core.model.repository.AgentAccessStore
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.DriverProfileRepository
 import kotlinx.coroutines.async
@@ -66,6 +67,14 @@ class AuthViewModel(
     private val auth: AuthRepository,
     private val profiles: DriverProfileRepository,
     private val logger: AuleLogger,
+    /**
+     * Ce que le serveur avait déjà accordé à ce compte sur cet appareil.
+     *
+     * Optionnel, et c'est volontaire : un test qui ne s'intéresse pas aux
+     * habilitations hors ligne n'a pas à en fabriquer un. Absent, l'écran se
+     * comporte comme avant — une vérification impossible ferme la session.
+     */
+    private val accessCache: AgentAccessStore? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthUiState())
@@ -119,6 +128,9 @@ class AuthViewModel(
     fun signOut() {
         viewModelScope.launch {
             auth.signOut()
+            // Se déconnecter, c'est aussi renoncer à la réserve : le compte
+            // suivant ne doit pas hériter des droits de celui qui part.
+            runCatching { accessCache?.clear() }
             _state.value = AuthUiState(isReady = true, isSignedIn = false)
         }
     }
@@ -152,9 +164,23 @@ class AuthViewModel(
         _state.value = _state.value.copy(deleteFailed = false)
     }
 
+    /**
+     * Réessayer, c'est presque toujours réessayer **avec du réseau**.
+     *
+     * D'où le passage par [AuthRepository.restore] plutôt qu'un simple
+     * [AuthRepository.currentSession] : depuis qu'une panne ne referme plus la
+     * session, on peut tourner avec un jeton d'accès périmé qu'on n'a pas pu
+     * rafraîchir. Ce bouton est le seul moment où quelqu'un demande
+     * explicitement qu'on retente — c'est donc là que le jeton se remet à jour.
+     */
     fun retryProfile() {
-        val session = auth.currentSession() ?: return
-        viewModelScope.launch { loadAccount(session) }
+        if (auth.currentSession() == null) return
+        viewModelScope.launch {
+            val session = runCatching { auth.restore() }.getOrNull()
+                ?: auth.currentSession()
+                ?: return@launch
+            loadAccount(session)
+        }
     }
 
     fun saveProfile(update: DriverProfileUpdate) {
@@ -441,6 +467,19 @@ class AuthViewModel(
             auth.fetchStaffRole(session)
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (unreachable: AuthException) {
+            // « Je n'ai pas pu demander » n'est pas « le serveur dit non ».
+            // Confondre les deux fermait la session d'un conducteur garé en
+            // sous-sol — et l'écran de connexion vers lequel on le renvoyait
+            // avait besoin, lui aussi, du réseau qui manquait.
+            if (unreachable.kind == AuthFailureKind.NETWORK &&
+                openOnLastKnownAccess(session, profile, profileFailed)
+            ) {
+                return
+            }
+            logger.warn(LogDomain.AUTH, "Habilitations illisibles (${unreachable.kind}).")
+            denyAccess(AuthFailureKind.HABILITATION_UNVERIFIED)
+            return
         } catch (failure: Throwable) {
             logger.warn(LogDomain.AUTH, "Habilitations illisibles.", failure)
             denyAccess(AuthFailureKind.HABILITATION_UNVERIFIED)
@@ -460,9 +499,14 @@ class AuthViewModel(
         )
         if (access == null) {
             logger.info(LogDomain.AUTH, "Aucune habilitation Aule Pro.")
+            // Le serveur a répondu, et il a dit non : ce qu'on gardait en
+            // réserve pour les jours sans réseau ne vaut plus rien.
+            runCatching { accessCache?.clear() }
             denyAccess(AuthFailureKind.NO_HABILITATION)
             return
         }
+        // La réponse du serveur devient la réserve du prochain sous-sol.
+        runCatching { accessCache?.write(session.user.id, access) }
 
         try {
             val (depots, networks) = coroutineScope {
@@ -508,6 +552,46 @@ class AuthViewModel(
                 avatarBytes = null,
             )
         }
+    }
+
+    /**
+     * Ouvrir sur la dernière habilitation connue, faute d'avoir pu la vérifier.
+     *
+     * Rend `false` quand il n'y a rien en réserve — un compte jamais vérifié
+     * sur cet appareil reste dehors. La porte ne s'ouvre pas sur une absence de
+     * donnée : elle s'ouvre sur un « oui » que le serveur a déjà prononcé ici.
+     *
+     * La fiche agent, elle, manque presque toujours dans ce cas (elle se lit au
+     * même moment, sur le même réseau absent). C'est déjà un état prévu :
+     * `profileFailed` fait retomber la carte d'identité du menu sur l'adresse de
+     * session, comme pour un compte sans fiche `drivers`.
+     */
+    private suspend fun openOnLastKnownAccess(
+        session: AuthSession,
+        profile: DriverProfile?,
+        profileFailed: Boolean,
+    ): Boolean {
+        val remembered = runCatching { accessCache?.read(session.user.id) }.getOrNull()
+            ?: return false
+        logger.warn(
+            LogDomain.AUTH,
+            "Habilitations injoignables — ouverture sur la dernière connue (${remembered.modes}).",
+        )
+        _state.value = _state.value.copy(
+            isCheckingAccess = false,
+            isSignedIn = true,
+            isSubmitting = false,
+            isLoadingProfile = false,
+            profileFailed = profileFailed,
+            access = remembered,
+            profile = profile,
+            depots = emptyList(),
+            networks = emptyList(),
+            depot = null,
+            network = null,
+            avatarBytes = null,
+        )
+        return true
     }
 
     private suspend fun denyAccess(kind: AuthFailureKind) {

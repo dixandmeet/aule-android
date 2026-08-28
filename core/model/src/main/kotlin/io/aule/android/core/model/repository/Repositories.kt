@@ -2,6 +2,7 @@ package io.aule.android.core.model.repository
 
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.ActiveDriverService
+import io.aule.android.core.model.AgentAccess
 import io.aule.android.core.model.AppearanceMode
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
@@ -186,6 +187,13 @@ interface AuthRepository {
      * `null` si la ligne n'existe pas : ce n'est pas une panne, c'est un
      * compte sans habilitation staff, et la résolution d'accès décide alors
      * d'après la fiche `drivers`. Une panne réseau, elle, **lève**.
+     *
+     * ⚠️ **Elle lève un [io.aule.android.core.model.AuthException] de genre
+     * [io.aule.android.core.model.AuthFailureKind.NETWORK] quand la question
+     * n'a pas pu être posée** — transport coupé, 5xx, 429. C'est la seule
+     * façon pour l'écran, qui ne voit pas la couche réseau, de distinguer
+     * « le serveur dit non » de « je n'ai pas pu demander ». Les confondre
+     * faisait perdre son habilitation à un conducteur garé en sous-sol.
      */
     suspend fun fetchStaffRole(session: AuthSession): String?
 
@@ -551,6 +559,36 @@ interface GpsTraceRecorder {
 interface AuthSessionStore {
     suspend fun read(): AuthSession?
     suspend fun write(session: AuthSession)
+    suspend fun clear()
+}
+
+/**
+ * La dernière habilitation **accordée**, gardée sur l'appareil.
+ *
+ * ## Pourquoi elle existe
+ *
+ * L'accès à Aule Pro se décide en interrogeant `user_profiles` et la fiche
+ * `drivers`. Sans réseau, la question ne peut pas être posée — et la seule
+ * réponse honnête n'est ni « oui » ni « non », c'est « je ne sais pas ».
+ * Traiter ce silence comme un refus fermait la session d'un conducteur garé
+ * en sous-sol ; le traiter comme un accord ouvrirait l'application à
+ * n'importe qui en mode avion.
+ *
+ * On garde donc ce que le serveur a **déjà accordé à ce compte, sur cet
+ * appareil**. C'est la même règle que les favoris (ADR-012) : le local d'abord,
+ * le compte rattrape. Un compte jamais vérifié ici n'a rien en réserve et reste
+ * dehors — la porte ne s'ouvre pas sur une absence de donnée.
+ *
+ * L'habilitation est rangée **par identifiant d'utilisateur** : deux comptes
+ * sur le même téléphone ne se prêtent pas leurs droits.
+ */
+interface AgentAccessStore {
+    /** Ce que le serveur avait accordé à [userId], ou `null` s'il n'a jamais répondu ici. */
+    suspend fun read(userId: String): AgentAccess?
+
+    suspend fun write(userId: String, access: AgentAccess)
+
+    /** Efface tout. Appelé sur une déconnexion et sur un refus explicite. */
     suspend fun clear()
 }
 

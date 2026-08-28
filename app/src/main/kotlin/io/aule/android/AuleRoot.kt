@@ -105,6 +105,7 @@ fun AuleRoot(
                     auth = graph.auth,
                     profiles = graph.profiles,
                     logger = graph.logger,
+                    accessCache = graph.agentAccess,
                 )
             }
         },

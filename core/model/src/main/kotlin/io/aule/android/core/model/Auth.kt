@@ -18,9 +18,21 @@ data class AuthSession(
     /** Instant d'expiration du jeton d'accès, epoch secondes. */
     val expiresAtEpochSeconds: Long,
 ) {
+    /**
+     * Périmé — **ou sur le point de l'être**.
+     *
+     * La marge n'est pas de la prudence gratuite : sans elle, un jeton qui
+     * expirait dans deux secondes était jugé valide au démarrage, et le premier
+     * appel PostgREST qui suivait prenait un 401 que rien ne rattrape (il n'y a
+     * pas d'intercepteur de rafraîchissement sur 401). Une minute couvre le
+     * lancement de l'application et le premier aller-retour réseau.
+     */
     fun isExpired(nowEpochSeconds: Long = System.currentTimeMillis() / 1_000): Boolean =
-        nowEpochSeconds >= expiresAtEpochSeconds
+        nowEpochSeconds >= expiresAtEpochSeconds - AUTH_EXPIRY_MARGIN_SECONDS
 }
+
+/** De combien on anticipe l'expiration d'un jeton d'accès, en secondes. */
+const val AUTH_EXPIRY_MARGIN_SECONDS = 60L
 
 /**
  * Pourquoi la connexion a échoué, sans phrase.

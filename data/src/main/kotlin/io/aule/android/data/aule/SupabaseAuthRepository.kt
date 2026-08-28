@@ -21,6 +21,7 @@ import io.aule.android.data.dto.UserProfileDto
 import io.aule.android.data.dto.authFailureKindOf
 import io.aule.android.data.dto.serverMessage
 import io.aule.android.data.dto.toSession
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
@@ -28,6 +29,24 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+
+/**
+ * Les seuls refus qui condamnent un jeton de rafraîchissement.
+ *
+ * La liste est **positive**, et c'est le point : un code que GoTrue n'a pas
+ * encore inventé, un 500, un 429, une coupure de transport ne doivent pas
+ * déconnecter quelqu'un. Le doute profite à la session — la sanction d'une
+ * erreur de jugement est asymétrique. Se tromper en gardant coûte un appel qui
+ * répondra 401 ; se tromper en effaçant coûte un conducteur qui ne peut plus
+ * entrer, précisément là où il n'a pas de réseau pour se reconnecter.
+ *
+ * `invalid_grant` — le code de GoTrue pour un jeton révoqué ou déjà consommé —
+ * arrive ici en [AuthFailureKind.INVALID_CREDENTIALS] (`authFailureKindOf`).
+ */
+private val REVOKING_FAILURES = setOf(
+    AuthFailureKind.INVALID_CREDENTIALS,
+    AuthFailureKind.EMAIL_NOT_CONFIRMED,
+)
 
 /**
  * Client GoTrue (Supabase Auth) sur OkHttp.
@@ -72,17 +91,45 @@ class SupabaseAuthRepository(
         }
         return try {
             refresh(stored.refreshToken).also { session = it }
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (failure: AuthException) {
-            logger.info(LogDomain.AUTH, "Session expirée, reconnexion requise (${failure.kind}).")
-            store.clear()
-            session = null
-            null
+            if (failure.kind in REVOKING_FAILURES) {
+                logger.info(LogDomain.AUTH, "Session révoquée (${failure.kind}).")
+                store.clear()
+                session = null
+                null
+            } else {
+                keepUnverified(stored, "refus non définitif (${failure.kind})")
+            }
         } catch (failure: Throwable) {
-            logger.warn(LogDomain.AUTH, "Rafraîchissement impossible.", failure)
-            store.clear()
-            session = null
-            null
+            keepUnverified(stored, "rafraîchissement injoignable : ${failure.message}")
         }
+    }
+
+    /**
+     * Le serveur n'a pas répondu — on garde la session, on ne la juge pas.
+     *
+     * ## Ce que faisait le code d'avant, et pourquoi c'était grave
+     *
+     * Toute panne était traitée comme un refus : `store.clear()`, et l'écran de
+     * connexion. Or un jeton d'accès GoTrue vit **une heure**. Passé ce délai,
+     * relancer l'application sans réseau — dépôt en sous-sol, parking, tunnel —
+     * jetait un jeton de rafraîchissement parfaitement valide et renvoyait à un
+     * écran de connexion qui, sans réseau, ne peut pas aboutir. Le conducteur
+     * était enfermé dehors par la seule absence de couverture.
+     *
+     * On ne condamne donc que ce que le serveur a **explicitement** condamné
+     * ([REVOKING_FAILURES]). Le reste — panne de transport, 5xx, 429, code
+     * inconnu — laisse la session sur le disque et en mémoire : son jeton
+     * d'accès est périmé, le prochain appel qui en a besoin le verra, et le
+     * prochain [restore] retentera. Une session périmée qu'on garde est
+     * réparable ; une session effacée hors ligne ne l'est pas.
+     */
+    private fun keepUnverified(stored: AuthSession, why: String): AuthSession {
+        logger.warn(LogDomain.AUTH, "Session conservée sans vérification — $why.")
+        session = stored
+        return stored
     }
 
     override suspend fun signIn(email: String, password: String): AuthSession = mutex.withLock {
@@ -128,27 +175,53 @@ class SupabaseAuthRepository(
         }
     }
 
+    /**
+     * ## Injoignable et refusé ne se ressemblent pas, et le contrat le dit
+     *
+     * Cette lecture décide qui entre dans Aule Pro. Tant qu'elle jetait une
+     * `ApiException` brute, l'écran — qui ne voit pas `:core:network` — ne
+     * pouvait que rattraper `Throwable` et fermer la session : un dépôt en
+     * sous-sol suffisait à faire perdre son habilitation à un conducteur qui
+     * l'avait.
+     *
+     * Une panne de transport, un 5xx, un 429 lèvent donc désormais
+     * [AuthFailureKind.NETWORK] — « je n'ai pas pu demander ». Un 4xx, lui,
+     * reste une réponse : le serveur a demandé et refusé.
+     */
     override suspend fun fetchStaffRole(session: AuthSession): String? {
         if (!configured) return null
         val restBase = supabaseUrl.trimEnd('/') + "/rest/v1"
-        val response = client.getRaw(
-            url = "$restBase/user_profiles",
-            headers = mapOf(
-                "apikey" to publishableKey,
-                "Authorization" to "Bearer ${session.accessToken}",
-            ),
-            query = mapOf(
-                "select" to "role",
-                "id" to "eq.${session.user.id}",
-                "limit" to "1",
-            ),
-        )
+        val response = try {
+            client.getRaw(
+                url = "$restBase/user_profiles",
+                headers = mapOf(
+                    "apikey" to publishableKey,
+                    "Authorization" to "Bearer ${session.accessToken}",
+                ),
+                query = mapOf(
+                    "select" to "role",
+                    "id" to "eq.${session.user.id}",
+                    "limit" to "1",
+                ),
+            )
+        } catch (cancelled: ApiException.Cancelled) {
+            throw cancelled
+        } catch (transport: ApiException.Transport) {
+            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+        }
         when (response.code) {
             in 200..299 -> Unit
             404 -> return null
-            502, 503, 504 -> throw ApiException.UpstreamUnavailable(response.code)
+            429 -> throw AuthException(AuthFailureKind.NETWORK, "PostgREST a limité le débit.")
+            502, 503, 504 -> throw AuthException(
+                AuthFailureKind.NETWORK,
+                ApiException.UpstreamUnavailable(response.code).message,
+            )
             in 400..499 -> throw ApiException.BadRequest(response.code)
-            else -> throw ApiException.Server(response.code)
+            else -> throw AuthException(
+                AuthFailureKind.NETWORK,
+                ApiException.Server(response.code).message,
+            )
         }
         val rows = try {
             json.decodeFromString(ListSerializer(UserProfileDto.serializer()), response.body)

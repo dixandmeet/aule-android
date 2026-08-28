@@ -5,6 +5,7 @@ import android.net.Uri
 import io.aule.android.appearance.AppearanceSettings
 import io.aule.android.appearance.PreferencesAppearanceStore
 import io.aule.android.auth.PreferencesAuthPkceStore
+import io.aule.android.auth.PreferencesAgentAccessStore
 import io.aule.android.auth.PreferencesAuthSessionStore
 import io.aule.android.auth.PreferencesRegistrationDraftStore
 import io.aule.android.search.PreferencesSavedPlacesStore
@@ -28,6 +29,7 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.location.AlertTone
 import io.aule.android.core.location.FusedLocationProvider
 import io.aule.android.core.location.LocationProvider
+import io.aule.android.core.model.repository.AgentAccessStore
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.DriverProfileRepository
 import io.aule.android.core.model.repository.DriverReportRepository
@@ -99,6 +101,12 @@ class AuleGraph private constructor(
     val roads: RoadRouter,
     val auth: AuthRepository,
     val profiles: DriverProfileRepository,
+    /**
+     * La dernière habilitation accordée, gardée sur l'appareil : c'est elle
+     * qui laisse entrer un conducteur dont on ne peut pas vérifier les droits
+     * faute de réseau. Voir [AgentAccessStore].
+     */
+    val agentAccess: AgentAccessStore,
     val registrationDrafts: RegistrationDraftStore,
     val searchHistory: SearchHistoryStore,
     val savedPlaces: SavedPlacesStore,
@@ -224,6 +232,7 @@ class AuleGraph private constructor(
                     roads = OsrmRoadRouter(http, config.roadRouterOrigin),
                     auth = auth,
                     profiles = profiles,
+                    agentAccess = PreferencesAgentAccessStore(context),
                     registrationDrafts = PreferencesRegistrationDraftStore(context),
                     searchHistory = PreferencesSearchHistoryStore(context),
                     savedPlaces = PreferencesSavedPlacesStore(context),
