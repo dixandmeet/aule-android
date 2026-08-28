@@ -85,12 +85,19 @@ android {
         buildConfigField(
             "String",
             "SUPABASE_URL",
-            "\"${setting("aule.supabaseUrl", "https://rllcdvuqduuyhdcifiwp.supabase.co")}\"",
+            // Sans repli : c'est une valeur propre à la machine, et un
+            // défaut en dur la reverse dans le dépôt à chaque commit du
+            // fichier de build. Elle vit dans `local.properties`.
+            "\"${setting("aule.supabaseUrl")}\"",
         )
         buildConfigField(
             "String",
             "SUPABASE_PUBLISHABLE_KEY",
-            "\"${setting("aule.supabasePublishableKey", "sb_publishable_SoVrtwgKHm3lkFaW8r5fmA_HEH7VpL6")}\"",
+            // Aucun repli non plus. La clé est publiable — RLS tient les
+            // droits — mais un défaut en dur la remet dans l'historique au
+            // premier commit, et surtout il fait croire à une machine
+            // configurée : `supabaseConfigured` est là pour dire le contraire.
+            "\"${setting("aule.supabasePublishableKey")}\"",
         )
     }
 
