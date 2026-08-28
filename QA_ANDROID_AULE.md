@@ -148,25 +148,37 @@ Le seul signalement à conséquence produit est le couple
 `LockedOrientationActivity` / `DiscouragedApi` : le verrou portrait du manifeste
 est un **choix structurant** — « tout le cadrage de la carte se calcule sur la
 hauteur » — et Android 16 cesse de l'honorer sur les grands écrans. Sur le S21
-rien ne change ; sur une tablette ou un pliable déplié, l'activité tournera en
-paysage et **toute l'arithmétique de cadrage tournera avec elle** : décalage du
-puck « dans le tiers bas », détentes du volet, marges de contenu. Aucun de ces
-calculs n'a été pensé pour un viewport large et bas.
+rien ne change ; sur une tablette ou un pliable déplié, l'activité tournerait en
+paysage.
+
+> **Correction, après vérification** — la première rédaction affirmait que
+> « toute l'arithmétique de cadrage tournerait avec elle ». C'est faux :
+> `MapController.viewportHeightDp` lit la hauteur **mesurée** de la vue, et les
+> détentes du volet sont des fractions de `BoxWithConstraints`. Le cadrage
+> serait donc dégradé en paysage — bande plus basse, moins de route devant — et
+> non faux. Voir § 6 ter.
 
 ### 2.4 Avertissements de compilation
 
-14 avertissements, tous de dépréciation Material 3, plus deux broutilles :
+> **Ce paragraphe a d'abord été faux, et la correction vaut d'être lue.** Le
+> premier relevé annonçait « 14 avertissements » : il venait d'un `tail` sur une
+> sortie de build filtrée, qui n'en montrait que la fin. Le compte réel, pris sur
+> une compilation complète forcée, est de **22**. Les huit manquants vivaient
+> dans `:feature:auth` et `:core:network`, en amont du fragment lu.
 
-- `rememberModalBottomSheetState(skipPartiallyExpanded, confirmValueChange)`
-  déprécié — 5 occurrences (`EndServiceSheet:99`, `LegalNoticeSheet:61`,
-  `ReportSheet:150`, `SavedPlaceEditorSheet:111`, `SavedPlacesSheet:77`).
-- Surcharge `ListItem(headlineContent = …)` dépréciée — 8 occurrences
-  (`HandoverScreen` ×5, `LineDepartureSheet:352`, `RouteSheet:228` et `:368`,
-  `StopDetailSheet:533`, `TripSheet:98`).
-- `MapScreen.kt:1141` — `!!` inutile sur un receveur non nul.
-- `AuthViewModelRecoveryTest.kt:256` — nom de paramètre divergent du supertype.
+Inventaire réel, avant correction :
 
----
+| Avertissement | Nb | Où |
+|---|---|---|
+| Surcharge `ListItem(headlineContent = …)` dépréciée | 13 | `HandoverScreen` ×5, `ProfileScreen` ×4, `RouteSheet` ×2, `AccountMenuSheet`, `LineDepartureSheet`, `StopDetailSheet`, `TripSheet` |
+| `rememberModalBottomSheetState` déprécié | 6 | 5 volets de `:feature:map`, 1 de `:feature:auth` |
+| Appel sûr inutile sur `ResponseBody` | 3 | `AuleHttpClient` — `Response.body` n'est plus nullable en OkHttp 5 |
+| Appel sûr inutile sur `JourneyLeg` | 3 | `NextAction` — le compilateur a déjà déduit la non-nullité |
+| `!!` inutile | 1 | `MapScreen` — `menuOpen` porte déjà le test |
+| Nom de paramètre divergent du supertype | 1 | `AuthViewModelRecoveryTest` |
+
+Après la passe du § 6 ter, il en reste **15**, tous la même dépréciation de
+`ListItem` — laissée délibérément, pour la raison qui y est donnée.
 
 ## 3. Fiches de test
 
@@ -953,6 +965,97 @@ pas une décision prise au fil d'une recette. **Reste ouvert, P2.**
 expirant dans deux secondes était jugé valide au démarrage et le premier appel
 PostgREST prenait un 401 que rien ne rattrape. La marge est directement liée aux
 correctifs d'authentification ci-dessus, d'où sa présence ici.
+
+
+---
+
+## 6 ter. Les P3 et P4
+
+Dernière passe, le 28/08/2026. Deux chiffres la résument : **Android Lint passe
+de 41 à 17 avertissements**, et les **avertissements de compilation de 22 à 15**.
+
+Ce qui reste tient en deux lignes. Côté Lint, seize des dix-sept sont « une
+version plus récente existe » — des décisions de montée de version, pas des
+défauts — et le dix-septième est un faux positif démontré. Côté compilation, les
+quinze sont **la même** dépréciation de `ListItem`, laissée délibérément.
+
+### Corrigé
+
+| Anomalie | Correction |
+|---|---|
+| `UseKtx` ×14 | Les huit dépôts `SharedPreferences` passent à `prefs.edit { … }`. |
+| **AND-BUG-015** — `rememberModalBottomSheetState` déprécié ×6 | Migré vers `rememberBottomSheetState(initialValue = Hidden, enabledValues = setOf(Hidden, Expanded))`. Cinq volets dans `:feature:map`, un dans `:feature:auth` — ce dernier absent du premier relevé. |
+| Appel sûr inutile ×6 | `Response.body` n'est plus nullable en OkHttp 5 (`AuleHttpClient` ×3) ; `next` est déjà déduit non nul par `isTransfer` (`NextAction` ×3). |
+| `ObsoleteSdkInt` ×2 | Deux gardes `SDK_INT < O` toujours fausses depuis `minSdk 26`, retirées avec leur import. |
+| `UnusedResources` | `permission_location_rationale` supprimée des deux catalogues : la justification affichée est celle de `WelcomeScreen`. |
+| `LogNotTimber` ×4 | `@Suppress` sur `AndroidLogger`, avec la raison dans son KDoc. |
+| `LockedOrientationActivity`, `DiscouragedApi`, `UnusedAttribute` | `tools:ignore` dans le manifeste, chacun avec le commentaire qui dit pourquoi. |
+| **AND-BUG-016** | `menuSheet!!()` — `menuOpen` porte déjà le test de nullité. |
+| **AND-BUG-017** | `profileId` renommé `driverId`, comme le supertype. |
+
+Sur la migration des volets, un mot : elle est **prouvée à comportement
+identique**, et pas seulement annoncée par le `ReplaceWith` de la bibliothèque.
+`SheetState.skipPartiallyExpanded` dérive de `enabledValues`, et les trois
+fonctions qui lisent le drapeau `isBottomSheetPartiallyExpandedDeterministicEnabled`
+— dont la valeur par défaut change entre les deux API — court-circuitent toutes
+sur l'absence du palier `PartiallyExpanded`. Avec `setOf(Hidden, Expanded)`, ce
+drapeau ne peut pas mordre. Vérifié dans les sources de `material3-1.5.0-alpha26`,
+fonction par fonction.
+
+Les trois `tools:ignore` méritent aussi une phrase, parce qu'ils ne « corrigent »
+rien : un avertissement qu'on laisse s'accumuler est un avertissement que tout le
+monde apprend à ne plus lire. Le taire **avec sa raison, à l'endroit exact où la
+décision s'applique**, c'est la consigner ; la laisser traîner dans un rapport,
+c'est l'oublier.
+
+### Non corrigé, et pourquoi
+
+**`ListItem(headlineContent = …)` déprécié ×8 — laissé.** Le message de
+dépréciation dit « surcharge où `headlineContent` devient un lambda final », ce
+qui laisse croire à un simple déplacement de paramètre. C'est faux : la nouvelle
+surcharge appelle `InteractiveListItem` et prend `shapes`, `elevation`,
+`contentPadding`, `verticalAlignment` là où l'ancienne posait `tonalElevation` et
+`shadowElevation` sur une `Surface`. C'est un autre composant, avec d'autres
+défauts visuels, sur huit listes que je ne peux pas regarder. À faire avec
+l'appareil sous les yeux.
+
+**`ObsoleteSdkInt` sur `mipmap-anydpi-v26` — laissé, et Lint a tort.** Lint
+demande de fusionner le dossier dans `mipmap-anydpi` puisque `minSdk` vaut 26.
+Essayé, au propre, cache de ressources vidé :
+
+```
+AAPT: error: resource mipmap/ic_launcher (aka io.aule.android.development:mipmap/ic_launcher) not found.
+```
+
+`anydpi` seul ne fournit aucune configuration par défaut pour AAPT — il n'y a
+pas d'autre dossier `mipmap-*` dans ce projet. Le qualificateur `-v26` reste, et
+il est nécessaire. C'est le seul des dix-sept avertissements restants qui ne soit
+pas une montée de version.
+
+**Les seize montées de version — laissées, et ce n'est pas de la paresse.**
+
+- `AndroidGradlePluginVersion` ×4 : le catalogue de versions **explique** pourquoi
+  AGP reste en 9.2.1 — la 9.3.x exige une distribution Gradle absente de cette
+  machine. Passer outre casserait le build de quelqu'un d'autre.
+- `NewerVersionAvailable` ×4 : dont **MapLibre 13.5.0 → 13.5.1**. Le moteur
+  cartographique est l'endroit du projet où une régression ne se voit pas dans
+  les tests. Un correctif de patch se prend avec un écran devant soi.
+- `GradleDependency` ×7 : AndroidX en retard d'un cran. Routine, mais une montée
+  de version n'est pas la correction d'un défaut, et aucune ne se valide ici.
+- `OldTargetApi` ×1 : monter `targetSdk` change le comportement du système
+  vis-à-vis de l'application. C'est une campagne à soi seule.
+
+**AND-BUG-014 — Material 3 en `1.5.0-alpha26` : non corrigeable, et c'est écrit
+dans le catalogue.** En sortir voudrait dire renoncer à `MaterialExpressiveTheme`,
+`MaterialShapes`, `ButtonGroup`, `LoadingIndicator` et aux slots typographiques
+appuyés, tous `internal` ou absents en 1.4.0 stable — c'est-à-dire réécrire à la
+main ce que le kit fait déjà. La réserve reste entière : une alpha en production
+est un risque de régression à chaque montée.
+
+**AND-BUG-018 — le plugin Kotlin déprécié par AGP 9 : non corrigé, sur consigne.**
+`CLAUDE.md` est explicite : « `android.newDsl=false`, `android.builtInKotlin=false`
+[…] c'est la combinaison éprouvée sur cette machine — ne pas basculer sans
+raison. » Une ligne d'avertissement au démarrage du build n'est pas une raison.
 
 
 ## 7. Décision révisée
