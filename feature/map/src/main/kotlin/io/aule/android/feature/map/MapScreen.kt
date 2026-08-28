@@ -689,16 +689,6 @@ fun MapScreen(
         }
     }
 
-    if (confirmingStop) {
-        StopGuidanceDialog(
-            onKeepGoing = { confirmingStop = false },
-            onStop = {
-                confirmingStop = false
-                stopGuidance(view, viewModel, controller, location, serviceActive)
-            },
-        )
-    }
-
     // Le guidage s'en va avec l'écran.
     //
     // `onPauseOrDispose` ne suffit pas : il ne distingue pas une mise en fond
@@ -722,6 +712,22 @@ fun MapScreen(
     }
 
     AuleTheme(night = night) {
+        // **Dans le thème, et pas au-dessus.** Posé hors d'`AuleTheme`, ce
+        // dialogue prenait la palette Material par défaut : fond lavande,
+        // « Continuer » en violet. Sur le S21, au milieu d'une application
+        // entièrement teal, il ressemblait à un dialogue système — c'est-à-dire
+        // à quelque chose que le conducteur n'a pas demandé. Un `Dialog` propage
+        // bien les CompositionLocals, encore faut-il qu'il soit **sous** le
+        // thème qu'il doit hériter.
+        if (confirmingStop) {
+            StopGuidanceDialog(
+                onKeepGoing = { confirmingStop = false },
+                onStop = {
+                    confirmingStop = false
+                    stopGuidance(view, viewModel, controller, location, serviceActive)
+                },
+            )
+        }
         BoxWithConstraints(modifier = modifier.fillMaxSize()) {
             val parentHeightPx = constraints.maxHeight
             val density = LocalDensity.current

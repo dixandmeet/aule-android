@@ -176,6 +176,14 @@ internal fun MapHud(
                     .fillMaxWidth()
                     .onSizeChanged { onSummaryHeightPx(it.height.toFloat()) },
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                // **Centré, et c'est une correction.** Le cadran était aligné au
+                // début de la bande ; sur le S21 il passait sous la pastille ⓘ,
+                // qui occupe ce coin-là. Les deux extrémités de cette bande sont
+                // prises — la mention légale à gauche, le cadrage à droite — et
+                // le milieu est le seul endroit libre. Un alignement plutôt
+                // qu'une marge chiffrée : la pastille reste dégagée quelle que
+                // soit la largeur de l'écran.
+                horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val speed = navigation.speedKmh
                 if (speed != null) {
@@ -193,13 +201,16 @@ internal fun MapHud(
 /**
  * Le cadran de vitesse.
  *
- * ## Pourquoi il est petit, et pourquoi il est à gauche
+ * ## Pourquoi il est petit, et pourquoi il est là
  *
  * C'est le chiffre qu'on lit **sans quitter la route des yeux** : on le prend
  * en vision périphérique, on ne le cherche pas. Il n'a donc pas besoin de
- * place, il a besoin d'une position stable — le coin bas, du côté opposé à
- * l'accotement, sous le bandeau de consigne et au-dessus de la barre
- * d'arrivée.
+ * place, il a besoin d'une position stable — la bande basse, sous le bandeau de
+ * consigne et au-dessus de la barre d'arrivée.
+ *
+ * Au milieu de cette bande, parce que ses deux extrémités sont déjà prises : la
+ * mention légale à gauche, le cadrage à droite. Aligné au début, il passait
+ * sous la pastille ⓘ — relevé sur le S21, invisible partout ailleurs.
  *
  * ## Le chiffre et son unité ne pèsent pas pareil
  *
@@ -216,7 +227,6 @@ private fun SpeedPill(kmh: Int) {
     AuleCappedFontScale(maxScale = 1.3f) {
         AuleGlassSurface(
             modifier = Modifier
-                .padding(start = AuleSpacing.lg)
                 .semantics {
                     liveRegion = LiveRegionMode.Polite
                     contentDescription = spoken
