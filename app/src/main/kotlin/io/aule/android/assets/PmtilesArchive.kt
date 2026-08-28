@@ -3,12 +3,16 @@ package io.aule.android.assets
 import android.content.Context
 import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
-import io.aule.android.core.map.TransitTiles
 import java.io.File
 import java.io.IOException
 
 /**
- * L'archive des tracés, recopiée là où le lecteur PMTiles sait la lire.
+ * Une archive PMTiles embarquée, recopiée là où le lecteur natif sait la lire.
+ *
+ * Deux archives suivent ce chemin : les tracés du réseau (3,4 Mo) et le référentiel
+ * de voirie de Nantes Métropole (2,1 Mo). Le mécanisme est le même au mot près —
+ * d'où une classe paramétrée plutôt qu'une seconde copie de ces soixante lignes,
+ * qui auraient divergé au premier correctif.
  *
  * ## Pourquoi une copie
  *
@@ -31,9 +35,15 @@ import java.io.IOException
  * demande, pas le fond. Lever ici empêcherait de démarrer pour une couche
  * facultative.
  */
-class TransitArchive(
+class PmtilesArchive(
     private val context: Context,
     private val logger: AuleLogger,
+    /** Le chemin de l'archive dans les assets — p. ex. `tiles/transit.pmtiles`. */
+    private val assetPath: String,
+    /** Le nom du fichier recopié dans `filesDir`. */
+    private val cachedFileName: String,
+    /** Ce que le journal appelle cette archive, à l'ablatif : « des tracés », « de voirie ». */
+    private val label: String,
 ) {
 
     /**
@@ -43,18 +53,18 @@ class TransitArchive(
      */
     fun ensureExtracted(): File? {
         val assets = context.applicationContext.assets
-        val target = File(context.applicationContext.filesDir, TransitTiles.CACHED_FILE_NAME)
+        val target = File(context.applicationContext.filesDir, cachedFileName)
 
         // `openFd` ne répond que sur un asset **non compressé** : c'est pour
         // cela que `noCompress += "pmtiles"` est posé dans `build.gradle.kts`.
         // S'il refusait quand même, on retomberait sur « le fichier existe » —
         // moins sûr, mais toujours mieux que recopier 3,4 Mo à chaque lancement.
         val expected = try {
-            assets.openFd(TransitTiles.ASSET_PATH).use { it.length }
+            assets.openFd(assetPath).use { it.length }
         } catch (_: IOException) {
             logger.warn(
                 LogDomain.MAP,
-                "Archive des tracés compressée dans l'APK : la fraîcheur de la copie " +
+                "Archive $label compressée dans l'APK : la fraîcheur de la copie " +
                     "ne peut plus se vérifier par la taille.",
             )
             null
@@ -64,24 +74,24 @@ class TransitArchive(
         if (target.isFile && fresh) return target
 
         return try {
-            val temporary = File(target.parentFile, TransitTiles.CACHED_FILE_NAME + ".part")
-            assets.open(TransitTiles.ASSET_PATH).use { input ->
+            val temporary = File(target.parentFile, cachedFileName + ".part")
+            assets.open(assetPath).use { input ->
                 temporary.outputStream().use { output -> input.copyTo(output) }
             }
             // Renommage atomique : une copie interrompue laisse un `.part`, pas
             // une archive tronquée que le lecteur prendrait pour valide.
             if (target.exists() && !target.delete()) {
-                logger.warn(LogDomain.MAP, "Ancienne archive des tracés impossible à retirer.")
+                logger.warn(LogDomain.MAP, "Ancienne archive $label impossible à retirer.")
             }
             if (!temporary.renameTo(target)) {
-                logger.warn(LogDomain.MAP, "Archive des tracés impossible à installer.")
+                logger.warn(LogDomain.MAP, "Archive $label impossible à installer.")
                 temporary.delete()
                 return null
             }
-            logger.info(LogDomain.MAP, "Archive des tracés prête (${target.length()} octets).")
+            logger.info(LogDomain.MAP, "Archive $label prête (${target.length()} octets).")
             target
         } catch (failure: IOException) {
-            logger.warn(LogDomain.MAP, "Archive des tracés illisible.", failure)
+            logger.warn(LogDomain.MAP, "Archive $label illisible.", failure)
             null
         }
     }

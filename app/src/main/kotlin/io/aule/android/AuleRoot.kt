@@ -384,10 +384,19 @@ fun AuleRoot(
                     graph.transitArchive.ensureExtracted()?.let(TransitTiles::pmtilesUrl)
                 }
             }
+            // Même chemin pour le référentiel de voirie : 1,6 Mo, extraits une fois.
+            // Il ne conditionne rien non plus — hors Nantes Métropole, il n'aurait de
+            // toute façon rien à dire.
+            val voirieArchiveUrl by produceState<String?>(null, graph) {
+                value = withContext(Dispatchers.IO) {
+                    graph.voirieArchive.ensureExtracted()?.let(TransitTiles::pmtilesUrl)
+                }
+            }
             MapScreen(
                 viewModel = mapViewModel,
                 controller = mapController,
                 transitArchiveUrl = transitArchiveUrl,
+                voirieArchiveUrl = voirieArchiveUrl,
                 location = graph.location,
                 // L'avatar et le menu descendent d'ici : `:feature:map` ne voit
                 // pas `:feature:auth`, et c'est bien ainsi — la carte ne sait

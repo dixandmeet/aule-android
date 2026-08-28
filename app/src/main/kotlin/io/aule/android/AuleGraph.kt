@@ -13,7 +13,9 @@ import io.aule.android.search.PreferencesSavedPlacesStore
 import io.aule.android.search.PreferencesSearchHistoryStore
 import io.aule.android.assets.AndroidAssetBytes
 import io.aule.android.assets.FileCacheStore
-import io.aule.android.assets.TransitArchive
+import io.aule.android.assets.PmtilesArchive
+import io.aule.android.core.map.TransitTiles
+import io.aule.android.core.map.VoirieTiles
 import io.aule.android.data.caching.CachedStopRepository
 import io.aule.android.guet.PreferencesGuetStore
 import io.aule.android.data.tiles.AssetNetworkLineRepository
@@ -136,7 +138,8 @@ class AuleGraph private constructor(
     val savedPlaceSync: SavedPlaceRepository,
     val welcome: WelcomeStore,
     val networkLines: NetworkLineRepository,
-    val transitArchive: TransitArchive,
+    val transitArchive: PmtilesArchive,
+    val voirieArchive: PmtilesArchive,
     val guetPreferences: GuetPreferencesStore,
     val appearance: AppearanceSettings,
     val traces: GpsTraceCatalog,
@@ -270,7 +273,20 @@ class AuleGraph private constructor(
                     ),
                     welcome = PreferencesWelcomeStore(context),
                     networkLines = AssetNetworkLineRepository(AndroidAssetBytes(context)),
-                    transitArchive = TransitArchive(context, logger),
+                    transitArchive = PmtilesArchive(
+                        context = context,
+                        logger = logger,
+                        assetPath = TransitTiles.ASSET_PATH,
+                        cachedFileName = TransitTiles.CACHED_FILE_NAME,
+                        label = "des tracés",
+                    ),
+                    voirieArchive = PmtilesArchive(
+                        context = context,
+                        logger = logger,
+                        assetPath = VoirieTiles.ASSET_PATH,
+                        cachedFileName = VoirieTiles.CACHED_FILE_NAME,
+                        label = "de voirie",
+                    ),
                     guetPreferences = PreferencesGuetStore(context),
                     appearance = AppearanceSettings(PreferencesAppearanceStore(context)),
                     traces = FileGpsTraceCatalog(context),

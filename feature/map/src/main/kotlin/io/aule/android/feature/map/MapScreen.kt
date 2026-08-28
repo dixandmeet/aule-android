@@ -94,6 +94,7 @@ import io.aule.android.core.map.layer.TransitLinesLayer
 import io.aule.android.core.map.layer.StopsLayer
 import io.aule.android.core.map.layer.UserPuckLayer
 import io.aule.android.core.map.layer.VehiclesLayer
+import io.aule.android.core.map.layer.VoirieLayer
 import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.HandoverFix
 import io.aule.android.core.model.HandoverSummary
@@ -173,6 +174,11 @@ fun MapScreen(
      * Arriver en retard ne les fait donc pas passer devant.
      */
     transitArchiveUrl: String? = null,
+    /**
+     * L'archive du référentiel de voirie, extraite des assets — `null` tant que la
+     * copie n'a pas abouti, et sans conséquence : la carte se peint sans elle.
+     */
+    voirieArchiveUrl: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -230,6 +236,14 @@ fun MapScreen(
     DisposableEffect(state.isNavigating) {
         view.keepScreenOn = state.isNavigating
         onDispose { view.keepScreenOn = false }
+    }
+
+    // La voirie avant les tracés : elle tient du fond de carte, et l'ordre
+    // d'enregistrement est l'ordre de superposition.
+    remember(controller, voirieArchiveUrl) {
+        voirieArchiveUrl?.let { url ->
+            VoirieLayer(archiveUrl = url).also { controller.registry.register(it) }
+        }
     }
 
     val transitLinesLayer = remember(controller, transitArchiveUrl) {
