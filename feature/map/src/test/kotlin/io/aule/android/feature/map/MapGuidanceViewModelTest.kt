@@ -460,6 +460,60 @@ class MapGuidanceViewModelTest {
     }
 
     /**
+     * Le routeur de voirie a répondu pour un **autre** trajet : ses manœuvres
+     * n'ont rien à faire sur celui-ci.
+     *
+     * C'est le cas mesuré sur le serveur public, qui sert du profil voiture
+     * même quand on lui demande la marche. Le symptôme était silencieux —
+     * l'agrafage écartait les manœuvres tombées à côté, et gardait celles qui
+     * coïncidaient par hasard.
+     */
+    @Test
+    fun `un routeur qui decrit un autre trajet ne pose aucune manoeuvre`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            // La jambe peinte fait 4 200 m ; le routeur en rend 12 000.
+            val roads = FakeRoadRouter(
+                result = RoadRoute(
+                    points = listOf(origin.coordinate, destination.coordinate),
+                    distanceMeters = 12_000.0,
+                    durationSeconds = 900.0,
+                    maneuvers = listOf(
+                        RoadManeuver(
+                            instruction = "turn",
+                            location = origin.coordinate,
+                            distanceMeters = 100.0,
+                            durationSeconds = 20.0,
+                            modifier = "right",
+                        ),
+                    ),
+                ),
+            )
+            val viewModel = viewModel(
+                dispatcher,
+                routing = FakeRouting(plan = samplePlan("a")),
+                roads = roads,
+            )
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            val action = assertNotNull(viewModel.state.value.navigation?.action)
+            assertEquals(
+                NextActionKind.FOLLOW,
+                action.kind,
+                "aucune consigne plutôt qu'une consigne d'un autre trajet",
+            )
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
      * Un point **sur** le tracé, un peu plus loin que l'écart : celui où l'on
      * rejoint. À 8 % du trajet, il tombe dans la fenêtre avant de
      * [io.aule.android.core.geo.PolylineProjection].

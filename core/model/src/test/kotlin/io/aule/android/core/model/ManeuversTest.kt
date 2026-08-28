@@ -2,6 +2,7 @@ package io.aule.android.core.model
 
 import io.aule.android.core.geo.Coordinate
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -111,4 +112,42 @@ class ManeuversTest {
         )
         assertNull(nextManeuver(sansArrivee, 0.9, 4000.0))
     }
+    /**
+     * Le relevé qui a motivé cette garde : sur `router.project-osrm.org`, les
+     * profils `walking` et `driving` rendent la même réponse. Une jambe à pied
+     * de 713 m recevait donc les consignes d'un trajet en voiture de 1 199 m.
+     */
+    @Test
+    fun `un routeur qui decrit un autre trajet est ecarte`() {
+        assertFalse(roadRouteDescribesLeg(roadMeters = 1_198.6, paintedMeters = 713.5))
+    }
+
+    @Test
+    fun `deux routeurs d accord sur la meme jambe passent`() {
+        assertTrue(roadRouteDescribesLeg(roadMeters = 3_400.0, paintedMeters = 3_423.0))
+        assertTrue(
+            roadRouteDescribesLeg(roadMeters = 4_100.0, paintedMeters = 3_423.0),
+            "vingt pour cent d'écart restent le même chemin, décrit autrement",
+        )
+    }
+
+    /**
+     * Sur une jambe courte, vingt-cinq pour cent ne font que quelques mètres.
+     * Deux routeurs ont le droit de ne pas être d'accord sur le côté de la rue
+     * où elle s'arrête : c'est la marge absolue qui parle.
+     */
+    @Test
+    fun `une jambe courte garde une marge absolue`() {
+        assertTrue(roadRouteDescribesLeg(roadMeters = 130.0, paintedMeters = 90.0))
+        assertFalse(roadRouteDescribesLeg(roadMeters = 260.0, paintedMeters = 90.0))
+    }
+
+    @Test
+    fun `une longueur absurde ne decrit rien`() {
+        assertFalse(roadRouteDescribesLeg(roadMeters = 0.0, paintedMeters = 500.0))
+        assertFalse(roadRouteDescribesLeg(roadMeters = 500.0, paintedMeters = 0.0))
+        assertFalse(roadRouteDescribesLeg(roadMeters = Double.NaN, paintedMeters = 500.0))
+        assertFalse(roadRouteDescribesLeg(roadMeters = 500.0, paintedMeters = Double.POSITIVE_INFINITY))
+    }
+
 }

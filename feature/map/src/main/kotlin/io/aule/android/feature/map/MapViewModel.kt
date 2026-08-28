@@ -43,6 +43,7 @@ import io.aule.android.core.model.journeyFromCandidate
 import io.aule.android.core.model.journeyProgressAt
 import io.aule.android.core.model.nextAction
 import io.aule.android.core.model.pinManeuvers
+import io.aule.android.core.model.roadRouteDescribesLeg
 import io.aule.android.core.model.tripSummary
 import io.aule.android.core.model.Timetable
 import io.aule.android.core.model.TimetableException
@@ -1585,7 +1586,23 @@ class MapViewModel(
                     withContext(dispatchers.io) { roadRouter.route(from, to, profile) }
                 }.getOrNull()
                 if (generation != maneuverGeneration) return@launch
-                maneuversByLeg[index] = if (road == null) {
+                // Le routeur a-t-il décrit **cette** jambe ? Une réponse pour un
+                // autre trajet ne se voit pas : les manœuvres qui tombent à
+                // côté sont écartées en silence par l'agrafage, et celles qui
+                // coïncident par hasard restent, fausses. Voir
+                // [roadRouteDescribesLeg] — le serveur public sert du profil
+                // voiture même quand on lui demande la marche.
+                val describesLeg = road != null &&
+                    roadRouteDescribesLeg(road.distanceMeters, leg.distanceMeters)
+                if (road != null && !describesLeg) {
+                    logger.warn(
+                        LogDomain.NET,
+                        "Manœuvres écartées : le routeur rend " +
+                            "${road.distanceMeters.toInt()} m pour une jambe de " +
+                            "${leg.distanceMeters.toInt()} m.",
+                    )
+                }
+                maneuversByLeg[index] = if (road == null || !describesLeg) {
                     emptyList()
                 } else {
                     pinManeuvers(

@@ -16,6 +16,55 @@ import io.aule.android.core.geo.PolylineProjection
 /** Écart maximal, en mètres. Vingt-cinq : le grain d'un carrefour, pas une rue voisine. */
 const val MANEUVER_SNAP_M = 25.0
 
+/**
+ * Écart relatif au-delà duquel le routeur de voirie ne décrit plus la même jambe.
+ */
+const val MANEUVER_LENGTH_TOLERANCE = 0.25
+
+/**
+ * Écart absolu toléré quoi qu'il arrive, en mètres.
+ *
+ * Sur une jambe courte, vingt-cinq pour cent ne font que quelques mètres, et
+ * deux routeurs ont le droit de ne pas être d'accord sur le côté de la rue où
+ * s'arrête une jambe. Cinquante mètres, c'est le grain d'un carrefour.
+ */
+const val MANEUVER_LENGTH_SLACK_M = 50.0
+
+/**
+ * Le routeur de voirie a-t-il décrit **la jambe qu'on peint** ?
+ *
+ * ## Le défaut que cette fonction ferme
+ *
+ * Les manœuvres viennent d'un second serveur, interrogé pour la même paire de
+ * points. Rien ne garantissait qu'il réponde pour le même **trajet**. Mesuré le
+ * 28/08/2026 sur `router.project-osrm.org` : les chemins `driving`, `walking` et
+ * `foot` rendent la **même réponse au mètre près** — le serveur de démonstration
+ * ne charge que le profil voiture et ignore le profil demandé. Une jambe à pied
+ * recevait donc des consignes de voiture, calculées sur des sens interdits qui
+ * ne la concernent pas.
+ *
+ * Le symptôme était silencieux, et c'est ce qui le rendait grave :
+ * [pinManeuvers] écarte ce qui tombe à plus de vingt-cinq mètres du tracé, donc
+ * la plupart des manœuvres disparaissaient sans un mot — et **celles qui
+ * coïncidaient par hasard restaient, fausses**.
+ *
+ * ## Pourquoi la longueur suffit à trancher
+ *
+ * Deux routeurs qui décrivent le même chemin s'accordent sur sa longueur ; deux
+ * routeurs qui décrivent des chemins différents s'en écartent tout de suite. Le
+ * relevé consigné dans `Route.kt` le montre sur une même paire de points
+ * nantais : 713,5 m à pied contre 1 198,6 m en voiture, soit deux tiers de plus.
+ * C'est un test à un nombre, sans géométrie à comparer, et il vaut pour la
+ * voiture aussi — un OSRM qui contourne un chantier que le BFF ignore décrit
+ * lui aussi un autre trajet.
+ */
+fun roadRouteDescribesLeg(roadMeters: Double, paintedMeters: Double): Boolean {
+    if (!roadMeters.isFinite() || !paintedMeters.isFinite()) return false
+    if (roadMeters <= 0.0 || paintedMeters <= 0.0) return false
+    val tolerated = maxOf(MANEUVER_LENGTH_SLACK_M, paintedMeters * MANEUVER_LENGTH_TOLERANCE)
+    return kotlin.math.abs(roadMeters - paintedMeters) <= tolerated
+}
+
 enum class ManeuverKind {
     DEPART,
     STRAIGHT,
