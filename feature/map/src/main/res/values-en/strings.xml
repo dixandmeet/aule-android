@@ -236,6 +236,9 @@
     <string name="nav_stops_many">%1$d stops</string>
     <string name="nav_board">Board</string>
     <string name="nav_board_line">Take %1$s</string>
+    <string name="nav_speed_value">%1$d</string>
+    <string name="nav_speed_unit">km/h</string>
+    <string name="nav_speed_a11y">Speed: %1$d kilometres per hour</string>
     <string name="nav_remaining">Time left</string>
     <string name="nav_arrival">Arrival</string>
     <string name="nav_arrival_estimated">Estimated arrival</string>

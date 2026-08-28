@@ -15,6 +15,36 @@ import java.time.Instant
  * est nul et la colonne se replie.
  */
 
+/**
+ * La vitesse du conducteur, en km/h, telle qu'un cadran l'affiche.
+ *
+ * ## Pourquoi elle n'existait pas
+ *
+ * Aucune vitesse n'était montrée. `speedMetersPerSecond` ne servait qu'à la
+ * courbe de zoom de la caméra et à la fusion de cap ; le seul chiffre en km/h à
+ * l'écran appartenait à la fiche d'un **véhicule du réseau**. Un guidage
+ * automobile sans vitesse laisse le conducteur sans le seul repère qu'il
+ * vérifie sans quitter la route des yeux.
+ *
+ * ## Deux choix, et ils ne sont pas les mêmes que pour un bus
+ *
+ * [TransportVehicle.speedKmh] rend `null` sous un mètre par seconde : sur une
+ * fiche, « À l'arrêt » dit mieux la chose que « 2 km/h ». Ici c'est l'inverse —
+ * **un cadran qui disparaît au feu rouge est un cadran cassé.** On rend donc
+ * zéro, et le chiffre reste à sa place.
+ *
+ * Le seuil est celui du cap ([HEADING_MIN_SPEED_MPS] côté localisation, 0,7 m/s)
+ * : en dessous, le GPS ne mesure plus une vitesse, il mesure sa propre dérive,
+ * et le cadran battrait entre 1 et 4 à l'arrêt.
+ */
+fun drivingSpeedKmh(speedMps: Double): Int {
+    if (!speedMps.isFinite() || speedMps < DRIVING_SPEED_FLOOR_MPS) return 0
+    return Math.round(speedMps * 3.6).toInt()
+}
+
+/** Sous cette vitesse, on affiche zéro : le GPS ne mesure plus que son bruit. */
+const val DRIVING_SPEED_FLOOR_MPS = 0.7
+
 enum class SummaryMetricKind {
     DISTANCE,
     STOPS,

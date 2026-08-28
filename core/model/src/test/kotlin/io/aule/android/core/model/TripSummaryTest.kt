@@ -111,4 +111,26 @@ class TripSummaryTest {
         assertNull(s.remaining)
         assertEquals(SummaryMetricKind.DISTANCE, s.third.kind)
     }
+    /**
+     * Un cadran qui disparaît au feu rouge est un cadran cassé : contrairement
+     * à la fiche d'un bus, on rend zéro et non `null`.
+     */
+    @Test
+    fun `le cadran affiche zero a l arret plutot que de disparaitre`() {
+        assertEquals(0, drivingSpeedKmh(0.0))
+        assertEquals(0, drivingSpeedKmh(0.4), "sous le seuil, le GPS mesure sa dérive")
+    }
+
+    @Test
+    fun `le cadran arrondit au kilometre-heure`() {
+        assertEquals(50, drivingSpeedKmh(13.89))
+        assertEquals(30, drivingSpeedKmh(8.33))
+        assertEquals(3, drivingSpeedKmh(0.8))
+    }
+
+    @Test
+    fun `une vitesse aberrante ne fait pas dérailler le cadran`() {
+        assertEquals(0, drivingSpeedKmh(Double.NaN))
+        assertEquals(0, drivingSpeedKmh(-4.0))
+    }
 }

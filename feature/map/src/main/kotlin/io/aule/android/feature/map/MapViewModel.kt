@@ -39,6 +39,7 @@ import io.aule.android.core.model.NextActionKind
 import io.aule.android.core.model.OffRouteDetector
 import io.aule.android.core.model.PinnedManeuver
 import io.aule.android.core.model.TripSummary
+import io.aule.android.core.model.drivingSpeedKmh
 import io.aule.android.core.model.journeyFromCandidate
 import io.aule.android.core.model.journeyProgressAt
 import io.aule.android.core.model.nextAction
@@ -239,6 +240,12 @@ data class NavigationUiState(
      * vous êtes trompé ».
      */
     val recalculating: Boolean = false,
+    /**
+     * La vitesse du conducteur, en km/h. `null` tant qu'aucune mesure fiable
+     * n'est arrivée — le cadran n'apparaît qu'une fois qu'il a quelque chose à
+     * dire, plutôt que d'afficher un zéro qu'on n'a pas mesuré.
+     */
+    val speedKmh: Int? = null,
     val signalLost: Boolean = false,
     val routeBearing: Double = 0.0,
     val showingTrip: Boolean = false,
@@ -1387,7 +1394,14 @@ class MapViewModel(
             }
         }
         if (progress.legIndex != focusedLeg) loadManeuversAround(progress.legIndex)
-        publishNavigation(current.plan, progress, showingTrip = current.showingTrip, offRoute = off, signalLost = false)
+        publishNavigation(
+            current.plan,
+            progress,
+            showingTrip = current.showingTrip,
+            offRoute = off,
+            signalLost = false,
+            speedKmh = drivingSpeedKmh(fix.speedMetersPerSecond),
+        )
     }
 
     /**
@@ -1532,6 +1546,7 @@ class MapViewModel(
         offRoute: Boolean = this.offRoute.warning && _state.value.navigation?.offRoute == true,
         signalLost: Boolean = false,
         recalculating: Boolean = _state.value.navigation?.recalculating == true,
+        speedKmh: Int? = _state.value.navigation?.speedKmh,
     ) {
         val pinned = maneuversByLeg.entries.sortedBy { it.key }.flatMap { it.value }
         val action = nextAction(plan, progress, pinned)
@@ -1549,6 +1564,7 @@ class MapViewModel(
                 summary = summary,
                 offRoute = offRoute,
                 recalculating = recalculating,
+                speedKmh = speedKmh,
                 signalLost = signalLost,
                 routeBearing = routeProgress.bearing,
                 showingTrip = showingTrip,

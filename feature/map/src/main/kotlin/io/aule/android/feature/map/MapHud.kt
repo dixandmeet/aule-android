@@ -32,17 +32,22 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import io.aule.android.core.designsystem.AuleCappedFontScale
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
+import io.aule.android.core.designsystem.component.AuleGlassSurface
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.RealtimeDot
 import io.aule.android.core.designsystem.component.realtimeInk
@@ -163,11 +168,80 @@ internal fun MapHud(
         // seconde : la première est un volet, et un volet ne flotte pas.
         val navigation = state.navigation
         if (navigating && !showingTrip && navigation != null) {
-            TripSummaryBar(
-                summary = navigation.summary,
-                onOpen = onOpenTrip,
-                onHeightPx = onSummaryHeightPx,
-            )
+            // La bande est mesurée **entière**, cadran compris : c'est elle qui
+            // dit à la caméra quelle hauteur d'écran est masquée. Ne remonter
+            // que la barre ferait poser le puck derrière le cadran.
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { onSummaryHeightPx(it.height.toFloat()) },
+                verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+            ) {
+                val speed = navigation.speedKmh
+                if (speed != null) {
+                    SpeedPill(kmh = speed)
+                }
+                TripSummaryBar(
+                    summary = navigation.summary,
+                    onOpen = onOpenTrip,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Le cadran de vitesse.
+ *
+ * ## Pourquoi il est petit, et pourquoi il est à gauche
+ *
+ * C'est le chiffre qu'on lit **sans quitter la route des yeux** : on le prend
+ * en vision périphérique, on ne le cherche pas. Il n'a donc pas besoin de
+ * place, il a besoin d'une position stable — le coin bas, du côté opposé à
+ * l'accotement, sous le bandeau de consigne et au-dessus de la barre
+ * d'arrivée.
+ *
+ * ## Le chiffre et son unité ne pèsent pas pareil
+ *
+ * « 50 » est ce qu'on lit ; « km/h » est ce qu'on a lu une fois pour toutes.
+ * Le premier prend le slot appuyé, à chasse fixe pour que le passage de 49 à
+ * 50 ne fasse pas danser la pastille ; la seconde reste une étiquette.
+ *
+ * TalkBack, lui, reçoit une phrase entière : lire « cinquante » puis
+ * « kilomètres heure » comme deux éléments distincts n'apprend rien.
+ */
+@Composable
+private fun SpeedPill(kmh: Int) {
+    val spoken = stringResource(R.string.nav_speed_a11y, kmh)
+    AuleCappedFontScale(maxScale = 1.3f) {
+        AuleGlassSurface(
+            modifier = Modifier
+                .padding(start = AuleSpacing.lg)
+                .semantics {
+                    liveRegion = LiveRegionMode.Polite
+                    contentDescription = spoken
+                },
+            shape = MaterialTheme.shapes.large,
+            elevation = AuleElevation.FLOATING,
+        ) {
+            Row(
+                modifier = Modifier.padding(
+                    horizontal = AuleSpacing.md,
+                    vertical = AuleSpacing.sm,
+                ),
+                horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Text(
+                    text = stringResource(R.string.nav_speed_value, kmh),
+                    style = MaterialTheme.typography.titleLargeEmphasized,
+                )
+                Text(
+                    text = stringResource(R.string.nav_speed_unit),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
         }
     }
 }

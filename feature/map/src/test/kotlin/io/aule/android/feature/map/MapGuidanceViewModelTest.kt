@@ -514,6 +514,40 @@ class MapGuidanceViewModelTest {
     }
 
     /**
+     * Le cadran de vitesse : il n'existait pas, et un guidage automobile sans
+     * vitesse laisse le conducteur sans le seul repère qu'il vérifie sans
+     * quitter la route des yeux.
+     */
+    @Test
+    fun `la vitesse mesuree remonte dans l etat du guidage`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val viewModel = viewModel(dispatcher, routing = FakeRouting(plan = samplePlan("a")))
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+            assertNull(
+                viewModel.state.value.navigation?.speedKmh,
+                "avant la première mesure, le cadran n'a rien à dire",
+            )
+
+            viewModel.onGuidanceFix(fixAt(origin.coordinate, speed = 13.89, atMillis = 10_000L))
+            assertEquals(50, viewModel.state.value.navigation?.speedKmh)
+
+            // À l'arrêt le cadran reste, à zéro : il ne disparaît pas au feu.
+            viewModel.onGuidanceFix(fixAt(origin.coordinate, speed = 0.2, atMillis = 11_000L))
+            assertEquals(0, viewModel.state.value.navigation?.speedKmh)
+            advanceUntilIdle()
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
      * Un point **sur** le tracé, un peu plus loin que l'écart : celui où l'on
      * rejoint. À 8 % du trajet, il tombe dans la fenêtre avant de
      * [io.aule.android.core.geo.PolylineProjection].
@@ -544,11 +578,12 @@ class MapGuidanceViewModelTest {
         at: Coordinate,
         accuracy: Double = 5.0,
         atMillis: Long = at.latitude.toRawBits(),
+        speed: Double = 8.0,
     ) = LocationFix(
         coordinate = at,
         accuracyMeters = accuracy,
         courseDegrees = 90.0,
-        speedMetersPerSecond = 8.0,
+        speedMetersPerSecond = speed,
         timestampMillis = atMillis,
         stabilizedHeading = 90.0,
         isHeadingFrozen = false,
