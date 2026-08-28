@@ -593,6 +593,72 @@ interface AgentAccessStore {
 }
 
 /**
+ * Le secret scellé par la clé biométrique du Keystore.
+ *
+ * Ce n'est **pas** le jeton de session : c'est un marqueur opaque, tiré au sort
+ * à l'activation, qui ne vaut rien pour qui le lirait. Ce qui compte n'est pas
+ * son contenu mais le fait de pouvoir le **rouvrir** — le déchiffrer exige un
+ * `Cipher` que le Keystore ne délivre qu'après une empreinte reconnue, et c'est
+ * cette impossibilité matérielle qui fait la preuve. Un `BiometricPrompt` sans
+ * chiffrement rendrait, lui, un simple booléen « c'est bon », que rien
+ * n'empêche de contourner sur un appareil ouvert.
+ */
+data class BiometricEnrollment(val cipherText: String, val iv: String)
+
+/**
+ * L'activation de la biométrie, **par compte**.
+ *
+ * ## Ce que ce contrat garde, et ce qu'il ne garde pas
+ *
+ * La biométrie d'Aule est un **verrou local devant une session qui existe
+ * déjà**, jamais un second système d'authentification : Supabase reste seul à
+ * dire qui entre, et l'empreinte ne fait qu'autoriser la restauration d'une
+ * session déjà valide. D'où un fichier distinct d'[AuthSessionStore] et
+ * d'[AgentAccessStore] — effacer l'un ne doit pas effacer les autres par
+ * mégarde.
+ *
+ * ## Pourquoi l'identifiant garde la lecture
+ *
+ * ⚠️ **Un poste de conduite se partage**, et c'est la même raison qui range les
+ * favoris par propriétaire ([SavedPlacesStore]) et l'habilitation par compte
+ * ([AgentAccessStore]). Fermer l'application n'est pas se déconnecter : un
+ * conducteur qui rend le téléphone en fin de service laisse derrière lui une
+ * session ouverte et, s'il l'avait activée, une empreinte qui la déverrouille.
+ *
+ * Ce qui protège le suivant n'est donc pas l'impossibilité de changer de
+ * compte — il n'y en a aucune — mais cette garde-ci : [read] ne rend rien si
+ * l'entrée stockée n'appartient pas à [userId]. Le collègue qui reprend
+ * l'appareil peut refuser le dialogue, se connecter normalement, et l'empreinte
+ * du précédent ne lui ouvrira jamais rien. L'entrée orpheline, elle, sera
+ * balayée à la première déconnexion explicite.
+ *
+ * ## Pourquoi la proposition survit à [clear]
+ *
+ * [hasBeenOffered] et [markOffered] vivent à part et **survivent** à [clear] :
+ * qui a désactivé la biométrie dans les réglages ne doit pas se la voir
+ * reproposer à la connexion suivante. Une proposition qu'on a déjà déclinée et
+ * qui revient n'est plus une proposition, c'est une insistance.
+ */
+interface BiometricEnrollmentStore {
+    /** Le secret scellé pour [userId], ou `null` — y compris s'il appartient à un autre compte. */
+    suspend fun read(userId: String): BiometricEnrollment?
+
+    suspend fun write(userId: String, enrollment: BiometricEnrollment)
+
+    /**
+     * Efface l'activation, **sans** toucher à [hasBeenOffered].
+     *
+     * Appelé sur une déconnexion, un refus d'habilitation, une suppression de
+     * compte, une clé invalidée, et sur une session absente au démarrage.
+     */
+    suspend fun clear()
+
+    suspend fun hasBeenOffered(userId: String): Boolean
+
+    suspend fun markOffered(userId: String)
+}
+
+/**
  * La fiche agent — PostgREST / table `drivers`.
  *
  * Lève en cas de panne. Une fiche absente n'est pas une panne : [fetchProfile]

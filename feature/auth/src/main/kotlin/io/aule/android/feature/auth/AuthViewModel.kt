@@ -18,7 +18,10 @@ import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.resolveAgentAccess
 import io.aule.android.core.model.repository.AgentAccessStore
 import io.aule.android.core.model.repository.AuthRepository
+import io.aule.android.core.model.repository.BiometricEnrollmentStore
 import io.aule.android.core.model.repository.DriverProfileRepository
+import io.aule.android.core.security.BiometricAvailability
+import io.aule.android.core.security.BiometricSupport
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CancellationException
@@ -61,6 +64,32 @@ data class AuthUiState(
     val isResettingPassword: Boolean = false,
     /** L'adresse à laquelle le lien vient d'être envoyé, ou `null` avant l'envoi. */
     val recoverySentTo: String? = null,
+    /**
+     * L'identifiant du compte ouvert. Distinct de [email], qui se voit à
+     * l'écran : celui-ci range et garde ce qui est propre à l'appareil — la
+     * biométrie et l'habilitation en dépendent.
+     */
+    val userId: String? = null,
+    /** Vrai quand il faut proposer d'activer la biométrie, une fois, après la connexion. */
+    val showBiometricProposal: Boolean = false,
+    /**
+     * Vrai tant que le verrou biométrique n'est pas levé, au lancement.
+     *
+     * ⚠️ **[isSignedIn] reste faux pendant ce temps**, bien qu'une session
+     * existe. C'est ce qui fait tout tenir : la chaîne de la racine retombe
+     * naturellement sur l'écran de connexion en cas de refus, sans qu'aucune
+     * branche de sortie ait à être écrite. Le thème forcé sombre de la porte
+     * d'entrée suit pour la même raison.
+     */
+    val isAwaitingBiometricUnlock: Boolean = false,
+    /**
+     * Vrai après un refus **rattrapable** : l'écran de connexion offre alors de
+     * relancer la biométrie. Faux après une invalidation, où il n'y a plus rien
+     * à relancer.
+     */
+    val canRetryBiometric: Boolean = false,
+    /** Vrai une fois, quand la clé a été invalidée et l'activation effacée. */
+    val biometricInvalidatedNotice: Boolean = false,
 )
 
 class AuthViewModel(
@@ -75,22 +104,188 @@ class AuthViewModel(
      * comporte comme avant — une vérification impossible ferme la session.
      */
     private val accessCache: AgentAccessStore? = null,
+    /**
+     * L'activation biométrique de cet appareil, ou `null` si la fonctionnalité
+     * n'est pas câblée.
+     *
+     * Optionnel comme [accessCache], et pour la même raison : un test qui ne
+     * s'intéresse pas à la biométrie n'a pas à en fabriquer un. Absent, l'écran
+     * se comporte exactement comme avant — aucune proposition, aucun verrou.
+     *
+     * ⚠️ **C'est la seule pièce du verrou qui entre ici.** Le coffre de clés et
+     * le dialogue vivent sur `AuleGraph` et sont consommés par les Composables :
+     * ouvrir un dialogue demande une `Activity`, qu'un `ViewModel` ne doit
+     * jamais tenir — il survit aux recréations de configuration, et la garder
+     * ferait fuir une fenêtre à chaque rotation.
+     */
+    private val biometricEnrollment: BiometricEnrollmentStore? = null,
+    /** De quoi savoir si l'appareil sait reconnaître son porteur. Interface : feintable. */
+    private val biometricSupport: BiometricSupport? = null,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(AuthUiState())
     val state: StateFlow<AuthUiState> = _state.asStateFlow()
 
+    /**
+     * Restaurer d'abord, demander l'empreinte ensuite.
+     *
+     * ## Pourquoi cet ordre, et non l'inverse
+     *
+     * [AuthRepository.restore] sait déjà distinguer une session **révoquée**
+     * d'une simple panne de réseau (`REVOKING_FAILURES`, dans
+     * `SupabaseAuthRepository`) : un conducteur en sous-sol garde sa session,
+     * un compte fermé la perd. Demander l'empreinte avant de savoir cela
+     * reviendrait à faire poser un doigt pour, parfois, éjecter aussitôt la
+     * personne vers l'écran de connexion.
+     *
+     * Vu de l'écran, rien ne change — ouverture, dialogue, carte. Seul l'ordre
+     * interne diffère, et il évite la seule séquence qui aurait été absurde.
+     */
     init {
         viewModelScope.launch {
             val session = runCatching { auth.restore() }.getOrNull()
+            if (session == null) {
+                // Plus de session : le secret ne garde plus rien. Le laisser
+                // ferait afficher un verrou devant une porte déjà ouverte.
+                runCatching { biometricEnrollment?.clear() }
+            }
+            val gate = session != null &&
+                runCatching { biometricEnrollment?.read(session.user.id) }.getOrNull() != null
             _state.value = AuthUiState(
                 isReady = true,
-                isSignedIn = session != null,
-                isCheckingAccess = session != null,
+                isSignedIn = session != null && !gate,
+                isCheckingAccess = session != null && !gate,
+                isAwaitingBiometricUnlock = gate,
+                userId = session?.user?.id,
                 email = session?.user?.email,
             )
-            if (session != null) loadAccount(session)
+            if (session != null && !gate) loadAccount(session)
         }
+    }
+
+    /**
+     * L'empreinte a été reconnue **et** le marqueur rouvert : la suite est
+     * exactement celle d'un lancement ordinaire.
+     */
+    fun onBiometricUnlockSucceeded() {
+        val session = auth.currentSession()
+        if (session == null) {
+            // La session a disparu pendant que le dialogue était ouvert. Rien à
+            // déverrouiller : on retombe sur le formulaire, sans bandeau.
+            onBiometricUnlockDeclined()
+            return
+        }
+        _state.value = _state.value.copy(
+            isAwaitingBiometricUnlock = false,
+            isSignedIn = true,
+            isCheckingAccess = true,
+        )
+        viewModelScope.launch { loadAccount(session) }
+    }
+
+    /**
+     * Refus, annulation, ou clé invalidée : on rend la main au formulaire.
+     *
+     * [isSignedIn] restant faux, la chaîne de la racine y retombe d'elle-même.
+     *
+     * @param invalidated vrai quand la clé ne vaut plus rien (empreinte
+     *   ajoutée ou retirée). L'activation est alors effacée — elle ne pourrait
+     *   plus rien ouvrir — et rien n'est proposé de relancer, contrairement à
+     *   une simple annulation.
+     */
+    fun onBiometricUnlockDeclined(invalidated: Boolean = false) {
+        if (invalidated) {
+            viewModelScope.launch { runCatching { biometricEnrollment?.clear() } }
+        }
+        _state.value = _state.value.copy(
+            isAwaitingBiometricUnlock = false,
+            canRetryBiometric = !invalidated,
+            biometricInvalidatedNotice = invalidated,
+        )
+    }
+
+    /**
+     * La proposition a été traitée — activée, refusée, ou simplement fermée.
+     *
+     * Le drapeau « déjà proposé » est posé **dans tous les cas**, et c'est
+     * délibéré : une proposition qu'on a écartée et qui revient au lancement
+     * suivant n'est plus une proposition, c'est une insistance.
+     */
+    fun onBiometricProposalDone() {
+        val userId = _state.value.userId
+        _state.value = _state.value.copy(showBiometricProposal = false)
+        if (userId.isNullOrBlank()) return
+        viewModelScope.launch { runCatching { biometricEnrollment?.markOffered(userId) } }
+    }
+
+    /**
+     * Relancer le dialogue depuis l'écran de connexion.
+     *
+     * ## Pourquoi reposer un drapeau plutôt que rouvrir un dialogue
+     *
+     * Le verrou est déjà un écran, monté par la racine quand
+     * [AuthUiState.isAwaitingBiometricUnlock] est vrai. Le remettre à vrai le
+     * fait revenir, avec sa séquence entière — lecture du scellé, `Cipher`,
+     * dialogue, réouverture — sans qu'une ligne de tout cela soit réécrite
+     * ailleurs. Un second chemin d'appel depuis l'écran de connexion aurait été
+     * une copie, et les copies divergent.
+     *
+     * Sans session, il n'y a rien à déverrouiller : le bouton disparaît au lieu
+     * d'ouvrir un dialogue qui ne pourrait mener nulle part.
+     */
+    fun retryBiometricUnlock() {
+        val current = _state.value
+        if (!current.canRetryBiometric || current.userId.isNullOrBlank()) return
+        if (auth.currentSession() == null) {
+            _state.value = current.copy(canRetryBiometric = false)
+            return
+        }
+        _state.value = current.copy(
+            isAwaitingBiometricUnlock = true,
+            canRetryBiometric = false,
+            failure = null,
+        )
+    }
+
+    /** Retire le bandeau d'invalidation, une fois lu. */
+    fun clearBiometricNotice() {
+        if (!_state.value.biometricInvalidatedNotice) return
+        _state.value = _state.value.copy(biometricInvalidatedNotice = false)
+    }
+
+    /**
+     * Faut-il proposer la biométrie à ce compte ?
+     *
+     * Appelée depuis les trois sorties en succès de [loadAccount] plutôt que
+     * recopiée trois fois : le jour où la règle change, elle change à un seul
+     * endroit. [BiometricAvailability.isOfferable] inclut « rien d'enrôlé » —
+     * c'est le cas qui mène aux réglages du téléphone, pas une raison de se
+     * taire.
+     */
+    private suspend fun shouldOfferBiometrics(session: AuthSession): Boolean {
+        val store = biometricEnrollment ?: return false
+        val support = biometricSupport ?: return false
+        return runCatching {
+            store.read(session.user.id) == null &&
+                !store.hasBeenOffered(session.user.id) &&
+                support.availability().isOfferable
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Oublier le verrou de ce compte.
+     *
+     * ## Pourquoi la clé du Keystore n'est pas touchée ici
+     *
+     * Ce `ViewModel` ne tient pas le coffre — voir [biometricEnrollment]. Ce
+     * n'est pas un trou : sans le marqueur scellé, la clé ne garde plus rien.
+     * Elle ne déchiffre qu'une suite d'octets tirés au sort qui n'existe plus,
+     * ne donne accès à aucune session, et la prochaine activation la détruit
+     * avant d'en créer une neuve (`BiometricKeyVault.createKey`). Ce qui
+     * protège, c'est ce que le dépôt contient ; c'est donc lui qu'on vide.
+     */
+    private suspend fun forgetBiometrics() {
+        runCatching { biometricEnrollment?.clear() }
     }
 
     fun signIn(email: String, password: String) {
@@ -104,6 +299,7 @@ class AuthViewModel(
                     isSignedIn = true,
                     isCheckingAccess = true,
                     email = session.user.email,
+                    userId = session.user.id,
                     isLoadingProfile = true,
                 )
                 loadAccount(session)
@@ -131,6 +327,9 @@ class AuthViewModel(
             // Se déconnecter, c'est aussi renoncer à la réserve : le compte
             // suivant ne doit pas hériter des droits de celui qui part.
             runCatching { accessCache?.clear() }
+            // Et au verrou : une empreinte seule ne doit jamais rouvrir une
+            // session qu'on a volontairement fermée.
+            forgetBiometrics()
             _state.value = AuthUiState(isReady = true, isSignedIn = false)
         }
     }
@@ -146,6 +345,11 @@ class AuthViewModel(
         viewModelScope.launch {
             try {
                 auth.deleteAccount()
+                // Ce chemin ne passe **ni** par `signOut`, **ni** par
+                // `denyAccess` : sans cette ligne, un compte supprimé
+                // laisserait derrière lui un verrou biométrique gardant une
+                // session qui n'existe plus.
+                forgetBiometrics()
                 _state.value = AuthUiState(isReady = true, isSignedIn = false)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -370,6 +574,7 @@ class AuthViewModel(
                 isSignedIn = true,
                 isCheckingAccess = true,
                 email = session.user.email,
+                userId = session.user.id,
                 isLoadingProfile = true,
             )
             loadAccount(session)
@@ -387,7 +592,19 @@ class AuthViewModel(
      * PKCE avant l'échange, qui le consomme.
      */
     fun completeAuthCallback(code: String) {
-        if (_state.value.isCheckingAccess || _state.value.isSubmitting) return
+        // ⚠️ `isAwaitingBiometricUnlock` fait partie de la garde, et il a fallu
+        // le lire dans la racine pour s'en apercevoir : le `LaunchedEffect` qui
+        // consomme le lien se déclenche dès `isReady`, sans regarder
+        // `isSignedIn`. Sans cette condition, un lien de confirmation reçu
+        // pendant que le verrou est affiché remplacerait la session en attente
+        // — éventuellement par celle d'un **autre compte** — avant que
+        // quiconque ait posé un doigt sur le capteur.
+        if (_state.value.isCheckingAccess ||
+            _state.value.isSubmitting ||
+            _state.value.isAwaitingBiometricUnlock
+        ) {
+            return
+        }
         val trimmed = code.trim()
         if (trimmed.isEmpty()) return
         _state.value = _state.value.copy(
@@ -408,6 +625,7 @@ class AuthViewModel(
                         isCheckingAccess = false,
                         isResettingPassword = true,
                         email = session.user.email,
+                        userId = session.user.id,
                     )
                     return@launch
                 }
@@ -416,6 +634,7 @@ class AuthViewModel(
                     isSignedIn = true,
                     isCheckingAccess = true,
                     email = session.user.email,
+                    userId = session.user.id,
                     isLoadingProfile = true,
                 )
                 loadAccount(session)
@@ -532,6 +751,8 @@ class AuthViewModel(
                 depot = depots.find { it.id == profile?.depotId },
                 network = networks.find { it.id == profile?.networkId },
                 avatarBytes = avatarBytes,
+                userId = session.user.id,
+                showBiometricProposal = shouldOfferBiometrics(session),
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -550,6 +771,8 @@ class AuthViewModel(
                 depots = emptyList(),
                 networks = emptyList(),
                 avatarBytes = null,
+                userId = session.user.id,
+                showBiometricProposal = shouldOfferBiometrics(session),
             )
         }
     }
@@ -590,12 +813,22 @@ class AuthViewModel(
             depot = null,
             network = null,
             avatarBytes = null,
+            userId = session.user.id,
+            // Proposée même ici, faute de réseau : le verrou est local, il ne
+            // demande rien à personne, et c'est justement le lancement où il
+            // rend le plus service.
+            showBiometricProposal = shouldOfferBiometrics(session),
         )
         return true
     }
 
     private suspend fun denyAccess(kind: AuthFailureKind) {
         auth.signOut()
+        // Ici plutôt qu'aux sites d'appel : `denyAccess` ferme la session pour
+        // *tous* ses appelants — habilitation absente comme invérifiable — et
+        // le verrou doit tomber dans les deux cas. Le vider au site d'appel
+        // n'en couvrirait qu'un, comme c'est déjà le cas pour `accessCache`.
+        forgetBiometrics()
         _state.value = AuthUiState(
             isReady = true,
             isSignedIn = false,

@@ -10,6 +10,7 @@ import androidx.compose.material.icons.filled.BrightnessAuto
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Explore
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -22,6 +23,7 @@ import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Email
 import androidx.compose.material.icons.outlined.Explore
+import androidx.compose.material.icons.outlined.Fingerprint
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.LightMode
 import androidx.compose.material.icons.outlined.Lock
@@ -50,7 +52,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
  */
 enum class AuleGlyph {
     MAIL, LOCK, EYE, EYE_OFF, SHIELD, SEARCH, BACK, CLOSE, MENU, SIGN_OUT,
-    HEADING, PERSON, CHEVRON, CAMERA, EDIT, IMAGE, TRASH, CHECK,
+    HEADING, PERSON, CHEVRON, CAMERA, EDIT, IMAGE, TRASH, CHECK, FINGERPRINT,
     BUS, TICKET, PIN, TRAM, SUN, MOON, AUTO, FLAG, ROUTE, PLAY, SWAP, EXPLORE,
 }
 
@@ -79,6 +81,10 @@ fun AuleGlyph.asImageVector(filled: Boolean = false): ImageVector = when (this) 
     AuleGlyph.IMAGE -> Icons.Outlined.Image
     AuleGlyph.TRASH -> Icons.Outlined.Delete
     AuleGlyph.CHECK -> if (filled) Icons.Filled.Check else Icons.Outlined.Check
+    // Le symbole de l'empreinte sert aussi quand l'appareil reconnaît un
+    // visage : c'est celui que le système emploie pour la biométrie en général,
+    // et en inventer un second par capteur ferait deux icônes pour une notion.
+    AuleGlyph.FINGERPRINT -> if (filled) Icons.Filled.Fingerprint else Icons.Outlined.Fingerprint
     AuleGlyph.BUS -> AuleIcons.Bus
     AuleGlyph.TICKET -> AuleIcons.Ticket
     AuleGlyph.PIN -> if (filled) AuleIcons.StopFilled else AuleIcons.Stop

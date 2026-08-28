@@ -179,6 +179,7 @@ dependencies {
     implementation(projects.data)
     implementation(projects.core.map)
     implementation(projects.core.location)
+    implementation(projects.core.security)
     implementation(projects.feature.map)
     implementation(projects.feature.auth)
 
@@ -186,6 +187,10 @@ dependencies {
     implementation(libs.okhttp)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
+    // `MainActivity` hérite de `FragmentActivity` — que `BiometricPrompt` exige
+    // comme hôte. Un besoin direct, déclaré comme tel plutôt que pris dans les
+    // transitives d'androidx.biometric.
+    implementation(libs.androidx.fragment)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.kotlinx.coroutines.android)

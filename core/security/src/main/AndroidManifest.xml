@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      Fusionnée dans :app, comme celles de :core:location. Elle vit ici parce
+      que c'est ce module — et lui seul — qui appelle BiometricPrompt : une
+      permission déclarée loin de son usage est une permission que personne ne
+      pense à retirer le jour où l'usage disparaît.
+
+      Ce n'est pas une permission d'exécution : rien à demander à l'utilisateur,
+      c'est le dialogue système lui-même qui fait office de consentement.
+    -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+</manifest>

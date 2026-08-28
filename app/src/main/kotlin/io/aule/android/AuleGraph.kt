@@ -7,6 +7,7 @@ import io.aule.android.appearance.PreferencesAppearanceStore
 import io.aule.android.auth.PreferencesAuthPkceStore
 import io.aule.android.auth.PreferencesAgentAccessStore
 import io.aule.android.auth.PreferencesAuthSessionStore
+import io.aule.android.auth.PreferencesBiometricEnrollmentStore
 import io.aule.android.auth.PreferencesRegistrationDraftStore
 import io.aule.android.search.PreferencesSavedPlacesStore
 import io.aule.android.search.PreferencesSearchHistoryStore
@@ -29,8 +30,13 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.location.AlertTone
 import io.aule.android.core.location.FusedLocationProvider
 import io.aule.android.core.location.LocationProvider
+import io.aule.android.core.security.AndroidBiometricSupport
+import io.aule.android.core.security.BiometricAuthenticator
+import io.aule.android.core.security.BiometricKeyVault
+import io.aule.android.core.security.BiometricSupport
 import io.aule.android.core.model.repository.AgentAccessStore
 import io.aule.android.core.model.repository.AuthRepository
+import io.aule.android.core.model.repository.BiometricEnrollmentStore
 import io.aule.android.core.model.repository.DriverProfileRepository
 import io.aule.android.core.model.repository.DriverReportRepository
 import io.aule.android.core.model.repository.DriverServiceRepository
@@ -107,6 +113,23 @@ class AuleGraph private constructor(
      * faute de réseau. Voir [AgentAccessStore].
      */
     val agentAccess: AgentAccessStore,
+    /**
+     * Le verrou biométrique local, en quatre pièces.
+     *
+     * Elles vivent sur le graphe et non dans `AuthViewModel`, et ce n'est pas un
+     * rangement : ouvrir le dialogue demande une `Activity`, qu'un `ViewModel`
+     * ne doit jamais tenir — il survit aux recréations de configuration, et la
+     * garder ferait fuir une fenêtre entière à chaque rotation. Ce sont donc les
+     * Composables, qui ont l'activité sous la main, qui les consomment.
+     *
+     * Seul [biometricEnrollment] entre dans `AuthViewModel` : lui ne touche que
+     * des préférences, et c'est lui qui décide si le verrou doit s'afficher au
+     * démarrage.
+     */
+    val biometricSupport: BiometricSupport,
+    val biometricVault: BiometricKeyVault,
+    val biometricEnrollment: BiometricEnrollmentStore,
+    val biometricAuthenticator: BiometricAuthenticator,
     val registrationDrafts: RegistrationDraftStore,
     val searchHistory: SearchHistoryStore,
     val savedPlaces: SavedPlacesStore,
@@ -233,6 +256,10 @@ class AuleGraph private constructor(
                     auth = auth,
                     profiles = profiles,
                     agentAccess = PreferencesAgentAccessStore(context),
+                    biometricSupport = AndroidBiometricSupport(context),
+                    biometricVault = BiometricKeyVault(logger = logger),
+                    biometricEnrollment = PreferencesBiometricEnrollmentStore(context),
+                    biometricAuthenticator = BiometricAuthenticator(logger = logger),
                     registrationDrafts = PreferencesRegistrationDraftStore(context),
                     searchHistory = PreferencesSearchHistoryStore(context),
                     savedPlaces = PreferencesSavedPlacesStore(context),

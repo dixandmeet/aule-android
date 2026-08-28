@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
@@ -68,6 +69,7 @@ import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
+import io.aule.android.core.designsystem.token.AuleTouch
 
 /**
  * L'écran de connexion e-mail + mot de passe, dans la charte publique d'Aule.
@@ -219,6 +221,17 @@ fun AuthScreen(
                             AuleBanner(message = failure.message(), tone = AuleTone.ALERT)
                             Spacer(modifier = Modifier.height(AuleSpacing.lg))
                         }
+                        // Ton neutre, et non l'alerte : rien n'a échoué, c'est
+                        // le téléphone dont les empreintes ont changé. La
+                        // formulation dit ce qui s'est passé et ce qui en
+                        // découle — la biométrie est à réactiver.
+                        if (state.biometricInvalidatedNotice) {
+                            AuleBanner(
+                                message = stringResource(R.string.auth_biometric_invalidated),
+                                tone = AuleTone.NEUTRAL,
+                            )
+                            Spacer(modifier = Modifier.height(AuleSpacing.lg))
+                        }
 
                         AuleFormField(
                             label = stringResource(R.string.auth_email_label),
@@ -302,6 +315,33 @@ fun AuthScreen(
                             submitting = submitting,
                             onSubmit = { if (!submitting) submit() },
                         )
+                        // Seulement après un refus **rattrapable** : proposer
+                        // en permanence une biométrie que ce compte n'a peut-être
+                        // jamais activée promettrait une porte qui n'existe pas.
+                        // Le formulaire reste dessous, jamais masqué.
+                        if (state.canRetryBiometric) {
+                            Spacer(modifier = Modifier.height(AuleSpacing.sm))
+                            TextButton(
+                                onClick = viewModel::retryBiometricUnlock,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .defaultMinSize(minHeight = AuleTouch.minimum),
+                                enabled = !submitting,
+                            ) {
+                                Icon(
+                                    imageVector = AuleGlyph.FINGERPRINT.asImageVector(),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(AuleControl.icon),
+                                    tint = MaterialTheme.colorScheme.primary,
+                                )
+                                Spacer(modifier = Modifier.width(AuleSpacing.sm))
+                                Text(
+                                    text = stringResource(R.string.auth_biometric_retry),
+                                    style = MaterialTheme.typography.labelLargeEmphasized,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                            }
+                        }
                     }
 
                     if (!imeVisible) {

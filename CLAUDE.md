@@ -13,7 +13,7 @@ redécouvrir.
 | Sujet | Où |
 |---|---|
 | Vue d'ensemble, mesures, pièges | `README.md` |
-| Décisions structurantes | `Docs/adr/` — 12 ADR |
+| Décisions structurantes | `Docs/adr/` — 13 ADR |
 | Contrat du BFF et ses pièges | `../docs/CONTRAT-BFF.md` |
 | Plans en cours | `Docs/PLAN-*.md` |
 
@@ -54,6 +54,7 @@ Un build `release` **échoue volontairement** si la signature n'est pas renseign
     core/
       common/            config, journal, dispatchers
       geo/               Coordinate, GeoMath, projection sur polyligne
+      security/          BiometricPrompt, clé Keystore, verrou local (ADR-013)
       model/             TransportVehicle, TransitStop, Auth, contrats de repository
       network/           OkHttp, ApiException, endpoints
       designsystem/      jetons Aule + thème et composants Material 3

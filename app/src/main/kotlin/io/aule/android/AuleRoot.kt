@@ -51,6 +51,9 @@ import io.aule.android.feature.auth.AccountAvatarButton
 import io.aule.android.feature.auth.AccountMenuSheet
 import io.aule.android.feature.auth.AuthScreen
 import io.aule.android.feature.auth.AuthViewModel
+import io.aule.android.feature.auth.BiometricControls
+import io.aule.android.feature.auth.BiometricEnrollHost
+import io.aule.android.feature.auth.BiometricUnlockHost
 import io.aule.android.feature.auth.ForgotPasswordScreen
 import io.aule.android.feature.auth.ProfileScreen
 import io.aule.android.feature.auth.RegistrationScreen
@@ -106,6 +109,11 @@ fun AuleRoot(
                     profiles = graph.profiles,
                     logger = graph.logger,
                     accessCache = graph.agentAccess,
+                    // Seul le dépôt entre ici : le coffre et le dialogue
+                    // demandent une `Activity`, qu'un `ViewModel` ne tient
+                    // jamais. Ils descendent aux Composables, plus bas.
+                    biometricEnrollment = graph.biometricEnrollment,
+                    biometricSupport = graph.biometricSupport,
                 )
             }
         },
@@ -120,6 +128,18 @@ fun AuleRoot(
     // par image pour un booléen qui ne change qu'une fois dans la vie de l'app.
     var welcomeDone by rememberSaveable { mutableStateOf(graph.welcome.hasSeenWelcome()) }
     var recoveryEmail by rememberSaveable { mutableStateOf("") }
+    // Les quatre pièces du verrou voyagent ensemble : aucun écran n'en veut
+    // deux sur quatre, et les passer une à une donnait des signatures où
+    // l'ordre finit par se mélanger.
+    val biometrics = remember(graph) {
+        BiometricControls(
+            support = graph.biometricSupport,
+            vault = graph.biometricVault,
+            authenticator = graph.biometricAuthenticator,
+            store = graph.biometricEnrollment,
+            logger = graph.logger,
+        )
+    }
 
     LaunchedEffect(authCallback, authState.isReady) {
         if (!authState.isReady) return@LaunchedEffect
@@ -186,6 +206,23 @@ fun AuleRoot(
                 }
             }
         }
+        // Juste après le démarrage, et avant tout le reste : une session
+        // restaurée qui porte un verrou n'ouvre rien tant qu'il tient. Le fond
+        // est le même qu'au-dessus — entre la fin du boot et le dialogue
+        // système, l'écran ne doit pas changer d'image.
+        //
+        // Aucune branche de sortie n'est nécessaire : `isSignedIn` reste faux
+        // pendant l'attente, donc un refus fait retomber la chaîne sur
+        // `AuthScreen` toute seule.
+        authState.isAwaitingBiometricUnlock -> BiometricUnlockHost(
+            controls = biometrics,
+            userId = authState.userId.orEmpty(),
+            email = authState.email,
+            onSucceeded = authViewModel::onBiometricUnlockSucceeded,
+            onDeclined = { invalidated ->
+                authViewModel.onBiometricUnlockDeclined(invalidated = invalidated)
+            },
+        )
         authState.isCheckingAccess -> AccessCheckScreen()
         // Avant tout le reste, y compris avant la carte : une session ouverte
         // par un lien de récupération **n'ouvre que** le choix d'un nouveau mot
@@ -403,7 +440,18 @@ fun AuleRoot(
             // Le menu, le profil, la prise de service et la relève couvrent
             // la carte sans la démonter : MapLibre garde son style et sa position.
             val overlaySession = graph.auth.currentSession()
-            if (showingPrise && overlaySession != null) {
+            // La proposition biométrique se pose **sur** la carte, comme les
+            // autres volets, plutôt que de la remplacer : elle arrive au
+            // premier lancement réussi, et un volet posé sur du vide se lirait
+            // comme un écran raté. Elle passe avant les autres parce qu'elle
+            // est modale et ne dure qu'un geste.
+            if (authState.showBiometricProposal && !authState.userId.isNullOrBlank()) {
+                BiometricEnrollHost(
+                    controls = biometrics,
+                    userId = authState.userId.orEmpty(),
+                    onDone = authViewModel::onBiometricProposalDone,
+                )
+            } else if (showingPrise && overlaySession != null) {
                 val priseViewModel: PriseServiceViewModel = viewModel(
                     key = "prise-$priseNonce",
                     factory = viewModelFactory {
@@ -542,6 +590,7 @@ fun AuleRoot(
                     onAppearance = graph.appearance::setMode,
                     traces = graph.traces,
                     onClose = { showingProfile = false },
+                    biometrics = biometrics,
                 )
             }
             }

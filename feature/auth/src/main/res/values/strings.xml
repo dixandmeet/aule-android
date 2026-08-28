@@ -205,4 +205,38 @@
     <string name="profile_traces_delete_body_many">%1$d fichiers seront définitivement supprimés de cet appareil.</string>
     <string name="profile_traces_share_subject">Traces GPS Aule Pro</string>
     <string name="profile_traces_share_failed">Partage impossible</string>
+
+    <!--
+      Connexion biométrique. Le mot change avec le capteur : « empreinte » quand
+      c'est le seul que l'appareil possède, « biométrie » dès qu'il y en a
+      plusieurs — Android ne dit jamais lequel est enrôlé, et promettre le
+      mauvais serait démenti par le dialogue qui s'ouvre juste après.
+    -->
+    <string name="auth_biometric_proposal_title">Se connecter plus vite</string>
+    <string name="auth_biometric_proposal_body">La prochaine fois, ouvrez Aule Pro sans ressaisir votre mot de passe. Votre session reste protégée par ce seul appareil.</string>
+    <string name="auth_biometric_enable_fingerprint">Activer l\'empreinte</string>
+    <string name="auth_biometric_enable_generic">Activer la biométrie</string>
+    <string name="auth_biometric_later">Plus tard</string>
+    <string name="auth_biometric_enabled">Connexion biométrique activée</string>
+
+    <string name="auth_biometric_unlock_title_fingerprint">Déverrouiller avec votre empreinte</string>
+    <string name="auth_biometric_unlock_title_generic">Déverrouiller Aule Pro</string>
+    <string name="auth_biometric_unlock_subtitle">Connecté en tant que %1$s</string>
+    <string name="auth_biometric_use_password">Se connecter autrement</string>
+    <string name="auth_biometric_retry">Se connecter avec la biométrie</string>
+
+    <string name="auth_biometric_invalidated">Vos données biométriques ont changé sur cet appareil. La connexion biométrique a été désactivée.</string>
+    <string name="auth_biometric_lockout_temporary">Trop de tentatives. Réessayez dans quelques instants.</string>
+    <string name="auth_biometric_lockout_permanent">Trop de tentatives. Utilisez votre mot de passe.</string>
+    <string name="auth_biometric_unavailable">La biométrie n\'est pas disponible pour le moment.</string>
+
+    <string name="auth_biometric_none_enrolled_title">Aucune biométrie configurée</string>
+    <string name="auth_biometric_none_enrolled_body">Enregistrez une empreinte ou un visage dans les réglages de votre appareil, puis revenez activer cette option.</string>
+    <string name="auth_biometric_open_settings">Ouvrir les paramètres</string>
+
+    <string name="auth_biometric_section">Sécurité</string>
+    <string name="auth_biometric_setting_fingerprint">Connexion par empreinte</string>
+    <string name="auth_biometric_setting_generic">Connexion biométrique</string>
+    <string name="auth_biometric_setting_on">Activée</string>
+    <string name="auth_biometric_setting_off">Désactivée</string>
 </resources>

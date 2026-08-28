@@ -11,6 +11,11 @@ dependencies {
     implementation(projects.core.common)
     implementation(projects.core.designsystem)
     implementation(projects.core.model)
+    // Le verrou biométrique. Cet écran touche déjà à des API Android — la
+    // permission caméra, le sélecteur de photo — et `:core:security` ne voit ni
+    // le réseau ni `:data` : la règle qui empêche un Composable d'appeler le BFF
+    // reste entière.
+    implementation(projects.core.security)
 
     implementation(libs.androidx.lifecycle.runtime.compose)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

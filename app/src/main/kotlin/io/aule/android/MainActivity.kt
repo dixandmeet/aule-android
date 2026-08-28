@@ -2,9 +2,9 @@ package io.aule.android
 
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.fragment.app.FragmentActivity
 import io.aule.android.core.map.MapController
 
 /**
@@ -15,8 +15,21 @@ import io.aule.android.core.map.MapController
  * inverse — un échange d'écran qui détruisait la carte à chaque fois.
  *
  * L'auth se pose **avant** la carte : sans session, MapLibre n'est pas monté.
+ *
+ * ## Pourquoi `FragmentActivity` et non `ComponentActivity`
+ *
+ * `BiometricPrompt` l'exige comme hôte : il s'accroche au gestionnaire de
+ * fragments pour survivre à une rotation pendant que son dialogue est ouvert.
+ * `FragmentActivity` **hérite** de `ComponentActivity` — `setContent`,
+ * `enableEdgeToEdge` et `onNewIntent` continuent donc de fonctionner tels
+ * quels, et rien d'autre ici ne change.
+ *
+ * Aucun fragment n'est créé pour autant, et il ne faut pas en déduire une
+ * ouverture : l'application reste une activité unique et du Compose (ADR-001).
+ * C'est une contrainte d'hébergement d'un dialogue système, pas un retour au
+ * modèle des fragments.
  */
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Avant super.onCreate : la fenêtre doit être en bord-à-bord dès la

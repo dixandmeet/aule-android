@@ -205,4 +205,33 @@
     <string name="profile_traces_delete_body_many">%1$d files will be permanently deleted from this device.</string>
     <string name="profile_traces_share_subject">Aule Pro GPS traces</string>
     <string name="profile_traces_share_failed">Unable to share</string>
+
+    <!-- Biometric sign-in. Catalogue complet : voir values/strings.xml. -->
+    <string name="auth_biometric_proposal_title">Sign in faster</string>
+    <string name="auth_biometric_proposal_body">Next time, open Aule Pro without typing your password again. Your session stays protected by this device alone.</string>
+    <string name="auth_biometric_enable_fingerprint">Enable fingerprint</string>
+    <string name="auth_biometric_enable_generic">Enable biometrics</string>
+    <string name="auth_biometric_later">Later</string>
+    <string name="auth_biometric_enabled">Biometric sign-in enabled</string>
+
+    <string name="auth_biometric_unlock_title_fingerprint">Unlock with your fingerprint</string>
+    <string name="auth_biometric_unlock_title_generic">Unlock Aule Pro</string>
+    <string name="auth_biometric_unlock_subtitle">Signed in as %1$s</string>
+    <string name="auth_biometric_use_password">Sign in another way</string>
+    <string name="auth_biometric_retry">Sign in with biometrics</string>
+
+    <string name="auth_biometric_invalidated">Your biometric data changed on this device. Biometric sign-in has been turned off.</string>
+    <string name="auth_biometric_lockout_temporary">Too many attempts. Try again in a moment.</string>
+    <string name="auth_biometric_lockout_permanent">Too many attempts. Use your password.</string>
+    <string name="auth_biometric_unavailable">Biometrics are unavailable right now.</string>
+
+    <string name="auth_biometric_none_enrolled_title">No biometrics set up</string>
+    <string name="auth_biometric_none_enrolled_body">Add a fingerprint or face in your device settings, then come back to enable this option.</string>
+    <string name="auth_biometric_open_settings">Open settings</string>
+
+    <string name="auth_biometric_section">Security</string>
+    <string name="auth_biometric_setting_fingerprint">Fingerprint sign-in</string>
+    <string name="auth_biometric_setting_generic">Biometric sign-in</string>
+    <string name="auth_biometric_setting_on">On</string>
+    <string name="auth_biometric_setting_off">Off</string>
 </resources>

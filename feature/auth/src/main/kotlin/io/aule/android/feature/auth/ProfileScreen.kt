@@ -62,6 +62,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -133,6 +134,9 @@ import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.forNetwork
 import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.GpsTraceFile
+import io.aule.android.core.security.BiometricEnableResult
+import io.aule.android.core.security.disableBiometric
+import io.aule.android.core.security.enableBiometric
 import java.io.File
 import kotlinx.coroutines.CancellationException
 import kotlin.math.ceil
@@ -183,6 +187,8 @@ fun ProfileScreen(
     traces: GpsTraceCatalog,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
+    /** Absent, l'onglet Préférences ne montre pas de section Sécurité. */
+    biometrics: BiometricControls? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(ProfileTab.PROFIL) }
@@ -452,6 +458,13 @@ fun ProfileScreen(
                             onAppearance = onAppearance,
                             modifier = Modifier.auleEnter(index = 0),
                         )
+                        if (biometrics != null && !state.userId.isNullOrBlank()) {
+                            BiometricSection(
+                                controls = biometrics,
+                                userId = state.userId.orEmpty(),
+                                modifier = Modifier.auleEnter(index = 1),
+                            )
+                        }
                         GpsTracesSection(
                             enabled = traces.enabled,
                             files = tracesList,
@@ -470,7 +483,7 @@ fun ProfileScreen(
                                 }
                             },
                             onDelete = { confirmingDeleteTraces = true },
-                            modifier = Modifier.auleEnter(index = 1),
+                            modifier = Modifier.auleEnter(index = 2),
                         )
                     }
                 }
@@ -1370,6 +1383,141 @@ private fun AppearanceSection(
 }
 
 /**
+ * La rangée « Connexion biométrique ».
+ *
+ * ## Un interrupteur, et non une tuile
+ *
+ * L'apparence choisit **parmi trois** ; ceci s'allume ou s'éteint. Material
+ * tranche pareil, et le `Switch` dit à lui seul l'état courant — un intitulé
+ * « Activée / Désactivée » sous le libellé le redit pour qui lit plutôt que
+ * regarde.
+ *
+ * ## Ce que l'interrupteur ne fait pas
+ *
+ * Il ne bascule pas tout seul. L'activation exige une empreinte reconnue, donc
+ * un dialogue système que l'on peut annuler : l'état ne suit **que** ce que le
+ * dépôt confirme, relu après chaque geste. Un interrupteur qui basculerait à
+ * l'appui puis reviendrait en arrière sur annulation ferait clignoter la rangée
+ * et laisserait croire, une seconde, à une protection qui n'existe pas.
+ *
+ * Désactiver, en revanche, ne demande rien : on retire un verrou local, on ne
+ * franchit pas une porte. La session, elle, ne bouge pas.
+ */
+@Composable
+private fun BiometricSection(
+    controls: BiometricControls,
+    userId: String,
+    modifier: Modifier = Modifier,
+) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val type = remember(controls) { controls.support.detectedType() }
+    var enabled by remember(userId) { mutableStateOf(false) }
+    var working by remember { mutableStateOf(false) }
+    var notice by remember { mutableStateOf<String?>(null) }
+    var askSettings by remember { mutableStateOf(false) }
+
+    val promptTitle = type.unlockTitle()
+    val negative = stringResource(R.string.menu_cancel)
+    val unavailable = stringResource(R.string.auth_biometric_unavailable)
+    val failureMessages = biometricFailureMessages()
+    val label = type.settingLabel()
+
+    // L'état vient du dépôt, jamais d'un souvenir d'interface : c'est la seule
+    // source qui dise si le compte est réellement protégé.
+    suspend fun refresh() {
+        enabled = runCatching { controls.store.read(userId) }.getOrNull() != null
+    }
+
+    LaunchedEffect(userId) { refresh() }
+
+    ProfileSection(title = stringResource(R.string.auth_biometric_section), modifier = modifier) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+        ) {
+            Icon(
+                imageVector = AuleGlyph.FINGERPRINT.asImageVector(filled = enabled),
+                contentDescription = null,
+                modifier = Modifier.size(AuleControl.icon),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(text = label, style = MaterialTheme.typography.bodyLargeEmphasized)
+                Text(
+                    text = stringResource(
+                        if (enabled) {
+                            R.string.auth_biometric_setting_on
+                        } else {
+                            R.string.auth_biometric_setting_off
+                        },
+                    ),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = enabled,
+                onCheckedChange = { wanted ->
+                    if (working) return@Switch
+                    notice = null
+                    if (!wanted) {
+                        working = true
+                        scope.launch {
+                            disableBiometric(controls.vault, controls.store, controls.logger)
+                            refresh()
+                            working = false
+                        }
+                        return@Switch
+                    }
+                    val activity = context.findFragmentActivity()
+                    if (activity == null) {
+                        notice = unavailable
+                        return@Switch
+                    }
+                    working = true
+                    scope.launch {
+                        val result = enableBiometric(
+                            activity = activity,
+                            support = controls.support,
+                            vault = controls.vault,
+                            authenticator = controls.authenticator,
+                            store = controls.store,
+                            userId = userId,
+                            logger = controls.logger,
+                            title = promptTitle,
+                            subtitle = null,
+                            negativeLabel = negative,
+                        )
+                        if (result == BiometricEnableResult.NotEnrolled) askSettings = true
+                        if (result is BiometricEnableResult.Refused) {
+                            notice = failureMessages[result.kind]
+                        }
+                        refresh()
+                        working = false
+                    }
+                },
+                enabled = !working,
+            )
+        }
+        if (notice != null) {
+            AuleBanner(message = notice.orEmpty(), tone = AuleTone.ALERT)
+        }
+    }
+
+    if (askSettings) {
+        NoBiometricEnrolledDialog(
+            onDismiss = { askSettings = false },
+            onOpenSettings = {
+                askSettings = false
+                context.startActivity(biometricEnrollIntent())
+            },
+        )
+    }
+}
+
+/**
  * Une tuile d'ambiance.
  *
  * Les deux couleurs sont **animées**, sur le régime d'effets du schéma
@@ -1634,7 +1782,15 @@ private fun AppearanceMode.glyph(): AuleGlyph = when (this) {
     AppearanceMode.SYSTEM -> AuleGlyph.AUTO
 }
 
-private val DIALOG_MAX_WIDTH = 360.dp
+/**
+ * La largeur d'un dialogue de ce module.
+ *
+ * `internal` plutôt que privée depuis que le volet biométrique en pose un lui
+ * aussi : deux constantes du même nom dans deux fichiers finiraient par
+ * diverger, et deux dialogues de largeurs différentes se remarquent quand on
+ * passe de l'un à l'autre.
+ */
+internal val DIALOG_MAX_WIDTH = 360.dp
 
 private fun shareTraceFiles(
     context: android.content.Context,

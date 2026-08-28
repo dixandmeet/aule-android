@@ -28,6 +28,25 @@ compileSdk = "37"
 androidxCore = "1.18.0"
 androidxActivity = "1.12.0"
 androidxLifecycle = "2.10.0"
+
+# BiometricPrompt — le dialogue système d'empreinte ou de visage.
+#
+# 1.1.0 est bien la **dernière stable**, vérifiée sur Google Maven le
+# 28/08/2026 : au-dessus, androidx ne publie que des alphas (1.2.0-alpha05,
+# 1.4.0-alpha07) depuis des années. Une bibliothèque figée n'est pas ici un
+# signe d'abandon — elle enveloppe une API du système qui, elle, n'a pas bougé.
+#
+# ⚠️ Elle traîne `appcompat` en dépendance **d'exécution** (scope runtime dans
+# son POM). Le projet n'emploie pas appcompat et n'a pas à commencer : rien ne
+# l'importe, elle ne pèse que dans l'APK.
+androidxBiometric = "1.1.0"
+
+# `FragmentActivity`, dont hérite `MainActivity` — c'est `BiometricPrompt` qui
+# l'exige comme hôte. Déclaré explicitement plutôt que pris dans les transitives
+# de `biometric` : `:app` en a un besoin **direct**, il y déclare une classe qui
+# en hérite, et une hiérarchie de classes ne se fonde pas sur ce qu'une autre
+# bibliothèque veut bien exposer.
+androidxFragment = "1.9.0"
 # BOM 2026.08.00 → Compose 1.12.0. Il porte le cœur — ui, foundation, animation,
 # runtime — et c'est lui qui impose le compileSdk 37 ci-dessus. Material 3 ne
 # vient plus de lui : voir `material3` juste en dessous.
@@ -93,6 +112,9 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+
+androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "androidxBiometric" }
+androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "androidxFragment" }
 
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 
