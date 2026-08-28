@@ -16,13 +16,18 @@ import kotlinx.coroutines.CancellationException
  * échec rend `null` : le bandeau retombe sur le libellé de la jambe, et
  * ce silence n'est pas une panne.
  *
- * L'hôte est injectable : le serveur public n'a pas de garantie de
- * service, et pouvoir en désigner un autre au build est ce qui permettra
- * d'en changer sans toucher au code.
+ * ## L'hôte n'a pas de défaut, et c'est délibéré
+ *
+ * Il en avait un — `router.project-osrm.org`, le serveur de démonstration
+ * public — et un paramètre par défaut est une décision que personne ne
+ * prend : les trois flavors partaient dessus sans que rien ne le dise.
+ * L'adresse remonte donc jusqu'à [io.aule.android.core.common.config.AppConfig],
+ * où elle se lit dans `local.properties`, et le repli — s'il faut en garder
+ * un — est une décision de configuration, pas une valeur oubliée ici.
  */
 class OsrmRoadRouter(
     private val client: AuleHttpClient,
-    private val origin: String = DEFAULT_ORIGIN,
+    private val origin: String,
 ) : RoadRouter {
 
     override suspend fun route(
@@ -48,9 +53,5 @@ class OsrmRoadRouter(
             return null
         }
         return body.toRoute()
-    }
-
-    companion object {
-        const val DEFAULT_ORIGIN = "https://router.project-osrm.org"
     }
 }

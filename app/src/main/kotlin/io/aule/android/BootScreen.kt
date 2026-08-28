@@ -19,6 +19,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.common.config.AppConfig
 import io.aule.android.core.common.config.DataSource
+import io.aule.android.core.common.config.PUBLIC_DEMO_ROAD_ROUTER
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
@@ -150,6 +151,7 @@ private fun BootScreenPreview() {
             apiBase = "https://www.aule.fr",
             supabaseUrl = "",
             supabasePublishableKey = "",
+            roadRouterOrigin = PUBLIC_DEMO_ROAD_ROUTER,
             environmentLabel = "Développement",
             versionName = "0.1.0-dev",
             versionCode = 1,

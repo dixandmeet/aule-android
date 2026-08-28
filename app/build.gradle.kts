@@ -104,6 +104,18 @@ android {
         )
         buildConfigField(
             "String",
+            "OSRM_ORIGIN",
+            // Le routeur qui décrit les manœuvres — un second serveur, distinct
+            // du BFF. Le repli est le serveur de **démonstration** public
+            // d'OSRM : il rend le bon service, mais sans garantie ni droit
+            // d'usage en production. Poser `aule.osrmOrigin` dans
+            // `local.properties` est la seule façon de s'en détacher, et
+            // `AppConfig.usesPublicDemoRouter` le dit au démarrage tant qu'on
+            // ne l'a pas fait.
+            "\"${setting("aule.osrmOrigin", "https://router.project-osrm.org")}\"",
+        )
+        buildConfigField(
+            "String",
             "SUPABASE_PUBLISHABLE_KEY",
             // Aucun repli : la clé vit dans `local.properties`, non versionné.
             // Un défaut en dur la remettrait dans l'historique au premier

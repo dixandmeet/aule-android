@@ -36,6 +36,24 @@ data class AppConfig(
     val apiBase: String,
     val supabaseUrl: String,
     val supabasePublishableKey: String,
+    /**
+     * Le routeur de voirie qui décrit les manœuvres.
+     *
+     * ## Pourquoi cette valeur remonte jusqu'ici
+     *
+     * `/api/route` ne rend aucune manœuvre : « tourner à droite », « prendre le
+     * rond-point » viennent d'un **second** serveur, un OSRM, interrogé pour la
+     * même jambe. Tant que l'adresse vivait en dur dans `OsrmRoadRouter`, les
+     * trois flavors partaient sur `router.project-osrm.org` — le serveur de
+     * **démonstration** public d'OSRM, sans garantie de service et dont les
+     * conditions d'usage excluent la production. Le commentaire du routeur
+     * promettait un hôte injectable ; rien ne l'injectait.
+     *
+     * Elle se pose maintenant dans `local.properties` (`aule.osrmOrigin`), donc
+     * par machine et par flavor, sans toucher au code. [usesPublicDemoRouter]
+     * dit à voix haute quand on est resté sur le repli.
+     */
+    val roadRouterOrigin: String,
     val environmentLabel: String,
     val versionName: String,
     val versionCode: Int,
@@ -44,7 +62,21 @@ data class AppConfig(
         require(apiBase.startsWith("https://")) {
             "L'API doit être jointe en HTTPS — reçu « $apiBase »."
         }
+        require(roadRouterOrigin.startsWith("https://")) {
+            "Le routeur de voirie doit être joint en HTTPS — reçu « $roadRouterOrigin »."
+        }
     }
+
+    /**
+     * Vrai quand les manœuvres sortent encore du serveur de démonstration public.
+     *
+     * Ce n'est pas une panne, et l'application marche : c'est une dépendance
+     * qu'on ne maîtrise pas sur le chemin du guidage. Le jour où elle limite le
+     * débit, le bandeau retombe en silence sur le libellé de la jambe — d'où le
+     * fait de le dire au démarrage plutôt que de le découvrir en roulant.
+     */
+    val usesPublicDemoRouter: Boolean
+        get() = roadRouterOrigin.trimEnd('/') == PUBLIC_DEMO_ROAD_ROUTER
 
     /** Vrai quand la configuration Supabase manque : à dire, pas à deviner. */
     val supabaseConfigured: Boolean
@@ -54,3 +86,13 @@ data class AppConfig(
     val buildLabel: String
         get() = "$environmentLabel · $versionName ($versionCode) · ${dataSource.id}"
 }
+
+/**
+ * Le serveur de démonstration public d'OSRM.
+ *
+ * Il rend le bon service et c'est le repli tant qu'Aule n'héberge pas le sien —
+ * mais il n'a ni garantie de disponibilité, ni droit d'usage en production.
+ * Nommé ici pour que [AppConfig.usesPublicDemoRouter] puisse le reconnaître, et
+ * pour qu'il n'y ait qu'**un** endroit où cette adresse est écrite.
+ */
+const val PUBLIC_DEMO_ROAD_ROUTER = "https://router.project-osrm.org"

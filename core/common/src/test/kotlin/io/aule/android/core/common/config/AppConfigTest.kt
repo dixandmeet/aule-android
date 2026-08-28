@@ -36,11 +36,13 @@ class AppConfigTest {
         apiBase: String = "https://www.aule.fr",
         supabaseUrl: String = "https://exemple.supabase.co",
         supabaseKey: String = "clé",
+        roadRouterOrigin: String = "https://osrm.aule.fr",
     ) = AppConfig(
         dataSource = DataSource.PRODUCTION,
         apiBase = apiBase,
         supabaseUrl = supabaseUrl,
         supabasePublishableKey = supabaseKey,
+        roadRouterOrigin = roadRouterOrigin,
         environmentLabel = "Développement",
         versionName = "0.1.0-dev",
         versionCode = 1,
@@ -83,5 +85,35 @@ class AppConfigTest {
         assertTrue(label.contains("0.1.0-dev"), label)
         assertTrue(label.contains("1"), label)
         assertTrue(label.contains("production"), label)
+    }
+
+    /**
+     * Le routeur de voirie voyage sur le même fil que le reste. Il ne porte pas
+     * de position de conducteur, mais il porte la destination — c'est déjà une
+     * information qu'on ne laisse pas passer en clair.
+     */
+    @Test
+    fun `un routeur de voirie en clair est refuse au demarrage`() {
+        assertThrows<IllegalArgumentException> {
+            config(roadRouterOrigin = "http://router.project-osrm.org")
+        }
+    }
+
+    /**
+     * La dépendance qu'on ne maîtrise pas doit se voir.
+     *
+     * Le serveur de démonstration public rend le bon service, et c'est
+     * précisément ce qui le rend dangereux : rien ne distingue à l'écran un
+     * guidage servi par lui d'un guidage servi par un OSRM d'Aule. Tant que ce
+     * drapeau existe, le démarrage peut le dire.
+     */
+    @Test
+    fun `le repli sur le serveur de demonstration se reconnait`() {
+        assertTrue(config(roadRouterOrigin = PUBLIC_DEMO_ROAD_ROUTER).usesPublicDemoRouter)
+        assertTrue(
+            config(roadRouterOrigin = "$PUBLIC_DEMO_ROAD_ROUTER/").usesPublicDemoRouter,
+            "une barre finale ne change pas d'hôte",
+        )
+        assertFalse(config(roadRouterOrigin = "https://osrm.aule.fr").usesPublicDemoRouter)
     }
 }

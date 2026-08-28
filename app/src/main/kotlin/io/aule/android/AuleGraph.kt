@@ -152,6 +152,20 @@ class AuleGraph private constructor(
                         "aule.supabasePublishableKey manquent dans local.properties.",
                 )
             }
+            if (config.usesPublicDemoRouter) {
+                // Le guidage tient à ce serveur pour chacune de ses consignes,
+                // et il n'a ni garantie ni droit d'usage en production. Le jour
+                // où il limite le débit, le bandeau retombe **en silence** sur
+                // le libellé de la jambe : rien ne plante, l'application cesse
+                // simplement de guider. C'est le genre de panne qu'on ne
+                // comprend qu'en ayant lu cette ligne au démarrage.
+                logger.warn(
+                    LogDomain.APP,
+                    "Manœuvres servies par le serveur de démonstration public " +
+                        "d'OSRM (${config.roadRouterOrigin}) : sans garantie de " +
+                        "service. Poser aule.osrmOrigin dans local.properties.",
+                )
+            }
 
             // Un seul client OkHttp pour toute l'application. MapLibre recevra
             // celui-ci pour ses tuiles et ses glyphes : un seul pool de
@@ -207,7 +221,7 @@ class AuleGraph private constructor(
                     ),
                     places = AulePlaceSearchRepository(endpoints, http),
                     routing = AuleRoutingRepository(endpoints, http),
-                    roads = OsrmRoadRouter(http),
+                    roads = OsrmRoadRouter(http, config.roadRouterOrigin),
                     auth = auth,
                     profiles = profiles,
                     registrationDrafts = PreferencesRegistrationDraftStore(context),
@@ -278,6 +292,7 @@ class AuleGraph private constructor(
                 apiBase = BuildConfig.AULE_API_BASE,
                 supabaseUrl = BuildConfig.SUPABASE_URL,
                 supabasePublishableKey = BuildConfig.SUPABASE_PUBLISHABLE_KEY,
+                roadRouterOrigin = BuildConfig.OSRM_ORIGIN,
                 environmentLabel = BuildConfig.ENVIRONMENT_LABEL,
                 versionName = BuildConfig.VERSION_NAME,
                 versionCode = BuildConfig.VERSION_CODE,
