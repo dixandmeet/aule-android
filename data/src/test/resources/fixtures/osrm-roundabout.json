@@ -1,0 +1,57 @@
+{
+  "code": "Ok",
+  "routes": [
+    {
+      "distance": 1800.0,
+      "duration": 240.0,
+      "geometry": {
+        "coordinates": [
+          [
+            -1.5536,
+            47.2184
+          ],
+          [
+            -1.549,
+            47.223
+          ],
+          [
+            -1.544,
+            47.228
+          ]
+        ]
+      },
+      "legs": [
+        {
+          "steps": [
+            {
+              "name": "Boulevard des Poilus",
+              "distance": 600.0,
+              "duration": 80.0,
+              "maneuver": {
+                "type": "roundabout",
+                "modifier": "right",
+                "location": [
+                  -1.549,
+                  47.223
+                ],
+                "exit": 3
+              }
+            },
+            {
+              "name": "Route de Saint-Joseph",
+              "distance": 1200.0,
+              "duration": 160.0,
+              "maneuver": {
+                "type": "arrive",
+                "location": [
+                  -1.544,
+                  47.228
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

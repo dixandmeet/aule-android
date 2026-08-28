@@ -42,6 +42,14 @@ internal data class OsrmManeuverDto(
     val type: String? = null,
     val modifier: String? = null,
     val location: List<Double> = emptyList(),
+    /**
+     * Le numéro de sortie d'un rond-point, compté à partir de 1.
+     *
+     * OSRM le publie depuis toujours ; on ne le lisait pas, et la consigne se
+     * réduisait à « Prendre le rond-point ». Sur un rond-point à cinq branches,
+     * c'est une phrase qui ne guide personne.
+     */
+    val exit: Int? = null,
 )
 
 internal fun OsrmResponseDto.toRoute(): RoadRoute? {
@@ -72,5 +80,8 @@ private fun OsrmStepDto.toManeuver(): RoadManeuver? {
         durationSeconds = duration ?: 0.0,
         streetName = name,
         modifier = maneuver.modifier,
+        // Zéro ou négatif n'est pas une sortie : on préfère l'absence, qui a
+        // déjà une formulation, à un « prendre la 0e sortie ».
+        exit = maneuver.exit?.takeIf { it > 0 },
     )
 }

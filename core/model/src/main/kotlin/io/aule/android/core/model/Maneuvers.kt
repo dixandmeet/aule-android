@@ -90,12 +90,21 @@ data class RoadManeuver(
     val durationSeconds: Double,
     val streetName: String? = null,
     val modifier: String? = null,
+    /** La sortie à prendre sur un rond-point, comptée à partir de 1. */
+    val exit: Int? = null,
 )
 
 data class PinnedManeuver(
     val kind: ManeuverKind,
     val t: Double,
     val streetName: String? = null,
+    /**
+     * La sortie du rond-point.
+     *
+     * Un nombre, pas une phrase : « la troisième » se dit autrement en anglais,
+     * et l'ordinal se fabrique à l'affichage (ADR-011).
+     */
+    val exit: Int? = null,
 )
 
 data class UpcomingManeuver(
@@ -164,6 +173,7 @@ fun pinManeuvers(
             kind = maneuverKindOf(maneuver.instruction, maneuver.modifier),
             t = match.t,
             streetName = maneuver.streetName?.trim()?.takeIf { it.isNotEmpty() },
+            exit = maneuver.exit,
         )
         floor = match.t
     }

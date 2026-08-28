@@ -184,13 +184,38 @@ fun NextAction.titleText(): String = when (kind) {
     } else {
         stringResource(R.string.nav_board_line, title)
     }
-    NextActionKind.MANEUVER -> title.ifBlank { maneuver?.phrase().orEmpty() }
+    NextActionKind.MANEUVER -> title.ifBlank { maneuverPhrase().orEmpty() }
     NextActionKind.FOLLOW -> title
+}
+
+/**
+ * La consigne de la manœuvre — **avec la sortie**, quand c'est un rond-point.
+ *
+ * « Prendre le rond-point » était tout ce que le bandeau savait dire : le
+ * champ `exit` d'OSRM n'était pas décodé. Sur un rond-point à cinq branches,
+ * c'est une phrase qui ne guide personne.
+ *
+ * Au-delà de vingt sorties on retombe sur la phrase nue : ce n'est plus un
+ * rond-point, c'est une donnée aberrante, et annoncer « la 47e sortie » serait
+ * pire que ne rien préciser.
+ */
+@Composable
+private fun NextAction.maneuverPhrase(): String? {
+    val kind = maneuver ?: return null
+    val exit = maneuverExit
+    if (kind != ManeuverKind.ROUNDABOUT || exit == null || exit !in 1..20) return kind.phrase()
+    return when (exit) {
+        1 -> stringResource(R.string.maneuver_roundabout_exit_1)
+        2 -> stringResource(R.string.maneuver_roundabout_exit_2)
+        3 -> stringResource(R.string.maneuver_roundabout_exit_3)
+        4 -> stringResource(R.string.maneuver_roundabout_exit_4)
+        else -> stringResource(R.string.maneuver_roundabout_exit_other, exit)
+    }
 }
 
 @Composable
 fun NextAction.detailText(): String? = when (kind) {
-    NextActionKind.MANEUVER -> if (title.isNotBlank()) maneuver?.phrase() else null
+    NextActionKind.MANEUVER -> if (title.isNotBlank()) maneuverPhrase() else null
     NextActionKind.BOARD -> detail
     NextActionKind.TRANSFER -> detail
     else -> null

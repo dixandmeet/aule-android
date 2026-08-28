@@ -3,6 +3,7 @@ package io.aule.android.core.model
 import io.aule.android.core.geo.Coordinate
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
+import kotlin.test.assertNotNull
 import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -150,4 +151,31 @@ class ManeuversTest {
         assertFalse(roadRouteDescribesLeg(roadMeters = 500.0, paintedMeters = Double.POSITIVE_INFINITY))
     }
 
+    /**
+     * Le numéro de sortie voyage du DTO jusqu'à la manœuvre agrafée : sans lui,
+     * la consigne se réduit à « Prendre le rond-point », ce qui ne dit pas quelle
+     * branche prendre.
+     */
+    @Test
+    fun `la sortie d un rond-point suit la manoeuvre jusqu au tracé`() {
+        val painted = listOf(
+            Coordinate(latitude = 47.2184, longitude = -1.5536),
+            Coordinate(latitude = 47.2284, longitude = -1.5436),
+        )
+        val pinned = pinManeuvers(
+            painted = painted,
+            raw = listOf(
+                RoadManeuver(
+                    instruction = "roundabout",
+                    location = Coordinate(latitude = 47.2234, longitude = -1.5486),
+                    distanceMeters = 120.0,
+                    durationSeconds = 20.0,
+                    exit = 3,
+                ),
+            ),
+        )
+        val roundabout = assertNotNull(pinned.singleOrNull())
+        assertEquals(ManeuverKind.ROUNDABOUT, roundabout.kind)
+        assertEquals(3, roundabout.exit)
+    }
 }

@@ -256,6 +256,15 @@
     <string name="maneuver_sharp_right">Tourner franchement à droite</string>
     <string name="maneuver_uturn">Faire demi-tour</string>
     <string name="maneuver_roundabout">Prendre le rond-point</string>
+    <!-- Les sorties de rond-point, énumérées plutôt que calculées.
+         L'ordinal français n'est pas une règle qu'on écrit en Kotlin : « 1re »
+         est féminin (une sortie), là où ICU rend « 1er ». Au-delà de la
+         quatrième, le suffixe ne bouge plus — une seule forme suffit. -->
+    <string name="maneuver_roundabout_exit_1">Prendre la 1re sortie</string>
+    <string name="maneuver_roundabout_exit_2">Prendre la 2e sortie</string>
+    <string name="maneuver_roundabout_exit_3">Prendre la 3e sortie</string>
+    <string name="maneuver_roundabout_exit_4">Prendre la 4e sortie</string>
+    <string name="maneuver_roundabout_exit_other">Prendre la %1$de sortie</string>
     <string name="maneuver_fork">Prendre l\'embranchement</string>
     <string name="maneuver_merge">S\'insérer</string>
     <string name="maneuver_ramp">Prendre la bretelle</string>

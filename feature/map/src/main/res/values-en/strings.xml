@@ -256,6 +256,13 @@
     <string name="maneuver_sharp_right">Turn sharp right</string>
     <string name="maneuver_uturn">Make a U-turn</string>
     <string name="maneuver_roundabout">Take the roundabout</string>
+    <!-- Roundabout exits, spelled out rather than computed: English ordinals
+         change suffix up to the fourth, then settle on "th". -->
+    <string name="maneuver_roundabout_exit_1">Take the 1st exit</string>
+    <string name="maneuver_roundabout_exit_2">Take the 2nd exit</string>
+    <string name="maneuver_roundabout_exit_3">Take the 3rd exit</string>
+    <string name="maneuver_roundabout_exit_4">Take the 4th exit</string>
+    <string name="maneuver_roundabout_exit_other">Take the %1$dth exit</string>
     <string name="maneuver_fork">Take the fork</string>
     <string name="maneuver_merge">Merge</string>
     <string name="maneuver_ramp">Take the ramp</string>

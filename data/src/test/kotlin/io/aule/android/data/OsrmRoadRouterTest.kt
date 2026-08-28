@@ -69,6 +69,23 @@ class OsrmRoadRouterTest {
         assertNull(route.maneuvers.last().streetName)
     }
 
+    /**
+     * Le champ `exit` d'OSRM n'était pas décodé, et la consigne se réduisait à
+     * « Prendre le rond-point ». Sur un rond-point à cinq branches, c'est une
+     * phrase qui ne guide personne.
+     */
+    @Test
+    fun `la sortie d un rond-point se decode`() = runTest {
+        server.enqueue(
+            MockResponse.Builder().code(200).body(fixture("osrm-roundabout.json")).build(),
+        )
+        val route = assertNotNull(router.route(from, to, RoadProfile.CAR))
+        val roundabout = route.maneuvers.first()
+        assertEquals("roundabout", roundabout.instruction)
+        assertEquals(3, roundabout.exit)
+        assertNull(route.maneuvers.last().exit, "une arrivée n'a pas de sortie")
+    }
+
     @Test
     fun `un echec rend null plutot que de lever`() = runTest {
         server.enqueue(MockResponse.Builder().code(500).body("nope").build())

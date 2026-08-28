@@ -29,6 +29,8 @@ data class NextAction(
     val leadIsTransfer: Boolean = false,
     val detail: String? = null,
     val maneuver: ManeuverKind? = null,
+    /** La sortie du rond-point, quand la manœuvre en est un et qu'OSRM l'a dite. */
+    val maneuverExit: Int? = null,
     val line: String? = null,
     val lineColor: String? = null,
     val destinationLabel: String? = null,
@@ -108,6 +110,7 @@ fun nextAction(
             title = street ?: "",
             leadMeters = ahead.meters,
             maneuver = ahead.maneuver.kind,
+            maneuverExit = ahead.maneuver.exit,
             mode = leg.mode,
         )
     }
