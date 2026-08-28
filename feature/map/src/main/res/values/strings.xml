@@ -223,6 +223,8 @@
     <string name="nav_stop_confirm_title">Arrêter le guidage ?</string>
     <string name="nav_stop_confirm_body">L\'itinéraire en cours sera abandonné, et la carte reviendra sur le trajet.</string>
     <string name="nav_stop_confirm_keep">Continuer</string>
+    <string name="nav_recalculating">Recalcul de l\'itinéraire</string>
+    <string name="nav_recalculating_detail">Continuez, un nouveau trajet arrive.</string>
     <string name="nav_arrive">Vous êtes arrivé</string>
     <string name="nav_arrive_at">Vous êtes arrivé à %1$s</string>
     <string name="nav_transfer">Correspondance</string>

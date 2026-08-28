@@ -281,6 +281,211 @@ class MapGuidanceViewModelTest {
         }
     }
 
+    /**
+     * Le défaut de la recette : rater une sortie n'était pas rattrapé.
+     *
+     * La sortie de tracé était détectée depuis toujours — trois mesures au-delà
+     * du seuil — mais ne posait qu'un bandeau « Rejoignez le tracé ». Sur une
+     * heure de route, ne jamais s'écarter du tracé n'est pas un cas nominal.
+     */
+    @Test
+    fun `sortir du trace demande un nouvel itineraire`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val routing = FakeRouting(plan = samplePlan("a"))
+            val viewModel = viewModel(dispatcher, routing = routing)
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+            val plansBefore = routing.calls
+
+            // Le trajet suivant qu'on rendra : un autre identifiant, pour
+            // pouvoir vérifier que c'est bien celui-là qui prend la place.
+            routing.plan = samplePlan("b")
+            driveOffRoute(viewModel)
+            advanceUntilIdle()
+
+            assertTrue(routing.calls > plansBefore, "un recalcul doit être parti")
+            val navigation = assertNotNull(viewModel.state.value.navigation)
+            assertFalse(navigation.recalculating, "le recalcul est terminé")
+            assertFalse(navigation.offRoute, "on est sur le nouveau tracé, donc dessus")
+            assertEquals("b", viewModel.state.value.route?.selectedId)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * En transport, un écart de trente mètres n'est pas une erreur de trajet :
+     * c'est une géométrie de ligne approximative, ou un bus qui prend une
+     * contre-allée. Rendre un autre itinéraire — donc une autre correspondance
+     * — à quelqu'un assis dans le bon véhicule serait pire que le bandeau.
+     */
+    @Test
+    fun `un trajet en transport ne se recalcule pas tout seul`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val routing = FakeRouting(plan = samplePlan("a"))
+            val viewModel = viewModel(dispatcher, routing = routing)
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.TRANSIT)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+            val before = routing.calls
+
+            routing.plan = samplePlan("b")
+            driveOffRoute(viewModel)
+            advanceUntilIdle()
+
+            assertEquals(before, routing.calls, "aucun recalcul en transport")
+            assertTrue(viewModel.state.value.navigation?.offRoute == true, "le bandeau, lui, reste")
+            assertEquals("a", viewModel.state.value.route?.selectedId)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * Le trajet d'avant reste à l'écran tant qu'on n'a pas mieux : il est faux,
+     * mais il est orienté, et un écran nu à quatre-vingt-dix à l'heure est pire
+     * qu'un tracé périmé.
+     */
+    @Test
+    fun `un moteur muet laisse le trajet et le bandeau de sortie`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val routing = FakeRouting(plan = samplePlan("a"))
+            val viewModel = viewModel(dispatcher, routing = routing)
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            routing.failWith = "502"
+            driveOffRoute(viewModel)
+            advanceUntilIdle()
+
+            val navigation = assertNotNull(viewModel.state.value.navigation)
+            assertFalse(navigation.recalculating)
+            assertTrue(navigation.offRoute, "sans nouveau trajet, on est toujours dehors")
+            assertEquals("a", viewModel.state.value.route?.selectedId, "l'ancien plan tient")
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * `OffRouteDetector` remet son compteur à zéro en déclenchant : sans
+     * temporisation, un moteur en panne se ferait appeler toutes les trois
+     * secondes pendant tout le trajet.
+     */
+    @Test
+    fun `deux sorties rapprochees ne lancent qu un calcul`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val routing = FakeRouting(plan = samplePlan("a"))
+            val viewModel = viewModel(dispatcher, routing = routing)
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            routing.failWith = "502"
+            driveOffRoute(viewModel, fromMillis = 100_000L)
+            advanceUntilIdle()
+            val afterFirst = routing.calls
+
+            // Trois secondes plus tard, le détecteur peut redéclencher. La
+            // temporisation, elle, tient douze secondes.
+            driveOffRoute(viewModel, fromMillis = 103_000L)
+            advanceUntilIdle()
+            assertEquals(afterFirst, routing.calls, "la temporisation retient le second")
+
+            driveOffRoute(viewModel, fromMillis = 130_000L)
+            advanceUntilIdle()
+            assertTrue(routing.calls > afterFirst, "passé le délai, on retente")
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * Revenir sur le tracé de soi-même annule le calcul en cours : lui
+     * substituer un autre trajet ferait sauter le tracé sous les yeux du
+     * conducteur alors qu'il vient de se rattraper.
+     */
+    @Test
+    fun `revenir sur le trace annule le recalcul`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val routing = FakeRouting(plan = samplePlan("a"), delayMs = 5_000)
+            val viewModel = viewModel(dispatcher, routing = routing)
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin, mode = RouteMode.CAR)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            routing.plan = samplePlan("b")
+            driveOffRoute(viewModel, fromMillis = 200_000L)
+            assertTrue(
+                viewModel.state.value.navigation?.recalculating == true,
+                "le calcul est en vol",
+            )
+
+            // Retour sur le tracé avant que la réponse n'arrive.
+            viewModel.onGuidanceFix(fixAt(onRoute, atMillis = 201_000L))
+            advanceUntilIdle()
+
+            assertEquals("a", viewModel.state.value.route?.selectedId, "on garde le trajet suivi")
+            assertFalse(viewModel.state.value.navigation?.offRoute == true)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * Un point **sur** le tracé, un peu plus loin que l'écart : celui où l'on
+     * rejoint. À 8 % du trajet, il tombe dans la fenêtre avant de
+     * [io.aule.android.core.geo.PolylineProjection].
+     */
+    private val onRoute = Coordinate(latitude = 47.220224, longitude = -1.551168)
+
+    /**
+     * Trois mesures à cent vingt mètres du tracé, tout près de son début.
+     *
+     * Deux contraintes se croisent ici, et les rater ne teste plus rien :
+     *
+     * - l'écart doit dépasser le seuil de base de 32 m — d'où les 120 m, qui
+     *   sont l'écart d'une sortie ratée, pas d'une erreur de GPS ;
+     * - la progression n'avance que de [io.aule.android.core.geo.PolylineProjection.FORWARD_WINDOW]
+     *   par mesure, soit 12 % du tracé. Un point choisi au milieu du trajet
+     *   serait **hors fenêtre** au premier coup : la projection se collerait au
+     *   bord de la fenêtre et rendrait une déviation d'un kilomètre, qui n'est
+     *   pas celle qu'on croit mesurer.
+     */
+    private fun driveOffRoute(viewModel: MapViewModel, fromMillis: Long = 50_000L) {
+        val astray = Coordinate(latitude = 47.220264, longitude = -1.553256)
+        repeat(3) { index ->
+            viewModel.onGuidanceFix(fixAt(astray, atMillis = fromMillis + index * 1_000L))
+        }
+    }
+
     private fun fixAt(
         at: Coordinate,
         accuracy: Double = 5.0,
@@ -363,6 +568,8 @@ class MapGuidanceViewModelTest {
         var delayMs: Long = 0,
         var failWith: String? = null,
     ) : RoutingRepository {
+        /** Combien de fois le moteur a été sollicité — recalculs compris. */
+        var calls = 0
         override suspend fun plan(
             mode: RouteMode,
             from: Coordinate,
@@ -371,6 +578,7 @@ class MapGuidanceViewModelTest {
             departureAt: Instant?,
             arriveBy: Boolean,
         ): RoutePlan {
+            calls++
             if (delayMs > 0) delay(delayMs)
             failWith?.let { error(it) }
             return plan ?: error("aucun plan")

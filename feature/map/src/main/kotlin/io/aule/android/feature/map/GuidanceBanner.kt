@@ -26,8 +26,12 @@ import io.aule.android.core.designsystem.token.AuleSpacing
  * manœuvre : sans position fiable, une consigne à « 80 m » peut être à
  * trois cents.
  *
- * Pas de « Recalcul » : ce jalon n'en fait pas, et un bandeau qui l'annonce
- * mentirait.
+ * Le recalcul passe devant la sortie de tracé. Les deux sont vrais en même
+ * temps — on est bien hors de l'itinéraire pendant qu'on en cherche un autre —
+ * mais ils ne disent pas la même chose au conducteur : « Vous avez quitté
+ * l'itinéraire » lui demande d'agir, « Recalcul de l'itinéraire » lui dit que
+ * c'est en cours. Au volant, la seconde est la seule des deux sur laquelle il
+ * n'y a rien à faire, donc la seule qui repose.
  *
  * ## Pourquoi ce bandeau est la surface de marque de l'écran de guidage
  *
@@ -56,12 +60,17 @@ internal fun GuidanceBanner(
     val lead: String?
     val title: String
     val detail: String?
-    val alert = state.signalLost || state.offRoute
+    val alert = state.signalLost || state.offRoute || state.recalculating
     when {
         state.signalLost -> {
             lead = null
             title = stringResource(R.string.nav_gps_lost)
             detail = stringResource(R.string.nav_gps_lost_detail)
+        }
+        state.recalculating -> {
+            lead = null
+            title = stringResource(R.string.nav_recalculating)
+            detail = stringResource(R.string.nav_recalculating_detail)
         }
         state.offRoute -> {
             lead = null

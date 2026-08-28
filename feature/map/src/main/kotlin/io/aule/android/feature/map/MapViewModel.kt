@@ -229,6 +229,15 @@ data class NavigationUiState(
     val action: NextAction?,
     val summary: TripSummary,
     val offRoute: Boolean = false,
+    /**
+     * Vrai le temps qu'un nouvel itinéraire arrive, après une sortie de tracé.
+     *
+     * Distinct de [offRoute], qui reste vrai pendant ce temps : l'un dit
+     * *où l'on est*, l'autre *ce que l'application fait*. Le bandeau montre le
+     * second, parce que « on s'en occupe » est plus utile au volant que « vous
+     * vous êtes trompé ».
+     */
+    val recalculating: Boolean = false,
     val signalLost: Boolean = false,
     val routeBearing: Double = 0.0,
     val showingTrip: Boolean = false,
@@ -447,6 +456,16 @@ class MapViewModel(
      */
     private var lastTracedMillis: Long? = null
     private val offRoute = OffRouteDetector()
+    private var recalcJob: Job? = null
+
+    /**
+     * L'horodatage GPS du dernier recalcul lancé.
+     *
+     * C'est le temps du **point**, et non l'horloge de l'application : la
+     * boucle de guidage ne connaît que des mesures, un test n'a alors pas
+     * d'horloge à injecter, et deux points portent l'écart réel entre eux.
+     */
+    private var lastRecalcMillis: Long? = null
     private var focusedLeg = -1
 
     /** La région observée. Le sondage suit la caméra, pas l'inverse. */
@@ -1354,11 +1373,155 @@ class MapViewModel(
         val progress = journeyProgressAt(current.plan, routeProgress.t) ?: return
         var off = current.offRoute
         if (match != null) {
-            if (offRoute.update(match.deviationMeters, fix.accuracyMeters)) off = true
-            if (off && offRoute.rejoined(match.deviationMeters)) off = false
+            if (offRoute.update(match.deviationMeters, fix.accuracyMeters)) {
+                off = true
+                recalculate(from = fix.coordinate, atMillis = fix.timestampMillis)
+            }
+            if (off && offRoute.rejoined(match.deviationMeters)) {
+                off = false
+                // Revenu sur le tracé de lui-même : le trajet qu'on regarde est
+                // redevenu le bon, et lui en substituer un autre le ferait
+                // sauter sous les yeux du conducteur sans raison.
+                cancelRecalculation()
+            }
         }
         if (progress.legIndex != focusedLeg) loadManeuversAround(progress.legIndex)
         publishNavigation(current.plan, progress, showingTrip = current.showingTrip, offRoute = off, signalLost = false)
+    }
+
+    /**
+     * Un nouvel itinéraire, depuis là où l'on est.
+     *
+     * ## Ce que ce jalon ne faisait pas
+     *
+     * La sortie de tracé était **détectée** — trois mesures au-delà du seuil,
+     * avec hystérésis — et ne servait qu'à écrire un bandeau : « Vous avez
+     * quitté l'itinéraire. Rejoignez le tracé. » Rater une sortie de rocade
+     * revenait donc à se faire demander un demi-tour jusqu'à ce qu'on abandonne.
+     * Sur une heure de route, ne jamais s'écarter du tracé n'est pas un cas
+     * nominal, c'est un coup de chance.
+     *
+     * ## Le trajet d'avant reste à l'écran
+     *
+     * On ne vide rien avant d'avoir mieux. Le guidage continue sur l'ancien
+     * tracé pendant le calcul — il est faux, mais il est **orienté**, et un
+     * écran nu à quatre-vingt-dix à l'heure est pire qu'un tracé périmé. Si le
+     * moteur ne répond pas, on n'a donc rien perdu : le bandeau retombe sur
+     * « Vous avez quitté l'itinéraire », et la prochaine sortie franche
+     * relancera un calcul.
+     *
+     * ## Pourquoi une temporisation en plus de l'hystérésis
+     *
+     * [OffRouteDetector] remet son compteur à zéro en déclenchant : trois
+     * mesures plus tard, soit trois secondes, il peut déclencher à nouveau. Un
+     * moteur en panne se ferait donc appeler toutes les trois secondes pendant
+     * tout le trajet. [RECALC_COOLDOWN_MS] borne la cadence à ce qu'un
+     * conducteur perçoit comme « ça recalcule », pas à ce qu'un serveur perçoit
+     * comme une attaque.
+     */
+    private fun recalculate(from: Coordinate, atMillis: Long) {
+        if (recalcJob?.isActive == true) return
+        val route = _state.value.route ?: return
+        // Le recalcul ne vaut que là où « refaire le trajet depuis ici » veut
+        // dire quelque chose. En transport, trente mètres d'écart, c'est le bus
+        // qui prend une contre-allée ou une géométrie de ligne approximative —
+        // et rendre alors un autre itinéraire, avec une autre correspondance, à
+        // quelqu'un qui est **assis dans le bon véhicule** serait bien pire que
+        // le bandeau. Il reste donc seul pour ce mode.
+        if (route.mode == RouteMode.TRANSIT) return
+        val current = _state.value.navigation ?: return
+        val since = lastRecalcMillis?.let { atMillis - it }
+        // Un horodatage qui recule (changement d'heure, mesure d'un autre
+        // fournisseur) ne doit pas bloquer le recalcul pour l'éternité : seul
+        // un écart positif et court temporise.
+        if (since != null && since in 0 until RECALC_COOLDOWN_MS) return
+        lastRecalcMillis = atMillis
+        logger.info(LogDomain.NET, "Hors itinéraire — recalcul vers ${route.destination.label}.")
+        publishNavigation(
+            current.plan,
+            current.progress,
+            showingTrip = current.showingTrip,
+            offRoute = true,
+            recalculating = true,
+        )
+        recalcJob = viewModelScope.launch {
+            val outcome = runCatching {
+                withContext(dispatchers.io) {
+                    routingRepository.plan(
+                        mode = route.mode,
+                        from = from,
+                        to = route.destination.coordinate,
+                    )
+                }
+            }
+            val latest = _state.value.navigation ?: return@launch
+            outcome.onFailure { failure ->
+                if (failure is CancellationException) throw failure
+                logger.warn(LogDomain.NET, "Recalcul en échec.", failure)
+            }
+            val replacement = outcome.getOrNull()
+            val fresh = replacement?.selected()
+                ?.let { journeyFromCandidate(it, route.mode, route.destination.label) }
+                ?.takeIf { !it.isEmpty }
+            if (fresh == null) {
+                publishNavigation(
+                    latest.plan,
+                    latest.progress,
+                    showingTrip = latest.showingTrip,
+                    offRoute = true,
+                    recalculating = false,
+                )
+                return@launch
+            }
+            adopt(fresh, from, latest.showingTrip, replacement)
+        }
+    }
+
+    /**
+     * Le nouveau tracé prend la place de l'ancien, d'un bloc.
+     *
+     * Les manœuvres de l'ancien plan sont agrafées sur **ses** points : les
+     * garder une image de plus poserait « tourner à droite dans 80 m » sur une
+     * géométrie qui n'a plus ce virage. On les jette donc, et le compteur de
+     * génération fait tomber les réponses OSRM encore en vol.
+     */
+    private fun adopt(
+        plan: JourneyPlan,
+        around: Coordinate,
+        showingTrip: Boolean,
+        routePlan: RoutePlan?,
+    ) {
+        maneuverGeneration++
+        maneuversByLeg.clear()
+        focusedLeg = -1
+        routeProgress.reset()
+        routeProgress.advance(plan.points, around)
+        offRoute.reset()
+        val progress = journeyProgressAt(plan, routeProgress.t) ?: return
+        // Le volet d'itinéraire lit `route`, pas `navigation` : sans cette
+        // ligne, il continuerait de décrire le trajet qu'on vient d'abandonner,
+        // et « Arrêter » puis « Y aller » repartirait dessus.
+        if (routePlan != null) {
+            _state.value.route?.let { latest ->
+                _state.value = _state.value.copy(
+                    route = latest.copy(plan = routePlan, selectedId = routePlan.selectedId),
+                )
+            }
+        }
+        publishNavigation(
+            plan,
+            progress,
+            showingTrip = showingTrip,
+            offRoute = false,
+            recalculating = false,
+        )
+        loadManeuversAround(progress.legIndex)
+        logger.info(LogDomain.MAP, "Itinéraire recalculé.")
+    }
+
+    private fun cancelRecalculation() {
+        recalcJob?.cancel()
+        recalcJob = null
     }
 
     private fun publishNavigation(
@@ -1367,6 +1530,7 @@ class MapViewModel(
         showingTrip: Boolean,
         offRoute: Boolean = this.offRoute.warning && _state.value.navigation?.offRoute == true,
         signalLost: Boolean = false,
+        recalculating: Boolean = _state.value.navigation?.recalculating == true,
     ) {
         val pinned = maneuversByLeg.entries.sortedBy { it.key }.flatMap { it.value }
         val action = nextAction(plan, progress, pinned)
@@ -1383,6 +1547,7 @@ class MapViewModel(
                 action = action,
                 summary = summary,
                 offRoute = offRoute,
+                recalculating = recalculating,
                 signalLost = signalLost,
                 routeBearing = routeProgress.bearing,
                 showingTrip = showingTrip,
@@ -1458,6 +1623,8 @@ class MapViewModel(
         focusedLeg = -1
         routeProgress.reset()
         offRoute.reset()
+        cancelRecalculation()
+        lastRecalcMillis = null
         lastTracedMillis = null
         val closing = trace
         trace = null
@@ -1490,6 +1657,7 @@ class MapViewModel(
         vehicleTrip.close()
         geocodeJob?.cancel()
         routeJob?.cancel()
+        cancelRecalculation()
         trace?.close()
         trace = null
         super.onCleared()
@@ -1505,6 +1673,16 @@ class MapViewModel(
         const val DEFAULT_RADIUS_M = 2_500.0
         const val PLACE_DEBOUNCE_MS = 320L
         const val MANEUVER_LOOKAHEAD = 2
+
+        /**
+         * L'intervalle minimal entre deux recalculs.
+         *
+         * Douze secondes : assez pour qu'un moteur muet ne soit pas appelé
+         * toutes les trois secondes pendant une heure, assez court pour qu'un
+         * conducteur qui vient de rater sa sortie n'attende pas son nouveau
+         * trajet en se demandant s'il arrive.
+         */
+        const val RECALC_COOLDOWN_MS = 12_000L
     }
 }
 
