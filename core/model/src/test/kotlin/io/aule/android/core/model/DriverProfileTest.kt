@@ -20,7 +20,9 @@ class DriverProfileTest {
     @Test
     fun `les initiales viennent du nom affiche`() {
         assertEquals("KG", initialsOf("Kevin Getbu"))
-        assertEquals("GE", initialsOf("getbu.kevin@gmail.com"))
+        // Une adresse plutôt qu'un nom : c'est le repli du menu quand la
+        // fiche `drivers` manque. Adresse d'exemple — le dépôt est public.
+        assertEquals("PR", initialsOf("prenom.nom@operateur.fr"))
         assertEquals("SL", initialsOf("Session locale"))
         assertEquals("?", initialsOf("   "))
     }
