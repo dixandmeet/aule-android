@@ -48,7 +48,33 @@ class NavigatingForegroundService : Service() {
             ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
         )
         acquireWakeLock()
-        return START_STICKY
+        // **`START_NOT_STICKY`, et non `START_STICKY`.**
+        //
+        // Ce service ne lit aucune position : il ne fait que tenir le processus
+        // vivant pour que [FusedLocationProvider] continue de le faire. Un
+        // service relancé seul, après que le système a tué le processus, n'a
+        // donc plus rien à garder en vie — mais il reconstruisait quand même sa
+        // notification « Navigation en cours » et reprenait un verrou de six
+        // heures. Relevé en recette : un balayage du multitâche laissait
+        // exactement ce fantôme, qui consomme sans rien produire.
+        //
+        // Android relance `START_STICKY` avec un `intent` nul, ce qui faisait
+        // en plus retomber `onDuty` à faux — la notification mentait aussi sur
+        // ce qu'elle gardait.
+        return START_NOT_STICKY
+    }
+
+    /**
+     * L'application balayée du multitâche.
+     *
+     * Le système ne détruit pas forcément un service de premier plan à ce
+     * moment-là ; il faut le dire. Sans cette ligne, le guidage disparaissait
+     * de l'écran mais sa notification, son verrou et sa part de batterie
+     * restaient — pour un guidage que plus personne ne pouvait reprendre.
+     */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopSelf()
     }
 
     override fun onDestroy() {

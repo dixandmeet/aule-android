@@ -4,6 +4,7 @@ import android.Manifest
 import android.os.Build
 import android.view.HapticFeedbackConstants
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.PredictiveBackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -24,12 +25,18 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SheetState
 import androidx.compose.material3.SheetValue
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberBottomSheetState
 import androidx.compose.runtime.Composable
@@ -66,6 +73,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import io.aule.android.core.designsystem.AuleSheetMotion
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.component.AuleGlyph
+import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.resolvedNight
 import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleChrome
@@ -389,9 +397,22 @@ fun MapScreen(
         }
     }
 
-    LaunchedEffect(state.isNavigating, serviceActive) {
+    // Arrivé, on rend le service de premier plan — sans fermer l'écran.
+    //
+    // « Vous êtes arrivé » s'affichait, et c'était tout : le service, son verrou
+    // de six heures et le flux en haute précision continuaient jusqu'à ce que
+    // quelqu'un pense à toucher « Arrêter ». Un conducteur qui se gare et range
+    // son téléphone ne le fait jamais.
+    //
+    // On ne coupe pas le guidage pour autant : la fiche d'arrivée et le tracé
+    // restent, parce qu'on veut encore les regarder. Seul le **palier** retombe,
+    // et avec lui ce qui coûte : le service, le verrou, l'arrière-plan.
+    val arrived = state.navigation?.progress?.arrived == true
+    LaunchedEffect(state.isNavigating, arrived, serviceActive) {
         if (location.authorization.value.allowsUpdates) {
-            location.setPurpose(trackingPurpose(state.isNavigating, serviceActive))
+            location.setPurpose(
+                trackingPurpose(state.isNavigating && !arrived, serviceActive),
+            )
         }
     }
     LaunchedEffect(serviceActive) {
@@ -623,14 +644,33 @@ fun MapScreen(
     val showingSocle = !navigating && !sheetPresented && !hideChrome
     val searchOpen = showingSocle && state.search.isActive
 
+    // Le retour pendant un guidage : la sortie qu'on prend sans y penser.
+    //
+    // Elle n'était pas gardée. Guidage engagé, volet refermé, les deux
+    // conditions ci-dessus tombaient à faux, le geste n'était pas intercepté
+    // et **l'activité se terminait**. Le modèle d'écran partait avec elle —
+    // donc l'itinéraire — pendant que le flux de positions, le service de
+    // premier plan et son verrou de six heures continuaient de tourner pour un
+    // guidage qui n'existait plus. Toucher la notification rouvrait une carte
+    // sans trajet.
+    //
+    // Le geste demande donc maintenant confirmation, comme la déconnexion et
+    // pour la même raison : un doigt qui dérape au volant ne doit pas coûter
+    // le trajet.
+    var confirmingStop by rememberSaveable { mutableStateOf(false) }
+    // Une confirmation ouverte se referme au retour suivant, sinon le geste
+    // traverserait le dialogue et quitterait l'application derrière lui.
+    val backConsumes = sheetPresented || searchOpen || navigating || confirmingStop
+
     // `BottomSheetScaffold` sert un volet **persistant** : contrairement à
     // `ModalBottomSheet`, il n'installe aucun gestionnaire de retour. Sans
     // celui-ci, le geste de retour sur un volet ouvert ne le referme pas — il
     // quitte l'application, en pleine consultation d'un arrêt.
-    PredictiveBackHandler(enabled = sheetPresented || searchOpen) { progress ->
+    PredictiveBackHandler(enabled = backConsumes) { progress ->
         try {
             progress.collect { }
             when {
+                confirmingStop -> confirmingStop = false
                 menuOpen -> onDismissMenu()
                 // Le socle ne se ferme pas : le retour le **redescend**, ce qui
                 // est le seul geste qu'il connaisse. Quitter l'application
@@ -641,10 +681,43 @@ fun MapScreen(
                 // Une ligne ouverte se referme sur le tableau d'où elle vient :
                 // le retour défait le dernier pas, pas toute la consultation.
                 state.showingLine -> viewModel.closeLine()
-                else -> viewModel.dismissSheet()
+                sheetPresented -> viewModel.dismissSheet()
+                navigating -> confirmingStop = true
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
+        }
+    }
+
+    if (confirmingStop) {
+        StopGuidanceDialog(
+            onKeepGoing = { confirmingStop = false },
+            onStop = {
+                confirmingStop = false
+                stopGuidance(view, viewModel, controller, location, serviceActive)
+            },
+        )
+    }
+
+    // Le guidage s'en va avec l'écran.
+    //
+    // `onPauseOrDispose` ne suffit pas : il ne distingue pas une mise en fond
+    // — où le guidage doit **continuer**, c'est tout l'objet du service de
+    // premier plan — d'une composition détruite pour de bon. Ce `DisposableEffect`
+    // ne parle que du second cas, et il est le dernier filet : quoi qu'il
+    // arrive à l'écran, le flux de positions ne survit pas à sa disparition.
+    //
+    // Un changement de configuration ne compte pas : le modèle d'écran, lui,
+    // y survit, et couper le guidage là serait perdre un trajet pour un
+    // basculement clair/sombre.
+    val activity = LocalActivity.current
+    DisposableEffect(activity) {
+        onDispose {
+            val recreating = activity?.isChangingConfigurations == true
+            if (!recreating && viewModel.state.value.isNavigating) {
+                viewModel.stopGuidance()
+                location.stop()
+            }
         }
     }
 
@@ -1811,6 +1884,56 @@ private fun startGuidance(
     requestNotifications()
     location.setPurpose(LocationPurpose.NAVIGATING)
     controller.setCameraMode(CameraMode.NAVIGATION)
+}
+
+/**
+ * « Arrêter le guidage ? »
+ *
+ * Le même dialogue que la déconnexion, et pour la même raison : ce sont les
+ * deux seules actions de l'application qu'un doigt qui dérape au volant peut
+ * déclencher et qu'on ne peut pas défaire d'un geste. Le bouton de sortie
+ * prend donc le rôle d'erreur, et le bouton neutre — celui qu'on touche par
+ * réflexe — est celui qui **ne fait rien**.
+ */
+@Composable
+private fun StopGuidanceDialog(
+    onKeepGoing: () -> Unit,
+    onStop: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    AlertDialog(
+        onDismissRequest = onKeepGoing,
+        icon = {
+            Icon(
+                imageVector = AuleGlyph.CLOSE.asImageVector(filled = true),
+                contentDescription = null,
+            )
+        },
+        iconContentColor = colors.error,
+        title = {
+            Text(
+                text = stringResource(R.string.nav_stop_confirm_title),
+                style = MaterialTheme.typography.headlineSmallEmphasized,
+            )
+        },
+        text = { Text(stringResource(R.string.nav_stop_confirm_body)) },
+        confirmButton = {
+            Button(
+                onClick = onStop,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = colors.errorContainer,
+                    contentColor = colors.onErrorContainer,
+                ),
+            ) {
+                Text(stringResource(R.string.nav_stop))
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onKeepGoing) {
+                Text(stringResource(R.string.nav_stop_confirm_keep))
+            }
+        },
+    )
 }
 
 private fun stopGuidance(

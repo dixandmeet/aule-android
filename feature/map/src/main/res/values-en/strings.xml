@@ -220,6 +220,9 @@
     <string name="nav_gps_lost_detail">The position on screen is no longer yours.</string>
     <string name="nav_off_route">You have left the route</string>
     <string name="nav_off_route_detail">Rejoin the path.</string>
+    <string name="nav_stop_confirm_title">Stop guidance?</string>
+    <string name="nav_stop_confirm_body">The current route will be dropped, and the map will go back to the trip.</string>
+    <string name="nav_stop_confirm_keep">Keep going</string>
     <string name="nav_arrive">You have arrived</string>
     <string name="nav_arrive_at">You have arrived at %1$s</string>
     <string name="nav_transfer">Transfer</string>
