@@ -1155,6 +1155,52 @@ de tout ce rapport en faveur des tests instrumentés (AND-BUG-011) : deux défau
 d'interface, dans du code écrit et relu le jour même, qu'aucune suite JVM ne
 pouvait attraper.
 
+### Seconde moitié — après déverrouillage
+
+Le téléphone déverrouillé, la campagne a repris à 09h57.
+
+**§ 29 — compte et habilitations.** Le menu s'ouvre en volet depuis l'avatar :
+carte d'identité lue dans la fiche `drivers` (nom, matricule, dépôt), badge
+d'habilitation **Mixte** — le même que le journal hors ligne avait annoncé —, la
+section Compte, et **« Se déconnecter » seule en bas, en rouge**, comme le
+`README` le prescrit. Pied de page « Aule Pro · 0.1.0-dev (1) ».
+
+**§ 9 — mode jour / nuit.** Trois modes dans Profil → Préférences : Clair,
+Sombre, Auto (`ButtonGroup` expressif). Bascule en Sombre → `Style dark chargé,
+8 couche(s) posée(s)`, et la carte repasse entièrement : volumes en gris
+sombre, végétation en vert profond, périphérique en sable chaud, labels blancs
+lisibles, chrome et socle basculés avec elle. Le cône du puck garde sa lueur.
+Le réglage persiste dans `sae.theme_mode`.
+
+**§ 33 — grande taille de texte.** `font_scale` à **1,3** : le socle, les
+cartes de favoris et la liste « À proximité » grandissent sans rien casser. Les
+sous-titres trop longs **s'ellipsent** au lieu de déborder (« 30 Rue de l'… »,
+« Hôpital Belli… »), les badges de ligne restent lisibles, et la fiche d'arrêt
+enroule les destinations longues sur deux lignes.
+
+**§ 12 et 14 — arrêt et temps réel.** La fiche « Ranzay » ouvre avec ses
+attributs (Bus, Accessible, code quai), un bouton « Y aller », et les
+**Prochains passages** : ligne 23 vers Haluchère-Batignolles à **1 min**
+marquée « Temps réel » avec sa pastille vive, puis les deux suivants (19 · 41) ;
+ligne 1 vers Babinière à 3 min. La caméra vole sur l'arrêt et le marqueur prend
+son anneau de sélection.
+
+**§ 31 — performance, après une trentaine de minutes d'usage continu.**
+
+| | |
+|---|---|
+| `TOTAL PSS` | **343 Mo** (RSS 461 Mo), dont 107 Mo de Graphics et 84 Mo de tas natif |
+| Fuites | **`Activities: 1`, `Views: 28`** après carte → itinéraire → guidage → menu → profil → préférences → retours → fiche d'arrêt. L'activité unique tient. |
+| Rendu | 3 794 images, **151 saccadées (3,98 %)** ; 50e centile **13 ms**, 90e 15 ms, 95e 22 ms, 99e 53 ms ; 77 vsync manqués |
+| Interpolation | **119 Hz** tenus, coût moyen 325 à 528 µs pour un budget de 8 333 µs |
+| Température | 35,5 °C |
+
+**La consommation de batterie n'est pas mesurable ici** : l'appareil est resté
+branché en USB pendant toute la campagne — c'est ce qui permet `adb`. Le niveau
+n'a pas bougé de 100 %. Section 25 (optimisation batterie) et la part
+« consommation » de la section 31 restent donc ouvertes, et elles ne se feront
+qu'en roulant, sur batterie.
+
 ### Ce qui reste bloqué, et pourquoi
 
 **Le déplacement réel.** Les sections 6 (GPS en mouvement), 16 à 22 (virages,
@@ -1163,11 +1209,15 @@ rond-points en situation, recalcul déclenché, vitesse à 30 et 50 km/h) et 35
 par `adb` sur un appareil non rooté : il faut une application de position
 factice désignée dans les options de développement.
 
-**L'écran, à partir de 09h41.** Le téléphone s'est verrouillé pendant le test
-d'arrière-plan et demande un code (`mCurrentFocus=Bouncer`, `deviceLocked=1`).
-Je n'en saisis pas. Tout ce qui suit — mode sombre à l'écran, grande taille de
-texte, TalkBack, profilage sur trente minutes, § 26 constructeurs — attend que
-l'appareil soit déverrouillé.
+**TalkBack** n'a pas été activé : il faut passer par les réglages
+d'accessibilité du système, et le lecteur d'écran change assez le pilotage par
+`adb` pour qu'on ne le fasse pas au milieu d'une campagne. Le chemin d'accès
+— l'action personnalisée « Autour de vous » — reste vérifié par lecture
+seulement.
+
+**§ 25 et § 26.** La batterie n'est pas mesurable sur un appareil branché, et il
+n'y a qu'un appareil : les différences entre constructeurs (§ 26) demandent un
+Pixel et un milieu de gamme.
 
 L'appareil a été rendu dans l'état où il a été trouvé : mode nuit remis à `no`,
 mode avion à `0`, sauvegarde de test effacée, application arrêtée, service et
