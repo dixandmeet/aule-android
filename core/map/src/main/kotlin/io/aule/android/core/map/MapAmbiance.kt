@@ -9,19 +9,31 @@ package io.aule.android.core.map
  * générés par `dashboard/lib/carte-immersive/style/build-style.ts` et copiés tels
  * quels — on ne les retouche pas à la main.
  *
- * ⚠️ **Ils l'ont été, et ça se paie.** La palette du cockpit a longtemps vécu
- * ici seule, repeinte directement dans ces JSON : le générateur ne savait plus
- * les produire, et une régénération aurait effacé le travail. Elle est
- * désormais **dans les jetons** du générateur (`COCKPIT_DAY_BASEMAP`,
- * `COCKPIT_NIGHT_BASEMAP`), avec la refonte de lisibilité qui l'accompagne —
- * chaussées élargies aux échelles où la caméra travaille, voies réservées et
- * pistes cyclables sorties des couches où elles étaient noyées, volumes dosés.
- * Ces fichiers sont donc, à nouveau, une **sortie** :
+ * ⚠️ **Ils l'ont été deux fois, et la seconde s'est payée le 29/08/2026.** Cette
+ * note affirmait que la palette du cockpit était remontée dans les jetons du
+ * générateur et que ces fichiers en étaient redevenus une simple sortie. C'était
+ * faux : ils portaient encore, *à la main*, une palette entière — 37 couches
+ * repeintes — et **quatre couches que le générateur ne sait pas produire**,
+ * `road-busway-casing`, `road-busway`, `road-busway-marking` et `cycleway`, soit
+ * précisément les « voies réservées et pistes cyclables sorties des couches où
+ * elles étaient noyées » que la note donnait pour acquises. Le générateur, lui,
+ * range toujours `busway` avec les primaires et les cycleways avec les
+ * cheminements.
  *
- *     node --experimental-strip-types scripts/build-map-style.mjs --pretty
+ * La régénération demandée les a donc effacées, en connaissance de cause. **Ce
+ * travail n'est pas perdu, il est dans l'historique** : `git show 16099b8` rend
+ * les deux JSON tels qu'ils étaient. Le remonter suppose de le porter dans
+ * `build-style.ts`, et d'accepter qu'il s'applique aussi à l'iOS, au Flutter et
+ * au web — les quatre cibles partagent la variante `cockpit`.
  *
- * les régénère à l'identique, et un test du tableau de bord échoue si l'un des
- * deux dérive.
+ * Ces fichiers sont **maintenant** une sortie, pour de bon :
+ *
+ *     node --experimental-strip-types scripts/build-map-style.mjs \
+ *       --out ../Kotlin/app/src/main/assets/map --pretty
+ *
+ * les régénère à l'identique. Rien ne le vérifie encore côté Android :
+ * `map-style-assets.test.mjs` ne compare que les assets du Flutter. Une retouche
+ * à la main repasserait donc en silence — c'est ainsi que la précédente a duré.
  */
 enum class MapAmbiance(val assetPath: String) {
     LIGHT("asset://map/style-light.json"),
