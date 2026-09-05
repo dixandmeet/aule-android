@@ -93,7 +93,9 @@ import io.aule.android.core.map.layer.RouteLayer
 import io.aule.android.core.map.layer.TransitLinesLayer
 import io.aule.android.core.map.layer.StopsLayer
 import io.aule.android.core.map.layer.UserPuckLayer
+import io.aule.android.core.map.layer.VehicleModelLayer
 import io.aule.android.core.map.layer.VehiclesLayer
+import io.aule.android.core.map3d.VehicleScene
 import io.aule.android.core.map.layer.VoirieLayer
 import io.aule.android.core.model.DriverReport
 import io.aule.android.core.model.HandoverFix
@@ -157,8 +159,23 @@ fun MapScreen(
     serviceActive: Boolean = false,
     onOpenActiveService: (() -> Unit)? = null,
     onOpenHandover: (() -> Unit)? = null,
+    /**
+     * La messagerie. `null` tant qu'aucun compte pro n'est ouvert : offrir le
+     * geste à qui ne peut pas l'accomplir est le défaut du bouton « Démarrer »
+     * d'une mission assignée.
+     */
+    onOpenHub: (() -> Unit)? = null,
     serviceLiveHandover: HandoverSummary? = null,
     serviceNotice: ServiceNotice? = null,
+    /**
+     * La limitation réglementaire à afficher, quand une note de service en décrit
+     * une là où l'on est. `null` la plupart du temps.
+     *
+     * Elle vient de `:app` et non du modèle de carte, comme la bannière de service :
+     * c'est le service ouvert qui dit quelle ligne est sous les roues, et la carte
+     * ne connaît pas le service.
+     */
+    speedLimitKmh: Int? = null,
     onDismissServiceNotice: () -> Unit = {},
     handoverFix: HandoverFix? = null,
     handoverStop: Coordinate? = null,
@@ -264,20 +281,43 @@ fun MapScreen(
             .also { controller.registry.register(it) }
     }
 
-    // Au-dessus du catalogue, sous les véhicules : l'arrêt qu'on est allé voir
-    // doit primer sur les pastilles ordinaires, et céder devant ce qui roule.
+    // Au-dessus du catalogue, sous les véhicules : les arrêts de la ligne
+    // doivent primer sur les pastilles ordinaires, et céder devant ce qui roule.
     val lineStopLayer = remember(controller) {
-        LineStopLayer().also { controller.registry.register(it) }
+        LineStopLayer(
+            onSelectStop = { stop ->
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                viewModel.lineStops.focusStop(stop.id)
+            },
+        ).also { controller.registry.register(it) }
     }
 
     // L'ordre d'enregistrement **est** l'ordre de superposition : arrêts,
     // arrêt visé, véhicules, relève, destination, tracé, puck. Le puck doit
     // rester au-dessus de tout — y compris du ruban d'itinéraire.
-    val vehiclesLayer = remember(controller) {
-        VehiclesLayer(onSelect = { vehicle ->
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-            viewModel.select(vehicle)
-        }).also { controller.registry.register(it) }
+    // La scène 3D des véhicules : lit les modèles, les met aux normes, monte
+    // l'état natif. Rend `null` si quoi que ce soit manque — l'écran est alors
+    // exactement celui d'avant, en volumes extrudés.
+    val vehicleScene = remember(view) { VehicleScene.create(view.context.assets) }
+    DisposableEffect(vehicleScene) {
+        onDispose { vehicleScene?.release() }
+    }
+
+    val vehiclesLayer = remember(controller, vehicleScene) {
+        VehiclesLayer(
+            onSelect = { vehicle ->
+                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                viewModel.select(vehicle)
+            },
+            scene = vehicleScene,
+        ).also { controller.registry.register(it) }
+    }
+    // Les modèles se posent **au-dessus** des glyphes plats : c'est le même
+    // véhicule, et c'est le relief qui doit primer une fois la ville en volume.
+    remember(controller, vehicleScene) {
+        vehicleScene?.let { scene ->
+            VehicleModelLayer(scene).also { controller.registry.register(it) }
+        }
     }
     val handoverLayer = remember(controller) {
         HandoverLayer().also { controller.registry.register(it) }
@@ -656,6 +696,21 @@ fun MapScreen(
     // carte, ou le menu du compte que `:app` y pose.
     val sheetPresented = state.hasSheet || menuOpen
     val showingSocle = !navigating && !sheetPresented && !hideChrome
+
+    // **L'itinéraire occupe le volet**, c'est-à-dire qu'aucun des volets qui
+    // passent devant lui ne le fait. La condition est écrite une fois et lue
+    // deux : par le `when` du volet, et par la barre d'action qui vit hors de
+    // lui (voir [RouteStartBar]). Recopiée, elle aurait fini par laisser une
+    // barre « Démarrer » au bas d'une fiche d'arrêt.
+    val showingRoute = state.route != null &&
+        !navigating &&
+        !menuOpen &&
+        !showingTrip &&
+        !state.showingNetworkLines &&
+        !state.showingNearby &&
+        state.selectedStop == null &&
+        state.selectedVehicle == null &&
+        state.selectedPlace == null
     val searchOpen = showingSocle && state.search.isActive
 
     // Le retour pendant un guidage : la sortie qu'on prend sans y penser.
@@ -746,7 +801,12 @@ fun MapScreen(
             val parentHeightPx = constraints.maxHeight
             val density = LocalDensity.current
             val maxPeekHeight = with(density) {
-                (parentHeightPx * SHEET_PEEK_FRACTION).toDp()
+                val fraction = if (showingRoute) {
+                    ROUTE_PEEK_FRACTION
+                } else {
+                    SHEET_PEEK_FRACTION
+                }
+                (parentHeightPx * fraction).toDp()
             }
             var sheetHandleHeightPx by remember { mutableFloatStateOf(0f) }
             var sheetContentHeightPx by remember { mutableFloatStateOf(0f) }
@@ -839,6 +899,34 @@ fun MapScreen(
             )
             val scaffoldState = rememberBottomSheetScaffoldState(sheetState)
 
+            // Les arrêts de la desserte s'affichent le long du tracé dès que la
+            // ligne est ouverte, et s'effacent à sa fermeture.
+            LaunchedEffect(
+                state.showingNetworkLines,
+                state.openedNetworkLine,
+                lineStopsState.markers,
+                lineStopsState.focusedStopId,
+            ) {
+                if (state.showingNetworkLines && state.openedNetworkLine != null) {
+                    val opened = viewModel.openedLine()
+                    // Les mêmes marqueurs que la liste du volet, à l'objet près :
+                    // c'est ce qui garantit que la carte et la liste montrent la
+                    // même desserte, et la couleur de la ligne est ce qui les
+                    // relie à l'œil.
+                    lineStopLayer.setStops(
+                        markers = lineStopsState.markers,
+                        colorHex = opened?.colorHex,
+                        focusedStopId = lineStopsState.focusedStopId,
+                    )
+                    // Le catalogue général masque ses 2 600 arrêts le temps de la
+                    // consultation : seuls ceux de la ligne restent visibles.
+                    stopsLayer.setHidden(true)
+                } else {
+                    lineStopLayer.setStops(emptyList())
+                    stopsLayer.setHidden(false)
+                }
+            }
+
             // Le marqueur **et** la caméra suivent l'arrêt visé, depuis l'état et non
             // depuis le geste. C'est ce qui fait que tous les chemins de sortie se
             // valent : le bouton « revoir la ligne », le changement de sens, le retour
@@ -847,10 +935,6 @@ fun MapScreen(
             // venaient d'effacer.
             LaunchedEffect(lineStopsState.focusedStopId, state.openedNetworkLine) {
                 val stop = lineStopsState.focusedStop?.takeIf { state.openedNetworkLine != null }
-                lineStopLayer.setStop(
-                    coordinate = stop?.coordinate,
-                    mode = viewModel.openedLine()?.mode,
-                )
                 val target = stop?.coordinate
                 if (target != null) {
                     // Le volet se retire d'abord : déployé, il couvre les deux tiers de
@@ -895,7 +979,18 @@ fun MapScreen(
                 state.lineFocus != null -> state.lineFocus
                 state.selectedVehicle != null -> state.selectedVehicle
                 state.selectedPlace != null -> state.selectedPlace
-                state.route != null && !navigating -> state.route
+                // ⚠️ **Une chaîne, et non l'état de l'itinéraire.**
+                //
+                // `RouteUiState` est une `data class` : choisir une variante ou
+                // changer de mode en fabrique une nouvelle, donc une nouvelle
+                // identité, donc un `LaunchedEffect` relancé — et il rejoue
+                // `show()`, qui vise le palier. Vu à l'écran : on dépliait le
+                // volet pour comparer trois trajets, on en touchait un, et le
+                // volet redescendait sur la réponse qu'on venait de donner.
+                //
+                // Le volet de l'itinéraire ne se rejoue que quand il *arrive* :
+                // ce qu'il montre ensuite est son contenu, pas son identité.
+                showingRoute -> "route"
                 // Le socle en dernier : c'est ce qui reste quand rien d'autre
                 // n'est présenté, et il ne prend jamais la place d'un volet.
                 showingSocle -> "search"
@@ -910,7 +1005,7 @@ fun MapScreen(
                 state.selectedStop != null -> paneStop
                 state.selectedVehicle != null -> paneVehicle
                 state.selectedPlace != null -> panePlace
-                state.route != null && !navigating -> paneRoute
+                showingRoute -> paneRoute
                 showingSocle -> paneSearch
                 else -> ""
             }
@@ -1138,6 +1233,10 @@ fun MapScreen(
                                     focusRequested = focusSearchField,
                                     onQueryChange = viewModel::setSearchQuery,
                                     onFieldFocused = viewModel::activateSearch,
+                                    // Tirée vers le haut, la carte monte le
+                                    // volet — mais sans clavier : voir
+                                    // [MapSearchSheet].
+                                    onDragOpen = viewModel::activateSearch,
                                     onFocusConsumed = { focusSearchField = false },
                                     onSocleHeightPx = { height ->
                                         if (height != socleHeightPx) socleHeightPx = height
@@ -1255,6 +1354,8 @@ fun MapScreen(
                                             onBack = viewModel::closeNetworkLine,
                                             onSelectDirection =
                                                 viewModel.lineStops::selectDirection,
+                                            onSelectBranch =
+                                                viewModel.lineStops::selectProfile,
                                             onRetry = viewModel.lineStops::retry,
                                             // Poser l'état suffit : le vol et le
                                             // retour au tracé se jouent plus haut,
@@ -1359,6 +1460,13 @@ fun MapScreen(
                                             )
                                             viewModel.openLine(stop, row)
                                         },
+                                        onSelectServingLine = { line ->
+                                            val stop = state.selectedStop ?: return@StopDetailSheet
+                                            view.performHapticFeedback(
+                                                HapticFeedbackConstants.CLOCK_TICK,
+                                            )
+                                            viewModel.openLine(stop, line)
+                                        },
                                     )
                                 }
                                 state.selectedVehicle != null -> {
@@ -1390,7 +1498,7 @@ fun MapScreen(
                                         },
                                     )
                                 }
-                                state.route != null && !navigating -> {
+                                showingRoute -> {
                                     RouteSheet(
                                         state = state.route!!,
                                         onSelect = viewModel::selectRoute,
@@ -1403,19 +1511,6 @@ fun MapScreen(
                                                 HapticFeedbackConstants.CLOCK_TICK,
                                             )
                                             viewModel.swapRouteEnds()
-                                        },
-                                        onStart = {
-                                            startGuidance(
-                                                view, viewModel, controller, location, followState,
-                                            ) {
-                                                if (Build.VERSION.SDK_INT >=
-                                                    Build.VERSION_CODES.TIRAMISU
-                                                ) {
-                                                    notificationPermissionLauncher.launch(
-                                                        Manifest.permission.POST_NOTIFICATIONS,
-                                                    )
-                                                }
-                                            }
                                         },
                                     )
                                 }
@@ -1446,11 +1541,13 @@ fun MapScreen(
                     } else {
                         BottomSheetDefaults.Elevation
                     },
-                    // ⚠️ **Pas de poignée sur la carte flottante.** Elle promet
-                    // un glissement qui n'existe pas au repos — le socle ne s'ouvre
-                    // qu'au doigt posé sur le champ — et un trait de préhension
-                    // posé sur une carte détachée des bords ne ressemble à rien.
-                    // Déployé, le volet la retrouve : c'est un volet.
+                    // ⚠️ **Pas de poignée *du volet* sur la carte flottante.**
+                    // Elle tomberait sur la ville, quelques points au-dessus
+                    // d'une carte détachée des bords à laquelle rien ne la
+                    // rattache. La carte en porte une, dessinée dans sa propre
+                    // surface et tenue par ses propres gestes — voir
+                    // [MapSearchSheet]. Déployé, le volet retrouve la sienne :
+                    // c'est un volet.
                     sheetDragHandle = if (sheetPresented || searchOpen) {
                         {
                             Box(
@@ -1485,6 +1582,12 @@ fun MapScreen(
                     } else {
                         null
                     },
+                    // ⚠️ **Le glissement du volet reste coupé sous le socle**,
+                    // poignée ou non : la surface du volet couvre alors toute
+                    // la largeur de l'écran, ville comprise, et le premier
+                    // défilement de carte en bas de l'écran ferait monter la
+                    // recherche. C'est la carte flottante qui prend le geste,
+                    // sur ses seuls points à elle.
                     sheetSwipeEnabled = sheetPresented || searchOpen,
                     containerColor = Color.Transparent,
                 ) {
@@ -1515,7 +1618,6 @@ fun MapScreen(
                             state = state,
                             authorization = authorization,
                             lastLocationError = lastError,
-                            onShowNearby = viewModel::showNearby,
                             onRetryStops = viewModel::retryLoadingStops,
                             onOpenSettings = location::openSettings,
                             onRequestPrecise = { permissionLauncher.launch(LOCATION_PERMISSIONS) },
@@ -1531,6 +1633,7 @@ fun MapScreen(
                             onSummaryHeightPx = { height ->
                                 if (navigating && !showingTrip) sheetHeightPx = height
                             },
+                            speedLimitKmh = speedLimitKmh,
                             serviceBanner = serviceBanner,
                             serviceBannerAction = serviceBannerAction,
                             onServiceBannerAction = if (handedOver != null) {
@@ -1588,20 +1691,20 @@ fun MapScreen(
                                             ),
                                         )
                                     }
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.ROUTE,
-                                            label = stringResource(R.string.fab_route),
-                                            // Le menu promet une saisie : le volet
-                                            // monte **et** le clavier s'ouvre. Tiré
-                                            // au pouce, il monterait sans clavier —
-                                            // voir [focusSearchField].
-                                            onClick = {
-                                                focusSearchField = true
-                                                viewModel.activateSearch()
-                                            },
-                                        ),
-                                    )
+                                    // La messagerie s'ouvre à **tout compte
+                                    // pro**, contrôle comme conduite : un canal
+                                    // de dépôt s'adresse aux deux, et un agent de
+                                    // contrôle a autant besoin d'écrire à ses
+                                    // collègues.
+                                    if (onOpenHub != null) {
+                                        add(
+                                            MapFabAction(
+                                                glyph = AuleGlyph.MAIL,
+                                                label = stringResource(R.string.fab_hub),
+                                                onClick = onOpenHub,
+                                            ),
+                                        )
+                                    }
                                     add(
                                         MapFabAction(
                                             glyph = AuleGlyph.TRAM,
@@ -1609,11 +1712,6 @@ fun MapScreen(
                                             onClick = viewModel::openNetworkLines,
                                         ),
                                     )
-                                    // Les deux rescapées de la barre du bas, placées
-                                    // en dernier : le menu se déplie vers le haut,
-                                    // donc la fin de la liste est ce que le pouce
-                                    // atteint sans bouger. Ce sont aussi les deux
-                                    // qu'on ouvre le plus souvent.
                                     if (onSubmitReport != null) {
                                         add(
                                             MapFabAction(
@@ -1623,13 +1721,6 @@ fun MapScreen(
                                             ),
                                         )
                                     }
-                                    add(
-                                        MapFabAction(
-                                            glyph = AuleGlyph.PIN,
-                                            label = stringResource(R.string.fab_nearby),
-                                            onClick = viewModel::showNearby,
-                                        ),
-                                    )
                                 }
                             }
                             if (fabMenuExpanded) {
@@ -1744,6 +1835,40 @@ fun MapScreen(
                         }
                     }
                 }
+            }
+
+            // **Au bord de la fenêtre, et non dans le volet.** Un volet à deux
+            // crans ne peut pas tenir une barre au bas de l'écran : au palier, il
+            // est simplement descendu, et son pied passe sous les touches de
+            // navigation du système. La raison complète est dans [RouteStartBar],
+            // avec les mesures qui l'ont tranchée.
+            //
+            // Les deux crans du volet sont exclus : `currentValue` pour ne pas
+            // poser un aplat sur la ville pendant que le volet monte encore,
+            // `targetValue` pour l'enlever dès que le pouce le renvoie sous le
+            // bord — attendre l'arrivée laisserait la barre seule au-dessus de la
+            // carte le temps de la descente.
+            val engagedRoute = state.route
+                ?.takeIf { showingRoute }
+                ?.engaged()
+            val sheetPosted = sheetState.currentValue != SheetValue.Hidden &&
+                sheetState.targetValue != SheetValue.Hidden
+            if (engagedRoute != null && sheetPosted) {
+                RouteStartBar(
+                    candidate = engagedRoute,
+                    onStart = {
+                        startGuidance(
+                            view, viewModel, controller, location, followState,
+                        ) {
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(
+                                    Manifest.permission.POST_NOTIFICATIONS,
+                                )
+                            }
+                        }
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
         }
     }
@@ -2005,6 +2130,32 @@ private const val SUN_TICK_MS = 60_000L
  * courts doivent tenir entiers.
  */
 private const val SHEET_PEEK_FRACTION = 0.45f
+
+/**
+ * Le plafond du palier de l'itinéraire, plus haut que celui des autres volets.
+ *
+ * Un palier n'a pas la même charge selon ce qu'on lui demande. Les fiches — un
+ * arrêt, un véhicule, un lieu — répondent à « qu'est-ce que c'est ? », et
+ * quarante-cinq pour cent suffisent : ce qui dépasse est du détail qu'on va
+ * chercher. L'itinéraire, lui, pose une **décision** : d'où l'on part, par quel
+ * mode, sur quel trajet, et le bouton qui l'engage. Coupé à 45 %, il montrait
+ * l'en-tête, les trois modes, et le premier tiers de la première variante — soit
+ * la question, jamais la réponse. Il fallait déplier le volet pour tout, à
+ * chaque fois.
+ *
+ * Mesuré sur le S21 (360 × 800 dp), l'ensemble « extrémités + modes + meilleure
+ * variante + barre d'action » fait 440 dp, soit 55 % de la fenêtre. Le plafond
+ * est posé un cran au-dessus, et pour une deuxième raison : à 60 %, un plan à
+ * plusieurs variantes laisse la **deuxième dépasser** d'une trentaine de points
+ * sous la barre d'action. C'est tout ce qui dit qu'elle existe — coupée pile au
+ * bord de la barre, elle ne laissait rien voir, et le volet ressemblait à un
+ * panneau complet qui n'avait qu'une réponse.
+ *
+ * Le palier reste **mesuré** : un trajet à pied, dont la carte tient en deux
+ * lignes, s'arrête à 47 % et rend le reste à la ville. Ce n'est un plafond que
+ * pour les plans à plusieurs variantes.
+ */
+private const val ROUTE_PEEK_FRACTION = 0.60f
 
 /** Ce qui reste de carte au-dessus d'un volet déployé : assez pour se situer. */
 private val SHEET_TOP_INSET = 12.dp

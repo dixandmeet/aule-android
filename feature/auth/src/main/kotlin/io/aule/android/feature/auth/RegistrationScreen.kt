@@ -14,14 +14,17 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +41,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -46,11 +50,13 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -61,11 +67,15 @@ import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.heading
@@ -90,24 +100,28 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.AuleTypeface
-import io.aule.android.core.designsystem.component.AuleFormField
-import io.aule.android.core.designsystem.component.AuleNetworkBackdrop
-import io.aule.android.core.designsystem.component.AuleWordmark
-import io.aule.android.core.designsystem.component.auleFieldColors
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleBrandSurface
+import io.aule.android.core.designsystem.component.AuleFormField
 import io.aule.android.core.designsystem.component.AuleGlyph
+import io.aule.android.core.designsystem.component.AuleNetworkBackdrop
+import io.aule.android.core.designsystem.component.AuleNetworkEmblem
 import io.aule.android.core.designsystem.component.AuleShape
 import io.aule.android.core.designsystem.component.AuleTone
+import io.aule.android.core.designsystem.component.AuleWordmark
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.component.auleAccentButtonColors
+import io.aule.android.core.model.OAuthProvider
+import io.aule.android.core.designsystem.component.auleFieldColors
 import io.aule.android.core.designsystem.reduceMotionEnabled
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
+import io.aule.android.core.model.NETWORK_SEARCH_FROM
+import io.aule.android.core.model.ProNetwork
 import io.aule.android.core.model.ProfessionalProfile
 import io.aule.android.core.model.ProfessionalTransportMode
 import io.aule.android.core.model.SIGNUP_PROFILES
@@ -158,6 +172,17 @@ fun RegistrationScreen(
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // L'ouverture de l'onglet vit ici, et non dans l'étape qui l'a demandée :
+    // l'étape est le contenu d'un `AnimatedContent`, qui la démonte et la
+    // remonte au gré des transitions. Un effet accroché là-dedans peut être
+    // annulé avant d'avoir lancé quoi que ce soit — ou rejoué, ce qui est pire.
+    LaunchedEffect(state.oauthUrl) {
+        val url = state.oauthUrl ?: return@LaunchedEffect
+        if (openOAuthTab(context, url)) viewModel.consumeOAuthUrl() else viewModel.oauthBrowserMissing()
+    }
+
     PredictiveBackHandler { progress ->
         try {
             progress.collect { }
@@ -198,12 +223,15 @@ fun RegistrationScreen(
                 }
                 return@AuleNetworkBackdrop
             }
+            // L'accueil se pose au milieu de l'écran, les étapes en haut : le
+            // pourquoi est en tête de [WelcomeStep].
+            val welcome = state.step == RegistrationStep.WELCOME
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .safeDrawingPadding()
                     .imePadding(),
-                contentAlignment = Alignment.TopCenter,
+                contentAlignment = if (welcome) Alignment.Center else Alignment.TopCenter,
             ) {
                 Column(
                     modifier = Modifier
@@ -269,7 +297,7 @@ fun RegistrationScreen(
                                     NetworkStep(
                                         state = state,
                                         onQuery = viewModel::setNetworkQuery,
-                                        onSelectNaolib = viewModel::selectNaolib,
+                                        onSelect = viewModel::selectNetwork,
                                     )
                                 }
                                 RegistrationStep.IDENTITY -> WithFooter(state, viewModel) {
@@ -519,14 +547,37 @@ private fun StepRail(
  * L'accueil de l'inscription : la marque, ce qu'on y fait, et par où on entre.
  *
  * Il suit la page d'inscription du web (`SpacePro/app/(auth)/inscription`) :
- * marque en tête, titre à gauche, la phrase qui dit à qui l'espace s'adresse,
- * l'action, puis l'autre chemin pour ceux qui ont déjà un compte.
+ * marque en tête, la phrase qui dit à qui l'espace s'adresse, l'action, puis
+ * l'autre chemin pour ceux qui ont déjà un compte.
  *
- * Les trois pastilles restent, et elles ne sont pas un décor : elles nomment
- * les trois métiers que l'inscription accepte, ce que la phrase suivante met
- * quatre lignes à dire. Elles s'alignent maintenant à gauche avec le reste —
- * réparties sur toute la largeur, elles faisaient une frise, c'est-à-dire une
- * décoration.
+ * ## Pourquoi cet écran est centré, et lui seul
+ *
+ * Les cinq étapes qui suivent sont des formulaires : on les remplit de haut en
+ * bas, leur contenu passe sous la ligne de flottaison dès que le clavier monte,
+ * et le haut est alors le seul point d'ancrage qui ne bouge pas. L'accueil, lui,
+ * ne se remplit pas — huit lignes, pas d'en-tête, pas de champ. Posé en haut, il
+ * laissait la moitié basse de l'écran vide sous son bouton, ce qui se lit comme
+ * une page inachevée plutôt que comme de l'air. Centré, le bloc devient ce qu'il
+ * est — une page de titre — et son action revient sous le pouce au lieu de
+ * flotter au tiers supérieur.
+ *
+ * Le texte est centré pour la même raison, et le reste du parcours ne l'est pas
+ * pour une autre : deux phrases se centrent, un formulaire non — un intitulé de
+ * champ dont le bord gauche se déplace d'une ligne à l'autre se cherche à chaque
+ * fois.
+ *
+ * ## L'air
+ *
+ * Trois blocs — la marque et ses pastilles, le titre et sa phrase, l'action et
+ * ses deux lignes de service — séparés par [WELCOME_GAP], quand l'intérieur d'un
+ * bloc reste sur l'échelle ordinaire. C'est ce rapport-là qui fait lire trois
+ * groupes au lieu de sept lignes empilées, et non la quantité d'air elle-même.
+ *
+ * Les trois pastilles restent, et elles ne sont pas un décor : elles nomment les
+ * trois métiers que l'inscription accepte, ce que la phrase suivante met quatre
+ * lignes à dire. Groupées au centre sous la marque, elles se lisent comme un
+ * objet ; réparties sur toute la largeur, elles faisaient une frise,
+ * c'est-à-dire une décoration.
  */
 @Composable
 private fun WelcomeStep(
@@ -535,15 +586,18 @@ private fun WelcomeStep(
 ) {
     val colors = MaterialTheme.colorScheme
     val shape = MaterialTheme.shapes.small
-    Column {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         AuleWordmark(
             name = stringResource(R.string.auth_brand),
             kicker = stringResource(R.string.auth_workspace),
             contentDescription = stringResource(R.string.auth_logo),
         )
-        Spacer(modifier = Modifier.height(AuleSpacing.xxl))
+        Spacer(modifier = Modifier.height(WELCOME_GAP))
         Row(
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Les trois pastilles arrivent l'une après l'autre. C'est le premier
@@ -554,20 +608,22 @@ private fun WelcomeStep(
             WelcomeIcon(AuleGlyph.TICKET, index = 1)
             WelcomeIcon(AuleGlyph.SHIELD, index = 2)
         }
-        Spacer(modifier = Modifier.height(AuleSpacing.xl))
+        Spacer(modifier = Modifier.height(WELCOME_GAP))
         Text(
             text = stringResource(R.string.register_welcome_title),
             style = MaterialTheme.typography.headlineMediumEmphasized,
             color = colors.onSurface,
+            textAlign = TextAlign.Center,
             modifier = Modifier.semantics { heading() },
         )
-        Spacer(modifier = Modifier.height(AuleSpacing.sm))
+        Spacer(modifier = Modifier.height(AuleSpacing.md))
         Text(
             text = stringResource(R.string.register_welcome_subtitle),
             style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(AuleSpacing.xl))
+        Spacer(modifier = Modifier.height(WELCOME_GAP))
         Button(
             onClick = onStart,
             modifier = Modifier
@@ -582,20 +638,31 @@ private fun WelcomeStep(
                 style = MaterialTheme.typography.titleMediumEmphasized,
             )
         }
-        Spacer(modifier = Modifier.height(AuleSpacing.md))
+        Spacer(modifier = Modifier.height(AuleSpacing.lg))
         Text(
             text = stringResource(R.string.register_hint),
             style = MaterialTheme.typography.labelSmall,
             color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
         )
-        Spacer(modifier = Modifier.height(AuleSpacing.sm))
-        Row(verticalAlignment = Alignment.CenterVertically) {
+        Spacer(modifier = Modifier.height(AuleSpacing.md))
+        // La rangée se centre sur l'ensemble « question + réponse ». Le bouton
+        // texte y perd sa réserve d'origine : posée à côté d'une phrase et non
+        // entre deux autres boutons, elle éloignait la réponse de sa question
+        // et décalait le centre optique de la ligne entière.
+        Row(
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
                 text = stringResource(R.string.register_have_account),
                 style = MaterialTheme.typography.bodyMedium,
                 color = colors.onSurfaceVariant,
             )
-            TextButton(onClick = onSignIn) {
+            TextButton(
+                onClick = onSignIn,
+                contentPadding = PaddingValues(horizontal = AuleSpacing.sm),
+            ) {
                 Text(
                     text = stringResource(R.string.register_already),
                     style = MaterialTheme.typography.labelLargeEmphasized,
@@ -721,56 +788,220 @@ private fun ProfilesStep(
     }
 }
 
+/**
+ * L'étape du réseau.
+ *
+ * ## Le champ de recherche qui cherchait dans une liste d'un
+ *
+ * Il était posé là par symétrie avec l'onboarding web, qui a des dizaines de
+ * réseaux. Ici, il demandait « lequel ? » au-dessus d'une réponse unique, et
+ * repoussait cette réponse d'une hauteur de champ vers le bas de l'écran. Il
+ * ne revient qu'au-delà de [NETWORK_SEARCH_FROM] entrées — c'est le catalogue
+ * qui décide, pas la main, et le jour où il s'ouvre personne n'aura à y penser.
+ *
+ * ## Le vide, et ce qu'on met dedans
+ *
+ * Une seule carte de choix suivie du bouton laissait les deux tiers bas de
+ * l'écran nus. Ce vide était lu comme un chargement : *il en manque, elles
+ * arrivent*. La note de fin dit ce qu'il en est réellement — la liste est
+ * courte parce qu'elle est courte — et donne à la page un bas.
+ */
 @Composable
 private fun NetworkStep(
     state: RegistrationUiState,
     onQuery: (String) -> Unit,
-    onSelectNaolib: () -> Unit,
+    onSelect: (String) -> Unit,
 ) {
-    val colors = MaterialTheme.colorScheme
+    val networks = state.networks
     Column {
         StepHeader(
             title = stringResource(R.string.register_network_title),
             subtitle = stringResource(R.string.register_network_subtitle),
         )
-        OutlinedTextField(
-            value = state.networkQuery,
-            onValueChange = onQuery,
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(R.string.register_network_search)) },
-            leadingIcon = {
+        if (state.networkSearchable) {
+            NetworkSearch(
+                query = state.networkQuery,
+                results = networks.size,
+                onQuery = onQuery,
+            )
+            Spacer(modifier = Modifier.height(AuleSpacing.lg))
+        }
+        if (networks.isEmpty()) {
+            NetworkEmpty()
+            return@Column
+        }
+        networks.forEachIndexed { index, network ->
+            if (index > 0) Spacer(modifier = Modifier.height(AuleSpacing.sm))
+            ChoiceCard(
+                label = network.name,
+                description = network.territory,
+                selected = state.draft.networkKey == network.key,
+                onClick = { onSelect(network.key) },
+                modifier = Modifier.auleEnter(index = index),
+                emblem = {
+                    AuleNetworkEmblem(logo = network.logo(), initial = network.initial)
+                },
+            )
+        }
+        Spacer(modifier = Modifier.height(AuleSpacing.xl))
+        NetworkAbsent()
+    }
+}
+
+/**
+ * Le champ de recherche des réseaux.
+ *
+ * Un **texte d'invite** et non un libellé flottant : le libellé de Material
+ * monte au-dessus de la saisie et réserve sa place même à vide, ce qui coûte
+ * douze points à un champ qui ne pose qu'une question de trois mots. La loupe
+ * dit déjà de quel champ il s'agit.
+ *
+ * Le compte de résultats est une **région vive** : c'est la seule façon pour
+ * TalkBack d'annoncer qu'une frappe vient de faire fondre la liste — les cartes
+ * qui disparaissent plus bas ne se lisent que si on y retourne.
+ */
+@Composable
+private fun NetworkSearch(
+    query: String,
+    results: Int,
+    onQuery: (String) -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    OutlinedTextField(
+        value = query,
+        onValueChange = onQuery,
+        modifier = Modifier.fillMaxWidth(),
+        placeholder = { Text(stringResource(R.string.register_network_search)) },
+        leadingIcon = {
+            Icon(
+                imageVector = AuleGlyph.SEARCH.asImageVector(),
+                contentDescription = null,
+            )
+        },
+        trailingIcon = if (query.isEmpty()) {
+            null
+        } else {
+            {
+                IconButton(onClick = { onQuery("") }) {
+                    Icon(
+                        imageVector = AuleGlyph.CLOSE.asImageVector(),
+                        contentDescription = stringResource(R.string.register_network_clear),
+                    )
+                }
+            }
+        },
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+        singleLine = true,
+        shape = MaterialTheme.shapes.small,
+        colors = auleFieldColors(),
+    )
+    if (query.isNotEmpty()) {
+        Text(
+            text = pluralStringResource(R.plurals.register_network_results, results, results),
+            style = MaterialTheme.typography.labelMedium,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier
+                .padding(top = AuleSpacing.sm)
+                .semantics { liveRegion = LiveRegionMode.Polite },
+        )
+    }
+}
+
+/**
+ * La recherche n'a rien ramené.
+ *
+ * Une phrase centrée seule au milieu du blanc se lisait comme une panne. Le
+ * jeton devant elle en fait un **état** : quelque chose a été cherché, et n'a
+ * pas été trouvé. Et la première ligne dit quoi faire ensuite, parce qu'un
+ * écran vide qui ne propose rien n'a plus qu'à être quitté.
+ */
+@Composable
+private fun NetworkEmpty() {
+    val colors = MaterialTheme.colorScheme
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = AuleSpacing.xl),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Surface(
+            modifier = Modifier.size(AuleControl.avatar),
+            shape = CircleShape,
+            color = colors.surfaceContainerHigh,
+            contentColor = colors.onSurfaceVariant,
+        ) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Icon(
                     imageVector = AuleGlyph.SEARCH.asImageVector(),
                     contentDescription = null,
                 )
-            },
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            singleLine = true,
-            shape = MaterialTheme.shapes.small,
-            colors = auleFieldColors(),
+            }
+        }
+        Text(
+            text = stringResource(R.string.register_network_empty_title),
+            style = MaterialTheme.typography.bodyLargeEmphasized,
+            color = colors.onSurface,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = AuleSpacing.md),
         )
-        Spacer(modifier = Modifier.height(AuleSpacing.lg))
-        if (state.showsNaolib) {
-            ChoiceCard(
-                glyph = AuleGlyph.PIN,
-                label = stringResource(R.string.register_network_naolib),
-                description = stringResource(R.string.register_network_naolib_desc),
-                selected = state.draft.networkKey == "naolib",
-                onClick = onSelectNaolib,
-                modifier = Modifier.auleEnter(),
-            )
-        } else {
+        Text(
+            text = stringResource(R.string.register_network_empty),
+            style = MaterialTheme.typography.bodySmall,
+            color = colors.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = AuleSpacing.xs),
+        )
+    }
+}
+
+/**
+ * La note de fin d'étape : « et si mon réseau n'y est pas ? ».
+ *
+ * Sans bord ni aplat de carte — ce qui a un cadre est ce dans quoi on écrit
+ * (voir l'entête du fichier). Un filet vertical suffit à la détacher de la
+ * liste sans lui donner l'air d'un cinquième choix qu'on pourrait cocher.
+ */
+@Composable
+private fun NetworkAbsent() {
+    val colors = MaterialTheme.colorScheme
+    // `IntrinsicSize.Min` plutôt qu'une hauteur écrite : le filet suit alors le
+    // texte, y compris quand l'appareil l'agrandit. Une barre chiffrée à la
+    // main déborderait au premier cran de « texte plus grand ».
+    Row(modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Min)) {
+        Box(
+            modifier = Modifier
+                .width(AuleStroke.emphasis)
+                .fillMaxHeight()
+                .clip(CircleShape)
+                .background(colors.outlineVariant),
+        )
+        Column(modifier = Modifier.padding(start = AuleSpacing.md)) {
             Text(
-                text = stringResource(R.string.register_network_empty),
-                style = MaterialTheme.typography.bodyMedium,
+                text = stringResource(R.string.register_network_absent_title),
+                style = MaterialTheme.typography.labelLargeEmphasized,
+                color = colors.onSurface,
+            )
+            Text(
+                text = stringResource(R.string.register_network_absent_body),
+                style = MaterialTheme.typography.bodySmall,
                 color = colors.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = AuleSpacing.lg),
+                modifier = Modifier.padding(top = AuleSpacing.xs),
             )
         }
     }
+}
+
+/**
+ * Le logo d'un réseau, quand on l'a.
+ *
+ * `null` n'est pas un oubli : le catalogue s'ouvre plus vite qu'on n'obtient
+ * les fichiers des exploitants, et [AuleNetworkEmblem] rend l'initiale en
+ * attendant. Rien d'autre dans l'écran n'a besoin de connaître la différence.
+ */
+@Composable
+private fun ProNetwork.logo(): Painter? {
+    val drawable = NETWORK_LOGOS[key] ?: return null
+    return painterResource(drawable)
 }
 
 @Composable
@@ -936,7 +1167,20 @@ private fun AccountStep(
                 PasswordVisualTransformation()
             },
         )
+        Spacer(modifier = Modifier.height(AuleSpacing.xl))
+        OrSeparator()
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
+        GoogleSignUpButton(
+            enabled = !state.isSubmitting,
+            onClick = { viewModel.startOAuthSignUp(OAuthProvider.GOOGLE) },
+        )
+        Spacer(modifier = Modifier.height(AuleSpacing.sm))
+        Text(
+            text = stringResource(R.string.register_google_hint),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSurfaceVariant,
+        )
+        Spacer(modifier = Modifier.height(AuleSpacing.xl))
         TermsRow(
             accepted = state.draft.termsAccepted,
             onToggle = viewModel::toggleTerms,
@@ -955,6 +1199,8 @@ private fun AccountStep(
         }
         val error = when {
             state.missingProfessionalData -> stringResource(R.string.register_error_incomplete)
+            state.missingTerms -> stringResource(R.string.register_error_terms)
+            state.browserMissing -> stringResource(R.string.register_error_no_browser)
             state.failure != null -> state.failure.message()
             else -> null
         }
@@ -1110,6 +1356,80 @@ private fun TermsRow(
     }
 }
 
+/**
+ * L'autre façon d'entrer : le compte Google, et rien à retenir.
+ *
+ * ## Pourquoi il est ici, sous les champs et non en tête
+ *
+ * L'usage voudrait le bouton d'un fournisseur en tête de formulaire. Il vient
+ * après, et à un endroit précis : **juste au-dessus de la case des conditions**.
+ * Cette case vaut pour les deux façons d'entrer — un consentement ne dépend pas
+ * du fournisseur d'identité — et en tête, l'appui aurait affiché un refus dont
+ * la cause serait deux hauteurs d'écran plus bas, hors de vue. Collés, le bouton
+ * et la case se lisent d'un seul regard.
+ *
+ * Le libellé et le logo sont ceux de Google, qui ne se retouchent pas ; le
+ * bouton qui les porte est celui d'Aule — contour et surface du thème. C'est ce
+ * que les règles de marque autorisent, et la seule répartition qui évite un
+ * rectangle blanc étranger au milieu d'un écran sombre.
+ */
+@Composable
+private fun GoogleSignUpButton(
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    OutlinedButton(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .defaultMinSize(minHeight = AuleControl.height),
+        enabled = enabled,
+        shape = MaterialTheme.shapes.small,
+        border = BorderStroke(AuleStroke.hairline, colors.outline),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.onSurface),
+    ) {
+        Image(
+            painter = painterResource(R.drawable.ic_google),
+            // Le logo ne nomme rien que le libellé ne dise déjà : le décrire
+            // ferait entendre « Google » deux fois de suite à TalkBack.
+            contentDescription = null,
+            modifier = Modifier.size(AuleControl.icon),
+        )
+        Spacer(modifier = Modifier.width(AuleSpacing.sm))
+        Text(
+            text = stringResource(R.string.register_google),
+            style = MaterialTheme.typography.labelLargeEmphasized,
+        )
+    }
+}
+
+/**
+ * Le trait qui sépare les deux façons d'entrer.
+ *
+ * Le mot est retiré à TalkBack : annoncé seul entre deux contrôles, « ou »
+ * n'apprend rien — le bouton qui suit se nomme lui-même.
+ */
+@Composable
+private fun OrSeparator() {
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HorizontalDivider(modifier = Modifier.weight(1f), color = colors.outlineVariant)
+        Text(
+            text = stringResource(R.string.register_oauth_separator),
+            style = MaterialTheme.typography.labelSmall,
+            color = colors.onSurfaceVariant,
+            modifier = Modifier
+                .padding(horizontal = AuleSpacing.md)
+                .clearAndSetSemantics { },
+        )
+        HorizontalDivider(modifier = Modifier.weight(1f), color = colors.outlineVariant)
+    }
+}
+
 @Composable
 private fun ConfirmationStep(
     state: RegistrationUiState,
@@ -1139,7 +1459,7 @@ private fun ConfirmationStep(
         }
     }
     val recapNetwork = stringResource(R.string.register_recap_network)
-    val recapNetworkValue = stringResource(R.string.register_network_naolib)
+    val recapNetworkValue = state.selectedNetwork?.name.orEmpty()
     val recapMode = stringResource(R.string.register_recap_mode)
     val bus = stringResource(R.string.register_mode_bus)
     val tram = stringResource(R.string.register_mode_tram)
@@ -1154,7 +1474,7 @@ private fun ConfirmationStep(
     val recapEmployee = stringResource(R.string.register_recap_employee)
     val recap = buildList {
         add(recapKind to recapProfiles)
-        add(recapNetwork to recapNetworkValue)
+        if (recapNetworkValue.isNotEmpty()) add(recapNetwork to recapNetworkValue)
         if (recapModeValue != null) add(recapMode to recapModeValue)
         add(recapName to state.draft.fullName)
         add(recapEmployee to state.draft.employeeId)
@@ -1318,12 +1638,13 @@ private fun ConfirmationStep(
  */
 @Composable
 private fun ChoiceCard(
-    glyph: AuleGlyph,
     label: String,
     description: String,
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    glyph: AuleGlyph? = null,
+    emblem: (@Composable () -> Unit)? = null,
     multiSelect: Boolean = false,
     pastille: Shape = CircleShape,
 ) {
@@ -1396,20 +1717,24 @@ private fun ChoiceCard(
             modifier = Modifier.padding(AuleSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Surface(
-                modifier = Modifier.size(AuleControl.avatar),
-                shape = pastille,
-                color = jetonFill,
-                contentColor = jetonInk,
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxSize(),
-                    contentAlignment = Alignment.Center,
+            if (emblem != null) {
+                emblem()
+            } else if (glyph != null) {
+                Surface(
+                    modifier = Modifier.size(AuleControl.avatar),
+                    shape = pastille,
+                    color = jetonFill,
+                    contentColor = jetonInk,
                 ) {
-                    Icon(
-                        imageVector = glyph.asImageVector(filled = selected),
-                        contentDescription = null,
-                    )
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            imageVector = glyph.asImageVector(filled = selected),
+                            contentDescription = null,
+                        )
+                    }
                 }
             }
             Column(
@@ -1507,6 +1832,18 @@ private val ProfessionalTransportMode.glyph: AuleGlyph
 private val CARD_MAX_WIDTH = 520.dp
 
 /**
+ * L'air qui sépare les trois blocs de l'écran d'accueil.
+ *
+ * Au-dessus du plus grand cran de l'échelle — trente-deux points — parce qu'il
+ * ne sépare pas deux éléments d'un même groupe mais trois groupes entiers, et
+ * qu'un écran qui ne porte que huit lignes a la place de le montrer. Le cran
+ * d'échelle y suffirait sur une étape de formulaire ; ici il rendait la même
+ * distance entre un titre et sa phrase qu'entre la phrase et le bouton, donc
+ * aucun groupe.
+ */
+private val WELCOME_GAP = 40.dp
+
+/**
  * La hauteur d'un cran du rail.
  *
  * Le filet de quatre points de Material se lit assis, à l'ombre. Debout, gants
@@ -1552,3 +1889,12 @@ private const val METER_STEPS = 3
 /** Le quart de largeur dont l'étape entrante glisse. */
 private const val SLIDE_FRACTION = 4
 
+/**
+ * Les logos des réseaux, par clé.
+ *
+ * Vide tant qu'aucun fichier n'est arrivé : un emblème sans logo rend
+ * l'initiale du réseau, ce qui est une identité honnête, là où un dessin
+ * approximatif serait un faux. Une entrée ici suffit à basculer le réseau
+ * concerné sur sa vraie marque.
+ */
+private val NETWORK_LOGOS: Map<String, Int> = emptyMap()

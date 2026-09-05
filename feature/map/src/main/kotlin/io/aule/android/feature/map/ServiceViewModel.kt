@@ -11,6 +11,7 @@ import io.aule.android.core.model.DriverServiceFailureKind
 import io.aule.android.core.model.HandoverSummary
 import io.aule.android.core.model.HeartbeatVerdict
 import io.aule.android.core.model.PositionPublishRequest
+import io.aule.android.core.model.SpeedLimitTable
 import io.aule.android.core.model.readHeartbeat
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.DriverServiceRepository
@@ -36,6 +37,22 @@ data class ServiceUiState(
     val endFailure: DriverServiceFailureKind? = null,
     val liveHandover: HandoverSummary? = null,
     val notice: ServiceNotice? = null,
+    /**
+     * La limitation réglementaire là où l'on est, **sur la ligne qu'on assure**.
+     *
+     * `null` la plupart du temps, et c'est la réponse normale : une note de service
+     * décrit un kilomètre de voie sur les cent que fait le réseau. Voir
+     * [io.aule.android.core.model.SpeedLimitTable], qui porte les deux gardes — le
+     * couloir et la tolérance de borne.
+     *
+     * ⚠️ **Elle vit ici et non dans l'état de la carte**, et ce n'est pas un
+     * rangement : sans service ouvert on ne sait pas quelle ligne est sous les
+     * roues, et les limitations de la note 26/639 sont celles de la plate-forme
+     * tramway. Les afficher à qui longe le Quai de la Fosse en voiture annoncerait
+     * 30 là où la route est à 50. C'est la seule garde que la géométrie ne peut pas
+     * remplacer, et elle est structurelle ici.
+     */
+    val speedLimitKmh: Int? = null,
 )
 
 /**
@@ -54,6 +71,11 @@ class ServiceViewModel(
     private val services: DriverServiceRepository,
     private val logger: AuleLogger,
     private val now: () -> Instant = Instant::now,
+    /**
+     * Les limitations qu'une note de service localise. Vide par défaut : un modèle
+     * construit sans elles ne montre aucun panneau, ce qui est l'état juste.
+     */
+    private val speedLimits: SpeedLimitTable = SpeedLimitTable.EMPTY,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ServiceUiState())
@@ -78,9 +100,36 @@ class ServiceViewModel(
         this.inBackground = inBackground
     }
 
+    /**
+     * Le panneau réglementaire, publié **seulement quand il change**.
+     *
+     * Le calcul tourne à chaque point GPS — cinq projections sur des polylignes de
+     * trois points, un coût qui ne se mesure pas. Publier, en revanche, relit la
+     * hiérarchie de vues, et la limitation ne change que quatre fois par kilomètre.
+     *
+     * ⚠️ **Avant la cadence du heartbeat, et c'est délibéré.** Celle-ci n'envoie une
+     * position que toutes les quelques secondes ; un panneau qui suivrait ce rythme
+     * changerait cinquante mètres trop tard.
+     */
+    private fun publishSpeedLimit(active: ActiveDriverService, fix: LocationFix) {
+        val limit = speedLimits.limitFor(active.lineLabel, fix.coordinate)
+        if (limit != _state.value.speedLimitKmh) {
+            _state.value = _state.value.copy(speedLimitKmh = limit)
+        }
+    }
+
     fun onLocationFix(fix: LocationFix?) {
-        val active = _state.value.active ?: return
+        val active = _state.value.active
+        if (active == null) {
+            // Le service est clos : le panneau s'éteint avec lui. Le laisser allumé
+            // afficherait la dernière limitation lue à quelqu'un qui rentre chez lui.
+            if (_state.value.speedLimitKmh != null) {
+                _state.value = _state.value.copy(speedLimitKmh = null)
+            }
+            return
+        }
         if (fix == null) return
+        publishSpeedLimit(active, fix)
         val at = now()
         if (!shouldPublishHeartbeat(
                 now = at,

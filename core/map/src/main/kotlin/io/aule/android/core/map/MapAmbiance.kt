@@ -61,6 +61,40 @@ object MapZoom {
     /** Les quais n'apparaissent qu'une fois qu'on est à l'échelle du trottoir. */
     const val QUAYS_FROM = 17.5
 
+    /**
+     * Le seuil où un **nom** d'arrêt cesse d'être ambigu.
+     *
+     * Une pastille apparaît bien avant son nom, et c'est délibéré : un point
+     * n'appartient qu'à lui-même, un nom doit désigner un point et un seul.
+     * Écrit trop tôt, il tombe à mi-chemin de deux arrêts, et le plan se met à
+     * mentir — « St-Donatien » lu sur la pastille de Chalâtres. Signalé à
+     * l'écran sur la C1, et c'est ce qui a fixé cette constante.
+     *
+     * ## La mesure
+     *
+     * Le nom se pose à 1,25 em de sa pastille et occupe environ 1,2 em de haut :
+     * son centre est donc à ~1,85 em, et il faut le double d'espacement entre
+     * deux arrêts pour qu'il reste plus près du sien que du suivant. À la
+     * latitude de Nantes, ça donne :
+     *
+     * | zoom | il faut, entre deux arrêts |
+     * |---|---|
+     * | 12 | 1 020 m |
+     * | 13 | 540 m |
+     * | 14 | 285 m |
+     * | **14,5** | **207 m** |
+     * | 15 | 150 m |
+     *
+     * Un arrêt de bus urbain succède au précédent tous les 250 à 400 mètres —
+     * 330 en moyenne sur la C1. Quatorze et demi est donc le premier palier qui
+     * passe, y compris sur les enfilades du centre-ville ; à quatorze, une
+     * portion serrée sur deux reste douteuse.
+     *
+     * Les deux couches d'arrêts s'y tiennent — le catalogue et la desserte d'une
+     * ligne — pour que fermer un volet ne fasse ni apparaître ni sauter un nom.
+     */
+    const val STOP_LABELS_FROM = 14.5
+
     const val VEHICLES_FROM = 12.0
     const val VEHICLE_ICONS_FROM = 14.0
 

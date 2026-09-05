@@ -148,6 +148,15 @@ fun PriseServiceScreen(
     onClose: () -> Unit,
     onStarted: (ActiveDriverService) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Les notes de service du réseau, toutes lignes confondues.
+     *
+     * Le filtre est appliqué **ici** et non par l'appelant, parce que la ligne
+     * concernée change dans cet écran : c'est celle que l'agent est en train de
+     * choisir. Un appelant qui aurait filtré d'avance devrait refiltrer à chaque
+     * frappe. Voir [io.aule.android.core.model.ServiceNote.concerns].
+     */
+    notes: ServiceNotesUiState = ServiceNotesUiState(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val authorization by location.authorization.collectAsStateWithLifecycle()
@@ -321,6 +330,14 @@ fun PriseServiceScreen(
                             },
                         )
                     }
+                    // ⚠️ **Au-dessus de la barre d'action, et non dessous.** Une
+                    // consigne posée sous le bouton « Démarrer » se lit après le
+                    // geste qu'elle devait informer.
+                    ServiceNotesCard(
+                        notes = notes.notesFor(state.selectedLine?.label),
+                        isLoading = notes.isLoading,
+                        isUnavailable = notes.isUnavailable,
+                    )
                     Spacer(modifier = Modifier.height(AuleSpacing.lg))
                 }
                 if (state.step >= PriseServiceStep.TIME) {

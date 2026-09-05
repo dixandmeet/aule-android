@@ -103,6 +103,37 @@ class TripSummaryTest {
         assertTrue(s.estimated)
     }
 
+    /**
+     * Le défaut lu à l'écran le 28/08/2026 : « Distance 0 m » et « Temps
+     * restant 11 min » côte à côte, l'heure d'arrivée figée à la valeur du
+     * calcul. Sur une voiture, l'heure d'arrivée du plan n'a pas autorité — elle
+     * vieillit à mesure qu'on roule.
+     */
+    @Test
+    fun `en voiture, l heure d arrivee du plan ne fige pas le temps restant`() {
+        val plan = seule(
+            LegMode.CAR,
+            arrivalAt = now.plus(Duration.ofMinutes(11)),
+            duration = Duration.ofMinutes(20),
+        )
+        // Presque arrivé : la règle de trois doit l'emporter sur les 11 minutes.
+        val s = tripSummary(plan, journeyProgressAt(plan, 0.99)!!, now)
+        assertEquals(Duration.ofSeconds(12), s.remaining)
+        assertEquals(now.plus(Duration.ofSeconds(12)), s.arrivalAt)
+        assertTrue(s.estimated)
+    }
+
+    /** Un tram arrive quand le réseau l'a décidé : là, l'horaire fait autorité. */
+    @Test
+    fun `en transports, l horaire garde autorite`() {
+        val arrivee = now.plus(Duration.ofMinutes(11))
+        val plan = multimodal(arrivalAt = arrivee)
+        val s = tripSummary(plan, journeyProgressAt(plan, 0.99)!!, now)
+        assertEquals(arrivee, s.arrivalAt)
+        assertEquals(Duration.ofMinutes(11), s.remaining)
+        assertFalse(s.estimated)
+    }
+
     @Test
     fun `sans rien, on n invente pas`() {
         val plan = seule(LegMode.TRANSIT)

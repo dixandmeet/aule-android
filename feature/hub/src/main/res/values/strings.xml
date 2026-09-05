@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="hub_title">Messages</string>
+    <string name="hub_empty_title">Aucune discussion</string>
+    <string name="hub_empty_detail">Créez un groupe pour écrire à vos collègues.</string>
+    <string name="hub_new_group">Nouveau groupe</string>
+    <string name="hub_group_name">Nom du groupe</string>
+    <string name="hub_create">Créer</string>
+    <string name="hub_cancel">Annuler</string>
+    <string name="hub_search_colleagues">Nom ou matricule</string>
+    <string name="hub_no_colleague">Aucun collègue trouvé</string>
+    <string name="hub_no_account">Pas encore de compte Aule Pro</string>
+    <string name="hub_members">Membres</string>
+    <string name="hub_leave_group">Quitter le groupe</string>
+    <string name="hub_close_group">Fermer le groupe</string>
+    <string name="hub_message_hint">Message</string>
+    <string name="hub_send">Envoyer</string>
+    <string name="hub_back">Retour aux discussions</string>
+    <string name="hub_retry">Réessayer</string>
+    <string name="hub_discard">Supprimer</string>
+    <string name="hub_refresh">Rafraîchir</string>
+    <string name="hub_stale">Messages non rafraîchis</string>
+    <string name="hub_pending">%1$d message(s) en attente d\'envoi</string>
+    <string name="hub_delivery_pending">En attente de réseau</string>
+    <string name="hub_delivery_failed">Non envoyé</string>
+    <string name="hub_message_deleted">Message retiré</string>
+    <string name="hub_message_edited">modifié</string>
+
+    <!-- Sections de la liste -->
+    <string name="hub_section_favorites">FAVORIS</string>
+    <string name="hub_section_groups">GROUPES</string>
+    <string name="hub_section_directs">DIRECTS</string>
+    <string name="hub_section_broadcast">RÉSEAU ET DÉPÔT</string>
+
+    <!-- Sous-titres quand un canal n'a pas encore parlé -->
+    <string name="hub_subtitle_network">Annonces du réseau</string>
+    <string name="hub_subtitle_depot">Annonces du dépôt</string>
+    <string name="hub_subtitle_support">Assistance Aule</string>
+    <string name="hub_subtitle_direct">Discussion directe</string>
+    <string name="hub_subtitle_members">%1$d membres</string>
+    <string name="hub_subtitle_sender">%1$s : %2$s</string>
+
+    <!-- Ce qui remplace le composeur -->
+    <string name="hub_read_only">Canal en lecture seule.</string>
+    <string name="hub_closed">Ce groupe est fermé. L\'historique reste lisible.</string>
+
+    <!-- Refus -->
+    <string name="hub_error_not_authenticated">Votre session a expiré. Reconnectez-vous.</string>
+    <string name="hub_error_not_member">Vous ne faites plus partie de cette discussion.</string>
+    <string name="hub_error_read_only">Ce canal est en lecture seule.</string>
+    <string name="hub_error_not_owner">Seul un responsable du groupe peut le faire.</string>
+    <string name="hub_error_cannot_invite">Vous ne pouvez pas inviter dans ce groupe.</string>
+    <string name="hub_error_not_sender">Ce message n\'est pas le vôtre.</string>
+    <string name="hub_error_channel_closed">Ce groupe est fermé.</string>
+    <string name="hub_error_not_found">Cette discussion n\'existe plus.</string>
+    <string name="hub_error_other_network">Ce collègue appartient à un autre réseau.</string>
+    <string name="hub_error_no_network">Ce compte n\'est rattaché à aucun réseau.</string>
+    <string name="hub_error_cannot_leave">Cette discussion ne se quitte pas.</string>
+    <string name="hub_error_file">La pièce jointe n\'est pas arrivée. Recommencez l\'envoi.</string>
+    <string name="hub_error_bad_request">Cette demande n\'a pas abouti.</string>
+    <string name="hub_error_not_deployed">La messagerie n\'est pas encore ouverte sur ce serveur.</string>
+    <string name="hub_error_unknown">Le réseau n\'a pas répondu.</string>
+
+    <!-- Entrées de menu -->
+</resources>

@@ -6,6 +6,7 @@ import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
+import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.repository.AuthPkceStore
 import io.aule.android.core.model.repository.AuthRepository
@@ -29,6 +30,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
+import okhttp3.HttpUrl.Companion.toHttpUrl
 
 /**
  * Les seuls refus qui condamnent un jeton de rafraîchissement.
@@ -64,6 +66,15 @@ class SupabaseAuthRepository(
     private val publishableKey: String,
     private val logger: AuleLogger,
     private val pkce: AuthPkceStore = MemoryAuthPkceStore(),
+    /**
+     * Le brouillon d'inscription, relu au retour d'un fournisseur externe.
+     *
+     * Il est ici et pas dans l'écran parce que l'écran peut ne plus exister :
+     * l'aller-retour vers Google passe par le navigateur, et le système a tout
+     * loisir de tuer le processus pendant ce temps. Au retour, le seul endroit
+     * qui sache encore ce que l'inscription avait collecté est le disque.
+     */
+    private val drafts: RegistrationDraftStore = MemoryRegistrationDraftStore(),
     private val createVerifier: () -> String = { Pkce.generateVerifier() },
     private val json: Json = AuleHttpClient.defaultJson,
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1_000 },
@@ -283,6 +294,33 @@ class SupabaseAuthRepository(
     }
 
     /**
+     * `GET /authorize` — l'URL que le navigateur ira chercher.
+     *
+     * Aucun appel réseau : GoTrue répond à cette adresse par une redirection
+     * vers Google, et c'est le navigateur qui la suit. La construire ici plutôt
+     * que dans l'écran garde au même endroit ce qui doit rester d'accord — le
+     * défi PKCE écrit dans le dépôt et celui posé dans l'URL.
+     *
+     * `redirect_to` est la même adresse que les liens e-mail : elle est déjà
+     * déclarée dans les *Redirect URLs* du projet, et Google n'en voit jamais
+     * la couleur — il redirige vers Supabase, qui redirige vers nous.
+     */
+    override suspend fun beginOAuthSignUp(provider: OAuthProvider): String {
+        if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
+        val verifier = createVerifier()
+        pkce.writeVerifier(verifier, AuthPkceFlow.OAUTH_SIGN_UP)
+        val url = ("$authBase/authorize").toHttpUrl().newBuilder()
+            .addQueryParameter("provider", provider.key)
+            .addQueryParameter("redirect_to", EMAIL_CONFIRMATION_REDIRECT)
+            .addQueryParameter("code_challenge", Pkce.challenge(verifier))
+            .addQueryParameter("code_challenge_method", "s256")
+            .build()
+            .toString()
+        logger.info(LogDomain.AUTH, "Inscription déléguée à ${provider.key}.")
+        return url
+    }
+
+    /**
      * `POST /recover` — le lien « mot de passe oublié ».
      *
      * Même adresse de retour que l'inscription : c'est celle qui est déclarée
@@ -357,7 +395,7 @@ class SupabaseAuthRepository(
             }.getOrNull()
             throw AuthException(
                 kind = authFailureKindOf(response.code, error),
-                serverMessage = error.serverMessage(),
+                serverMessage = error.messageOr(response.code),
             )
         }
         logger.info(LogDomain.AUTH, "Mot de passe changé.")
@@ -373,6 +411,7 @@ class SupabaseAuthRepository(
         }
         val verifier = pkce.readVerifier()
             ?: throw AuthException(AuthFailureKind.UNKNOWN, "PKCE verifier missing.")
+        val flow = pkce.readFlow()
         val body = buildJsonObject {
             put("auth_code", trimmed)
             put("code_verifier", verifier)
@@ -384,8 +423,67 @@ class SupabaseAuthRepository(
         pkce.clearVerifier()
         store.write(opened)
         session = opened
-        logger.info(LogDomain.AUTH, "Session ouverte par confirmation d'e-mail.")
+        if (flow == AuthPkceFlow.OAUTH_SIGN_UP) {
+            logger.info(LogDomain.AUTH, "Session ouverte par fournisseur externe.")
+            attachOnboarding(opened)
+        } else {
+            logger.info(LogDomain.AUTH, "Session ouverte par confirmation d'e-mail.")
+        }
         opened
+    }
+
+    /**
+     * Pose sur le compte fraîchement ouvert ce que l'OAuth n'a pas pu porter.
+     *
+     * `/authorize` n'accepte pas de `data` : le métier, le réseau, le matricule
+     * arrivent donc en second, par `PUT /user`, une fois la session ouverte.
+     *
+     * ## Un échec ici ne referme pas la session
+     *
+     * Elle est ouverte, elle est écrite, le compte existe : la refuser
+     * laisserait un compte Google lié à Aule que son propriétaire ne pourrait
+     * plus ni utiliser ni recréer. On journalise donc, en **gardant le
+     * brouillon** — c'est ce qui permet de reprendre l'inscription là où elle
+     * en était. Le compte reste sans habilitation demandée, et l'écran
+     * d'habilitation dit déjà cette attente-là.
+     *
+     * Le brouillon n'est effacé qu'en cas de succès, et c'est le seul endroit
+     * du parcours OAuth qui puisse le faire : l'écran d'inscription, lui, a
+     * disparu au moment où le navigateur s'est ouvert.
+     */
+    private suspend fun attachOnboarding(opened: AuthSession) {
+        val encoded = drafts.readDraft() ?: run {
+            logger.warn(LogDomain.AUTH, "Retour de fournisseur sans brouillon d'inscription.")
+            return
+        }
+        val metadata = try {
+            ProRegistrationDraft.decode(encoded).toAuthMetadata()
+        } catch (failure: Throwable) {
+            logger.warn(LogDomain.AUTH, "Brouillon d'inscription illisible.", failure)
+            return
+        }
+        val body = JsonObject(mapOf("data" to metadata)).toString()
+        val response = try {
+            client.putRaw(
+                url = "$authBase/user",
+                jsonBody = body,
+                headers = authHeaders(opened.accessToken),
+            )
+        } catch (cancelled: ApiException.Cancelled) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            logger.warn(LogDomain.AUTH, "Métadonnées d'onboarding non posées.", failure)
+            return
+        }
+        if (response.code !in 200..299) {
+            logger.warn(
+                LogDomain.AUTH,
+                "Métadonnées d'onboarding refusées (${response.code}).",
+            )
+            return
+        }
+        drafts.clear()
+        logger.info(LogDomain.AUTH, "Métadonnées d'onboarding posées.")
     }
 
     override suspend fun deleteAccount() {
@@ -420,7 +518,7 @@ class SupabaseAuthRepository(
                 } else {
                     AuthFailureKind.UNKNOWN
                 },
-                serverMessage = error.serverMessage(),
+                serverMessage = error.messageOr(response.code),
             )
         }
         signOut()
@@ -439,6 +537,22 @@ class SupabaseAuthRepository(
         store.write(opened)
         return opened
     }
+
+    /**
+     * Ce qu'on garde d'un refus dont le corps ne dit rien.
+     *
+     * GoTrue répond parfois un corps vide, ou un JSON dont aucun des trois
+     * champs de message n'est rempli — c'est ce que rend une clé publiable
+     * refusée. Le journal affichait alors « Connexion refusée (UNKNOWN) » tout
+     * court : la **même** trace pour un mot de passe faux, une clé erronée et un
+     * projet éteint, qui n'appellent pas le même geste. Le statut les sépare, et
+     * il ne coûte rien à garder.
+     *
+     * Rien de cela n'atteint l'écran, qui traduit la catégorie et non ce champ :
+     * c'est une trace de diagnostic, pas une phrase à lire.
+     */
+    private fun GoTrueErrorDto?.messageOr(status: Int): String =
+        serverMessage() ?: "HTTP $status"
 
     private suspend fun requestToken(
         query: Map<String, String?>,
@@ -477,7 +591,7 @@ class SupabaseAuthRepository(
         }.getOrNull()
         throw AuthException(
             kind = authFailureKindOf(response.code, error),
-            serverMessage = error.serverMessage(),
+            serverMessage = error.messageOr(response.code),
         )
     }
 
@@ -516,7 +630,7 @@ class SupabaseAuthRepository(
         }.getOrNull()
         throw AuthException(
             kind = authFailureKindOf(response.code, error),
-            serverMessage = error.serverMessage(),
+            serverMessage = error.messageOr(response.code),
         )
     }
 

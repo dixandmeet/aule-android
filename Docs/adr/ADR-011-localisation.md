@@ -10,7 +10,7 @@ Où vivent les mots que l'application adresse à l'usager ?
 
 **Le modèle dit *ce qui est*, la vue dit *comment on le formule*.** Toutes les
 formulations du domaine passent par `stringResource` et `res/values/strings.xml`.
-`DomainText.kt` est le seul endroit qui relie un `FleetStatus`, un `Wait` ou un
+`DomainText.kt` est le seul endroit qui relie un `VehicleLoad`, un `Wait` ou un
 `DeparturesOutcome` à une phrase.
 
 Avant — fautif :

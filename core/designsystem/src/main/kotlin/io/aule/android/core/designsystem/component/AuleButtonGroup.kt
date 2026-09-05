@@ -3,10 +3,14 @@ package io.aule.android.core.designsystem.component
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroup
@@ -23,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -86,10 +91,33 @@ import io.aule.android.core.designsystem.token.AuleTouch
  * dont tout l'effet tient à ce que les pastilles forment **une** barre — se
  * lirait comme deux boutons de tailles différentes.
  *
+ * ## L'icône, et le libellé qui rétrécit derrière elle
+ *
+ * Un segment peut porter un **glyphe de tête**. Ce n'est pas un ornement : sur
+ * le sélecteur de modes de l'itinéraire, il porte à lui seul ce que le libellé
+ * disait — « Transports », « À pied », « Voiture » — et rend au texte la place
+ * d'afficher ce qu'on compare vraiment, la durée. Trois segments qui
+ * annonçaient « Transports / 15 min » sur deux lignes disent maintenant
+ * « 🚈 15 min » sur une, et le groupe passe de 64 à 48 points de haut.
+ *
+ * L'icône est **dimensionnée ici**, à la taille que Material donne aux glyphes
+ * de bouton. Laissée au segment appelant, elle aurait divergé du jour où un
+ * deuxième groupe en aurait voulu une.
+ *
+ * Un libellé vide n'émet **rien** — ni `Text`, ni écart. C'est le cas d'un mode
+ * dont la durée n'est pas encore revenue : le segment se réduit à son glyphe et
+ * ne réserve pas une place pour un chiffre à venir, qui ferait sauter le groupe
+ * sous le doigt au moment où il arrive.
+ *
  * @param options les choix, dans l'ordre où ils se lisent.
  * @param selected celui qui est actif ; `null` n'en allume aucun.
  * @param label le libellé d'un choix, résolu avant la construction du groupe.
+ *   Vide, le segment n'affiche que son icône.
  * @param onSelect appelé pour le choix touché — jamais pour celui déjà actif.
+ * @param icon le glyphe de tête d'un choix. `null` pour un groupe de texte seul.
+ * @param spoken ce que TalkBack annonce à la place du libellé. Obligatoire dès
+ *   que l'icône porte du sens que le texte ne redit pas : « 15 min » lu seul
+ *   n'apprend pas de quoi il est la durée.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -101,6 +129,8 @@ fun <T> AuleConnectedButtonGroup(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     colors: ToggleButtonColors = ToggleButtonDefaults.toggleButtonColors(),
+    icon: (@Composable (T) -> Unit)? = null,
+    spoken: (@Composable (T) -> String)? = null,
 ) {
     if (options.isEmpty()) return
 
@@ -113,6 +143,7 @@ fun <T> AuleConnectedButtonGroup(
     // Les libellés se résolvent **ici** : le bloc de construction du groupe
     // n'est pas une composition, `stringResource` n'y a pas cours.
     val labels = options.map { label(it) }
+    val descriptions = spoken?.let { describe -> options.map { describe(it) } }
     val interactionSources = remember(options.size) {
         List(options.size) { MutableInteractionSource() }
     }
@@ -127,6 +158,7 @@ fun <T> AuleConnectedButtonGroup(
         options.forEachIndexed { index, option ->
             val checked = option == selected
             val text = labels[index]
+            val description = descriptions?.get(index)
             val choose = {
                 // Le retour tactile est la moitié de la réponse : dans un
                 // véhicule, on sait au doigt qu'on a touché un segment avant
@@ -158,19 +190,30 @@ fun <T> AuleConnectedButtonGroup(
                             // Un choix exclusif s'annonce comme un bouton radio,
                             // pas comme un interrupteur : c'est ce qui fait dire
                             // à TalkBack « 2 sur 3 » plutôt que « activé ».
-                            .semantics { role = Role.RadioButton },
+                            .semantics {
+                                role = Role.RadioButton
+                                if (description != null) contentDescription = description
+                            },
                     ) {
-                        Text(
-                            text = text,
-                            maxLines = SEGMENT_LINES,
-                            overflow = TextOverflow.Ellipsis,
-                            textAlign = TextAlign.Center,
-                        )
+                        if (icon != null) {
+                            Box(Modifier.size(ButtonDefaults.IconSize)) { icon(option) }
+                            if (text.isNotEmpty()) {
+                                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            }
+                        }
+                        if (text.isNotEmpty()) {
+                            Text(
+                                text = text,
+                                maxLines = SEGMENT_LINES,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                            )
+                        }
                     }
                 },
                 menuContent = {
                     DropdownMenuItem(
-                        text = { Text(text) },
+                        text = { Text(description ?: text) },
                         onClick = {
                             choose()
                             it.dismiss()

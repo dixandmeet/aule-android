@@ -5,7 +5,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import io.aule.android.core.model.DeparturesOutcome
-import io.aule.android.core.model.FleetStatus
 import io.aule.android.core.model.ManeuverKind
 import io.aule.android.core.model.NextAction
 import io.aule.android.core.model.NextActionKind
@@ -62,15 +61,6 @@ internal fun rememberDayFormatter(): DateTimeFormatter {
     return remember(locale) {
         DateTimeFormatter.ofPattern("EEE d MMMM", locale)
     }
-}
-
-@Composable
-fun FleetStatus.label(): String = when (this) {
-    FleetStatus.Stale -> stringResource(R.string.fleet_stale)
-    FleetStatus.Empty -> stringResource(R.string.fleet_empty)
-    is FleetStatus.LiveOnly -> stringResource(R.string.fleet_live, count)
-    is FleetStatus.ScheduledOnly -> stringResource(R.string.fleet_scheduled, count)
-    is FleetStatus.Mixed -> stringResource(R.string.fleet_mixed, live, scheduled)
 }
 
 @Composable

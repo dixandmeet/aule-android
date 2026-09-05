@@ -44,6 +44,7 @@ class JourneyTest {
         walk: Duration? = null,
         wait: Duration? = null,
         transfers: Int? = null,
+        maneuvers: List<RoadManeuver> = emptyList(),
     ) = RouteCandidate(
         id = "c",
         coordinates = listOf(
@@ -63,6 +64,7 @@ class JourneyTest {
         walk = walk,
         wait = wait,
         transfers = transfers,
+        maneuvers = maneuvers,
     )
 
     private fun seconds(value: Double) =
@@ -208,6 +210,40 @@ class JourneyTest {
             LegMode.WALK,
             journeyFromCandidate(muet, mode = RouteMode.WALK)!!.legs.single().mode,
         )
+    }
+
+    /**
+     * Un porte-à-porte est **une** jambe : les manœuvres que le moteur a rendues
+     * sont toutes les siennes. Posées là, elles évitent au guidage le second
+     * appel réseau — c'est tout l'objet du champ.
+     */
+    @Test
+    fun `les manoeuvres du moteur se posent sur la jambe unique`() {
+        val tourner = RoadManeuver(
+            instruction = "turn",
+            location = Coordinate(latitude = 47.2184, longitude = -1.555),
+            distanceMeters = 0.0,
+            durationSeconds = 0.0,
+            streetName = "Rue Jean-Jacques Rousseau",
+            modifier = "left",
+        )
+        val giratoire = tourner.copy(instruction = "roundabout", exit = 2)
+
+        val plan = journeyFromCandidate(
+            candidate(maneuvers = listOf(tourner, giratoire)),
+            mode = RouteMode.CAR,
+        )!!
+        assertEquals(listOf(tourner, giratoire), plan.legs.single().maneuvers)
+    }
+
+    /** Un tram ne tourne pas : rien à poser, et le guidage n'ira rien chercher. */
+    @Test
+    fun `un trajet en transports n a pas de manoeuvres a porter`() {
+        val plan = journeyFromCandidate(
+            candidate(segments = troisJambes()),
+            mode = RouteMode.TRANSIT,
+        )!!
+        assertTrue(plan.legs.all { it.maneuvers.isEmpty() })
     }
 
     /**

@@ -14,7 +14,22 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.automirrored.outlined.AltRoute
+import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.CarCrash
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CheckCircleOutline
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.LocationOff
+import androidx.compose.material.icons.outlined.MedicalServices
+import androidx.compose.material.icons.outlined.MoreHoriz
+import androidx.compose.material.icons.outlined.Schedule
+import androidx.compose.material.icons.outlined.Shield
+import androidx.compose.material.icons.outlined.Traffic
+import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -38,6 +53,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.LiveRegionMode
@@ -45,7 +61,9 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardCapitalization
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleEnter
@@ -283,7 +301,6 @@ private fun ReportHeader(title: String, onClose: () -> Unit) {
  * fait lire « une phrase, une grille » puis « un intitulé, une échelle » plutôt
  * qu'une pile de cinq éléments équidistants où plus rien n'appartient à rien.
  */
-@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
 @Composable
 private fun ReportForm(
     type: DriverReportType?,
@@ -300,39 +317,58 @@ private fun ReportForm(
     Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
         // La consigne est une phrase, pas un intitulé de section : elle dit ce
         // qu'on attend du conducteur — un appui — et non le nom de ce qui
-        // suit. En `labelSmall` gris, elle avait la taille d'une mention
-        // légale et se lisait après la grille qu'elle est censée introduire.
+        // suit.
         Text(
             text = stringResource(R.string.report_hint),
             style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurfaceVariant,
         )
-        FlowRow(
-            modifier = Modifier.selectableGroup(),
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-            verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .selectableGroup(),
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
         ) {
-            DriverReportType.entries.forEach { candidate ->
-                val chosen = type == candidate
-                FilterChip(
-                    selected = chosen,
-                    onClick = {
-                        // Le retour tactile est ici la moitié de la réponse :
-                        // un conducteur qui vise une pastille sans quitter la
-                        // route des yeux sait au doigt qu'il en a touché une,
-                        // avant même de vérifier laquelle.
-                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                        onType(candidate)
-                    },
-                    label = { Text(candidate.label()) },
-                    enabled = !locked,
-                    leadingIcon = if (chosen) selectedChipIcon else null,
-                    colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = colors.primary,
-                        selectedLabelColor = colors.onPrimary,
-                        selectedLeadingIconColor = colors.onPrimary,
-                    ),
-                )
+            DriverReportType.entries.chunked(2).forEach { pair ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                ) {
+                    pair.forEach { candidate ->
+                        val chosen = type == candidate
+                        FilterChip(
+                            selected = chosen,
+                            onClick = {
+                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                onType(candidate)
+                            },
+                            label = {
+                                Text(
+                                    text = candidate.label(),
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelMediumEmphasized,
+                                )
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (chosen) Icons.Outlined.Check else candidate.icon(),
+                                    contentDescription = null,
+                                    modifier = Modifier.size(FilterChipDefaults.IconSize),
+                                )
+                            },
+                            modifier = Modifier
+                                .weight(1f)
+                                .defaultMinSize(minHeight = AuleTouch.minimum),
+                            enabled = !locked,
+                            colors = FilterChipDefaults.filterChipColors(
+                                selectedContainerColor = colors.primary,
+                                selectedLabelColor = colors.onPrimary,
+                                selectedLeadingIconColor = colors.onPrimary,
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -344,6 +380,12 @@ private fun ReportForm(
             selected = urgency,
             label = { candidate -> candidate.label() },
             onSelect = onUrgency,
+            icon = { candidate ->
+                Icon(
+                    imageVector = candidate.icon(),
+                    contentDescription = null,
+                )
+            },
             modifier = Modifier.fillMaxWidth(),
             enabled = !locked,
             colors = ToggleButtonDefaults.toggleButtonColors(
@@ -360,6 +402,13 @@ private fun ReportForm(
             .fillMaxWidth()
             .defaultMinSize(minHeight = AuleControl.field),
         enabled = !locked,
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Edit,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant,
+            )
+        },
         label = { Text(stringResource(R.string.report_message)) },
         keyboardOptions = KeyboardOptions(
             capitalization = KeyboardCapitalization.Sentences,
@@ -539,26 +588,6 @@ private fun ReportActionBar(
     }
 }
 
-/**
- * La coche du chip retenu.
- *
- * Elle comptait double quand le chip sélectionné n'était qu'une pastille
- * teintée à 12 % : un daltonien deutan ne voyait alors aucune différence entre
- * « Circulation » et « Accident ». L'aplat de marque plein a réglé ce
- * cas-là — teal profond sous encre claire, personne ne le rate.
- *
- * Elle reste pourtant, et pour un autre moment : pendant l'envoi, la grille se
- * fige et Material éteint l'aplat retenu comme tous les autres. Ne subsiste
- * alors que la coche — un signe de **forme**, qui survit au gris — pour dire ce
- * qui part.
- */
-private val selectedChipIcon: @Composable () -> Unit = {
-    Icon(
-        imageVector = AuleGlyph.CHECK.asImageVector(),
-        contentDescription = null,
-        modifier = Modifier.size(FilterChipDefaults.IconSize),
-    )
-}
 
 /**
  * La coche de confirmation.
@@ -586,6 +615,19 @@ private fun DriverReportType.label(): String = stringResource(
     },
 )
 
+private fun DriverReportType.icon(): ImageVector = when (this) {
+    DriverReportType.TRAFFIC -> Icons.Outlined.Traffic
+    DriverReportType.DELAY -> Icons.Outlined.Schedule
+    DriverReportType.DETOUR -> Icons.AutoMirrored.Outlined.AltRoute
+    DriverReportType.CROWDED -> Icons.Outlined.Group
+    DriverReportType.STOP_SKIPPED -> Icons.Outlined.LocationOff
+    DriverReportType.BREAKDOWN -> Icons.Outlined.Build
+    DriverReportType.ACCIDENT -> Icons.Outlined.CarCrash
+    DriverReportType.PASSENGER_ILLNESS -> Icons.Outlined.MedicalServices
+    DriverReportType.INCIVILITY -> Icons.Outlined.Shield
+    DriverReportType.OTHER -> Icons.Outlined.MoreHoriz
+}
+
 @Composable
 private fun DriverReportUrgency.label(): String = stringResource(
     when (this) {
@@ -594,6 +636,12 @@ private fun DriverReportUrgency.label(): String = stringResource(
         DriverReportUrgency.HIGH -> R.string.report_urgency_high
     },
 )
+
+private fun DriverReportUrgency.icon(): ImageVector = when (this) {
+    DriverReportUrgency.LOW -> Icons.Outlined.Info
+    DriverReportUrgency.MEDIUM -> Icons.Outlined.CheckCircleOutline
+    DriverReportUrgency.HIGH -> Icons.Outlined.WarningAmber
+}
 
 @Composable
 private fun DriverReportFailureKind.label(): String = stringResource(

@@ -115,6 +115,7 @@ internal fun StopDetailSheet(
     dispatchers: AuleDispatchers,
     onRoute: () -> Unit,
     onSelectLine: (DepartureRow) -> Unit,
+    onSelectServingLine: (ServingLine) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val model = remember(stop.id) { StopDetailModel(repository, dispatchers) }
@@ -153,7 +154,7 @@ internal fun StopDetailSheet(
         }
 
         if (model.servingLines.isNotEmpty()) {
-            ServingSection(model.servingLines)
+            ServingSection(model.servingLines, onSelectServingLine)
         }
     }
 }
@@ -523,9 +524,15 @@ private fun NextWaitPlate(wait: String) {
  * desservie une demi-seconde après le dernier passage — un retard qu'on
  * regarderait au lieu de le sentir. C'est le traitement qu'ont déjà les arrêts
  * et les véhicules d'« Autour de vous ».
+ *
+ * Chaque ligne ouvre la même fiche horaire que les passages annoncés : elle
+ * n'a aucun passage pour la guider — c'est justement pour ça qu'on vient la
+ * chercher ici plutôt que dans le tableau — mais une direction suffit pour
+ * demander la grille d'un autre jour.
  */
 @Composable
-private fun ServingSection(lines: List<ServingLine>) {
+private fun ServingSection(lines: List<ServingLine>, onSelect: (ServingLine) -> Unit) {
+    val hint = stringResource(R.string.stop_line_hint)
     Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm)) {
         SheetSectionLabel(stringResource(R.string.stop_serving_lines))
         SheetCard(modifier = Modifier.fillMaxWidth()) {
@@ -534,8 +541,10 @@ private fun ServingSection(lines: List<ServingLine>) {
                     modifier = Modifier
                         .defaultMinSize(minHeight = AuleTouch.minimum)
                         .auleEnter(index = index)
+                        .clickable(onClick = { onSelect(line) })
                         .semantics(mergeDescendants = true) {
                             contentDescription = "${line.line}, ${line.direction}"
+                            onClick(label = hint, action = null)
                         },
                     leadingContent = {
                         LineBadge(

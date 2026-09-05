@@ -81,4 +81,30 @@ enum class AuthPkceFlow {
 
     /** Lien « mot de passe oublié » : n'ouvre que le choix d'un nouveau mot de passe. */
     RECOVERY,
+
+    /**
+     * Retour d'un fournisseur externe pour une **inscription** : ouvre
+     * l'application, comme [SIGN_UP], mais pose d'abord les métadonnées
+     * d'onboarding.
+     *
+     * C'est ce qui le distingue : `/authorize` ne transporte pas de `data`. Le
+     * métier, le réseau, le matricule — tout ce que les quatre premières étapes
+     * ont collecté — n'atteignent donc le compte qu'après coup, sur la session
+     * ouverte. Sans cette pose, le back-office recevrait un compte sans demande
+     * d'habilitation : quelqu'un qui a rempli l'inscription en entier, et que
+     * personne ne peut valider parce que rien ne dit ce qu'il a demandé.
+     */
+    OAUTH_SIGN_UP,
+}
+
+/**
+ * Les fournisseurs d'identité acceptés par GoTrue pour Aule Pro.
+ *
+ * [key] est le `provider` de `/authorize` — la valeur exacte attendue par
+ * Supabase, pas un libellé. Un fournisseur n'entre ici qu'une fois **activé
+ * côté projet Supabase** : sans identifiant client déposé au tableau de bord,
+ * `/authorize` répond 400 et l'écran n'a rien d'intelligent à en dire.
+ */
+enum class OAuthProvider(val key: String) {
+    GOOGLE("google"),
 }

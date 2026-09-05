@@ -214,13 +214,23 @@ class HandoverProgressEngine(
         val path = trip.path ?: return null
         if (path.points.size < 2) return null
         val last = lastProgress
-        val match = PolylineProjection.project(
-            position = position,
-            onto = path.points,
-            currentT = last,
-            backWindow = HANDOVER_BACKWARD_TOLERANCE,
-            forwardWindow = HANDOVER_FORWARD_WINDOW,
-        ) ?: return null
+        // Le Guet garde ses fenêtres **en fraction**, et passe donc par
+        // `projectWithin` plutôt que par `project`, dont les bornes sont
+        // devenues des mètres pour le guidage routier. Ce n'est pas le même
+        // problème : ici on suit une course entière sur son tracé de ligne, où
+        // 18 % d'avance admise servent à franchir les boucles et les branches
+        // d'un parcours de plusieurs kilomètres. Un réglage en mètres y
+        // demanderait sa propre campagne.
+        val match = if (last == null) {
+            PolylineProjection.project(position = position, onto = path.points)
+        } else {
+            PolylineProjection.projectWithin(
+                position = position,
+                onto = path.points,
+                minT = (last - HANDOVER_BACKWARD_TOLERANCE).coerceAtLeast(0.0),
+                maxT = (last + HANDOVER_FORWARD_WINDOW).coerceAtMost(1.0),
+            )
+        } ?: return null
 
         if (match.deviationMeters > HANDOVER_OFF_PATH_METERS) {
             offPathStrikes++

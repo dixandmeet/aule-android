@@ -59,6 +59,8 @@ import io.aule.android.feature.auth.ProfileScreen
 import io.aule.android.feature.auth.RegistrationScreen
 import io.aule.android.feature.auth.RegistrationViewModel
 import io.aule.android.feature.auth.UpdatePasswordScreen
+import io.aule.android.feature.hub.HubScreen
+import io.aule.android.feature.hub.HubViewModel
 import io.aule.android.feature.map.departureAlertBody
 import io.aule.android.feature.map.departureAlertTitle
 import io.aule.android.feature.map.EndServiceHost
@@ -74,6 +76,7 @@ import io.aule.android.feature.map.MapScreen
 import io.aule.android.feature.map.MapViewModel
 import io.aule.android.feature.map.PriseServiceScreen
 import io.aule.android.feature.map.PriseServiceViewModel
+import io.aule.android.feature.map.ServiceNotesViewModel
 import io.aule.android.feature.map.ServiceViewModel
 import io.aule.android.feature.map.WelcomeHost
 
@@ -333,11 +336,27 @@ fun AuleRoot(
                             auth = graph.auth,
                             services = graph.services,
                             logger = graph.logger,
+                            speedLimits = graph.speedLimits,
                         )
                     }
                 },
             )
             val serviceState by serviceViewModel.state.collectAsStateWithLifecycle()
+            // Les notes du réseau. Un modèle à part du service : une note dure un
+            // mois, un service une journée, et les deux ne se relisent pas au même
+            // rythme — voir [ServiceNotesViewModel].
+            val serviceNotesViewModel: ServiceNotesViewModel = viewModel(
+                factory = viewModelFactory {
+                    initializer {
+                        ServiceNotesViewModel(
+                            auth = graph.auth,
+                            notes = graph.serviceNotes,
+                            logger = graph.logger,
+                        )
+                    }
+                },
+            )
+            val serviceNotesState by serviceNotesViewModel.state.collectAsStateWithLifecycle()
             val lifecycleOwner = LocalLifecycleOwner.current
             val lifecycleState by lifecycleOwner.lifecycle.currentStateAsState()
             LaunchedEffect(lifecycleState) {
@@ -352,6 +371,7 @@ fun AuleRoot(
             var showingMenu by rememberSaveable { mutableStateOf(false) }
             var showingProfile by rememberSaveable { mutableStateOf(false) }
             var showingGuet by rememberSaveable { mutableStateOf(false) }
+            var showingHub by rememberSaveable { mutableStateOf(false) }
             var showingPrise by rememberSaveable { mutableStateOf(false) }
             var priseNonce by rememberSaveable { mutableIntStateOf(0) }
             var showingHandover by rememberSaveable { mutableStateOf(false) }
@@ -420,16 +440,25 @@ fun AuleRoot(
                             showingMenu = false
                             showingGuet = true
                         },
+                        onOpenHub = {
+                            showingMenu = false
+                            showingHub = true
+                        },
                     )
                 },
                 showingMenu = showingMenu,
                 onDismissMenu = { showingMenu = false },
                 onStartService = { showingPrise = true },
+                onOpenHub = { showingHub = true },
                 serviceActive = serviceState.active != null,
                 onOpenActiveService = { showingEnd = true },
                 onOpenHandover = { showingHandover = true },
                 serviceLiveHandover = serviceState.liveHandover,
                 serviceNotice = serviceState.notice,
+                // Le panneau réglementaire vient du service et non de la carte : c'est
+                // lui qui sait quelle ligne est sous les roues, et sans cette garde on
+                // afficherait une limitation de tramway à qui longe la voie en voiture.
+                speedLimitKmh = serviceState.speedLimitKmh,
                 onDismissServiceNotice = serviceViewModel::clearNotice,
                 handoverFix = handoverFix,
                 handoverStop = handoverStop,
@@ -474,6 +503,11 @@ fun AuleRoot(
                         }
                     },
                 )
+                // Lues à l'ouverture de la prise de service, et seulement là :
+                // c'est ici que passe un conducteur, et lui seul. Elles ne se
+                // relisent pas d'une ouverture à l'autre — voir le quart d'heure
+                // de fraîcheur de [ServiceNotesViewModel].
+                LaunchedEffect(Unit) { serviceNotesViewModel.load() }
                 PriseServiceScreen(
                     viewModel = priseViewModel,
                     location = graph.location,
@@ -486,6 +520,7 @@ fun AuleRoot(
                         showingPrise = false
                         priseNonce += 1
                     },
+                    notes = serviceNotesState,
                 )
             } else if (showingHandover && overlaySession != null) {
                 val context = LocalContext.current
@@ -585,6 +620,37 @@ fun AuleRoot(
                             serviceViewModel.clearEndFailure()
                         }
                     },
+                )
+            } else if (showingHub) {
+                // ⚠️ Le ViewModel se construit **ici**, pas dans le graphe : il
+                // tient un poller et une file, et sa durée de vie est celle de
+                // l'écran — comme les autres.
+                val hubViewModel: HubViewModel = viewModel(
+                    factory = viewModelFactory {
+                        initializer {
+                            HubViewModel(
+                                auth = graph.auth,
+                                hub = graph.hub,
+                                outbox = graph.hubOutbox,
+                                logger = graph.logger,
+                            )
+                        }
+                    },
+                )
+                // La cadence double en arrière-plan : un téléphone en poche n'a
+                // pas d'écran à rafraîchir. Même mécanique que le heartbeat.
+                LaunchedEffect(lifecycleState) {
+                    val plan = lifecycleState.isAtLeast(Lifecycle.State.STARTED)
+                    hubViewModel.setInBackground(!plan)
+                    if (plan) hubViewModel.resumed()
+                }
+                HubScreen(
+                    viewModel = hubViewModel,
+                    // Le nom de la fiche conducteur, jamais l'e-mail : une bulle signée
+                    // d'une adresse contournerait la doctrine que la base tient
+                    // par ailleurs.
+                    senderLabel = authState.profile?.displayName().orEmpty(),
+                    onClose = { showingHub = false },
                 )
             } else if (showingGuet) {
                 GuetSettingsHost(

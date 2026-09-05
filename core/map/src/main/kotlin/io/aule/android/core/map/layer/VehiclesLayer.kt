@@ -16,6 +16,8 @@ import io.aule.android.core.map.MapAmbiance
 import io.aule.android.core.map.MapIcons
 import io.aule.android.core.map.MapInteractiveLayer
 import io.aule.android.core.map.MapZoom
+import io.aule.android.core.map3d.VehicleScene
+import io.aule.android.core.map3d.WebMercator
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
@@ -65,6 +67,14 @@ import org.maplibre.geojson.Polygon
  */
 class VehiclesLayer(
     private val onSelect: (TransportVehicle) -> Unit,
+    /**
+     * La scène 3D, si l'appareil a pu la monter.
+     *
+     * `null` — ou en échec — laisse **tout** le monde sur le volume extrudé,
+     * c'est-à-dire exactement l'écran d'avant. Le repli n'est pas un mode
+     * dégradé qu'on ajoute : c'est le chemin qui existait, qu'on n'enlève pas.
+     */
+    private val scene: VehicleScene? = null,
 ) : MapInteractiveLayer {
 
     override val id: String = ID
@@ -122,6 +132,25 @@ class VehiclesLayer(
      * effacer de plus.
      */
     private var bodiesPublished = false
+
+    /**
+     * L'ambiance en cours, pour teinter les instances 3D.
+     *
+     * L'extrusion, elle, porte sa couleur dans une `Expression` que MapLibre
+     * réévalue ; la scène reçoit une couleur déjà résolue et doit donc savoir.
+     */
+    private var night = false
+
+    /**
+     * Ce que le rendu natif a répondu à la dernière image.
+     *
+     * ⚠️ **Il se lit à chaque image, pas une fois au montage.** `initialize`
+     * échoue sur le thread de rendu, longtemps après le montage ; un drapeau lu
+     * une seule fois laisserait la couche croire la 3D disponible, cesser de
+     * publier les volumes, et la flotte deviendrait **invisible** sans que rien
+     * ne le dise.
+     */
+    private var sceneStatus = VehicleScene.SceneStatus.NEEDS_INIT
 
     data class Pose(val coordinate: Coordinate, val heading: Double)
 
@@ -293,6 +322,18 @@ class VehiclesLayer(
         val zoom = map?.cameraPosition?.zoom ?: 0.0
         val volumes = zoom >= MapZoom.VEHICLE_BODIES_FROM - BODY_FADE
 
+        // L'ancre de la scène 3D : le centre de la caméra. Les poses sont des
+        // mètres relatifs à ce point, ce qui garde les grands nombres hors du
+        // `float` — voir `WebMercator` et `vehicle_layer.cpp`.
+        val anchor = map?.cameraPosition?.target
+        val anchorMercX = anchor?.let { WebMercator.x(it.longitude) } ?: 0.0
+        val anchorMercY = anchor?.let { WebMercator.y(it.latitude) } ?: 0.0
+        val anchorLat = anchor?.latitude ?: 0.0
+        // La 3D ne prend la main que si le rendu natif a dit qu'il était prêt.
+        val models = scene != null && anchor != null && volumes && sceneStatus.isReady
+        val fade = VehicleBody.bodyFade(zoom, BODY_FADE, MapZoom.VEHICLE_BODIES_FROM)
+        var poses = 0
+
         featureBuffer.clear()
         bodyBuffer.clear()
         for (vehicle in snapshot.vehicles) {
@@ -319,13 +360,109 @@ class VehiclesLayer(
             // l'écran couvre quelques centaines de mètres et n'en montre
             // qu'une poignée. Le véhicule choisi passe toujours — c'est celui
             // qu'on regarde.
-            if (volumes && (bodyBuffer.size < MAX_BODIES || isSelected)) {
+            if (!volumes) continue
+            val mesh = if (models) meshIndex(vehicle.mode) else null
+            if (mesh != null && (poses < VehicleScene.MAX_POSES || isSelected)) {
+                if (poses < VehicleScene.MAX_POSES) {
+                    writePose(poses++, vehicle, pose, zoom, isSelected, fade,
+                        anchorMercX, anchorMercY, anchorLat, mesh)
+                }
+            } else if (bodyBuffer.size < MAX_BODIES || isSelected) {
+                // Le navibus n'a pas de modèle dans le pack, et le repli non plus :
+                // les deux passent par l'extrusion, qui reste donc **empruntée à
+                // chaque session**. Un chemin de secours jamais parcouru est un
+                // chemin cassé qu'on ignore.
                 bodyBuffer += body(vehicle, pose, zoom, props)
             }
         }
         source.setGeoJson(FeatureCollection.fromFeatures(featureBuffer))
         publishBodies()
         publishSelection()
+
+        // Publier même à zéro : sans cela, la dernière flotte resterait peinte
+        // après un dézoom sous le seuil.
+        scene?.let {
+            sceneStatus = it.commit(poses, anchorMercX, anchorMercY, anchorLat)
+        }
+    }
+
+    /**
+     * La teinte de carrosserie d'un modèle, ambiance et origine comprises.
+     *
+     * ⚠️ **Elle ne vient pas de `markerColor`, à la différence de l'extrusion.**
+     * Un aplat plat peut être sombre sans rien perdre ; un modèle ne se lit que
+     * par le contraste entre sa caisse et ses vitres, presque noires. Peint du
+     * teal sombre de la pastille tram, il devient un bloc uniforme où ni baie ni
+     * jupe n'apparaît — tout le détail qu'on est allé chercher disparaît. Voir
+     * [VehicleScene.bodyColor].
+     *
+     * Le théorique reste mêlé à la surface, comme sur l'extrusion : c'est le même
+     * retrait, dit de la même façon.
+     */
+    private fun bodyPaint(mesh: Int, isLive: Boolean): AuleRgba {
+        var paint = AuleRgba(VehicleScene.bodyColor(mesh))
+        if (night) {
+            paint = paint.scaledBy(AuleRgba(VehicleScene.NIGHT_TINT))
+        }
+        return if (isLive) paint else paint.mixedWith(AuleTokens.of(night).surfaceSolid, GHOST_MIX)
+    }
+
+    /** Multiplication composante à composante — le geste du web pour la nuit. */
+    private fun AuleRgba.scaledBy(other: AuleRgba): AuleRgba = AuleRgba(
+        red = red * other.red,
+        green = green * other.green,
+        blue = blue * other.blue,
+        alpha = alpha,
+    )
+
+    /** Le maillage d'un mode, ou `null` s'il n'en a pas — le navibus. */
+    private fun meshIndex(mode: TransportMode): Int? = when (mode) {
+        TransportMode.BUS -> MESH_BUS
+        TransportMode.TRAM -> MESH_TRAM
+        TransportMode.BOAT -> null
+    }
+
+    /**
+     * Écrit une instance dans le tampon natif, sans rien allouer.
+     *
+     * Écritures absolues plutôt que séquentielles : la position du tampon n'est
+     * jamais touchée, donc deux images ne peuvent pas se marcher dessus, et il
+     * n'y a rien à remettre à zéro entre elles.
+     */
+    private fun writePose(
+        at: Int,
+        vehicle: TransportVehicle,
+        pose: Pose,
+        zoom: Double,
+        isSelected: Boolean,
+        fade: Double,
+        anchorMercX: Double,
+        anchorMercY: Double,
+        anchorLat: Double,
+        mesh: Int,
+    ) {
+        val staging = scene?.staging ?: return
+        val base = at * VehicleScene.POSE_BYTES
+
+        val east = WebMercator.eastOffsetMeters(pose.coordinate.longitude, anchorMercX, anchorLat)
+        val north = WebMercator.northOffsetMeters(pose.coordinate.latitude, anchorMercY, anchorLat)
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom).toFloat()
+
+        val paint = bodyPaint(mesh, vehicle.isLive)
+        val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade
+
+        staging.putFloat(base, east.toFloat())
+        staging.putFloat(base + 4, north.toFloat())
+        // Le natif attend des radians ; le cap du domaine est en degrés.
+        staging.putFloat(base + 8, Math.toRadians(pose.heading).toFloat())
+        staging.putFloat(base + 12, scale)
+        staging.putFloat(base + 16, scale)
+        staging.putFloat(base + 20, scale)
+        staging.putFloat(base + 24, paint.red.toFloat())
+        staging.putFloat(base + 28, paint.green.toFloat())
+        staging.putFloat(base + 32, paint.blue.toFloat())
+        staging.putFloat(base + 36, opacity.toFloat())
+        staging.putInt(base + 40, mesh)
     }
 
     /**
@@ -573,6 +710,9 @@ class VehiclesLayer(
 
     override fun onAmbianceChange(ambiance: MapAmbiance, style: Style) {
         val night = ambiance == MapAmbiance.DARK
+        // La scène 3D reçoit une couleur déjà résolue : elle n'a pas
+        // d'`Expression` à réévaluer, donc il faut la lui redire.
+        this.night = night
         val tokens = AuleTokens.of(night)
         (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
             PropertyFactory.circleStrokeColor(tokens.surfaceSolid.argb),
@@ -756,6 +896,10 @@ class VehiclesLayer(
          * Une garde contre un sondage anormalement dense, pas un cadrage : au
          * seuil des volumes, l'écran ne montre qu'une poignée de véhicules.
          */
+        /** L'ordre des maillages installés dans la scène native. */
+        const val MESH_BUS = VehicleScene.MESH_BUS
+        const val MESH_TRAM = VehicleScene.MESH_TRAM
+
         const val MAX_BODIES = 48
 
         const val PROPERTY_ALIGNMENT_MAP = "map"

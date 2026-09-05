@@ -8,6 +8,7 @@ import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AuthUser
 import io.aule.android.core.model.HandoverStatus
 import io.aule.android.core.model.HandoverSummary
+import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.PositionPublishRequest
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ServiceHeartbeat
@@ -149,6 +150,7 @@ class ServiceViewModelTest {
         override suspend fun signUpProfessional(draft: ProRegistrationDraft, password: String) =
             error("unused")
         override suspend fun resendSignupConfirmation(email: String) = error("unused")
+        override suspend fun beginOAuthSignUp(provider: OAuthProvider) = error("unused")
         override suspend fun sendPasswordRecovery(email: String) = error("unused")
         override suspend fun updatePassword(newPassword: String) = error("unused")
         override suspend fun pendingAuthFlow() = null
@@ -168,6 +170,7 @@ class ServiceViewModelTest {
             session: AuthSession,
             lineId: String,
             directionId: Int,
+        expectedTerminus: String,
         ) = error("unused")
 
         override suspend fun nearestActiveTrip(

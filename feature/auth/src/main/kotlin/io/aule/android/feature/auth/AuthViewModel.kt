@@ -304,7 +304,7 @@ class AuthViewModel(
                 )
                 loadAccount(session)
             } catch (failure: AuthException) {
-                logger.info(LogDomain.AUTH, "Connexion refusée (${failure.kind}).")
+                logger.info(LogDomain.AUTH, "Connexion refusée (${failure.kind}).${failure.detail()}")
                 _state.value = _state.value.copy(
                     isSubmitting = false,
                     isSignedIn = false,
@@ -516,7 +516,7 @@ class AuthViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: AuthException) {
-                logger.info(LogDomain.AUTH, "Lien de récupération refusé (${failure.kind}).")
+                logger.info(LogDomain.AUTH, "Lien de récupération refusé (${failure.kind}).${failure.detail()}")
                 _state.value = _state.value.copy(isSubmitting = false, failure = failure.kind)
             } catch (failure: Throwable) {
                 logger.warn(LogDomain.AUTH, "Lien de récupération en échec.", failure)
@@ -551,7 +551,7 @@ class AuthViewModel(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: AuthException) {
-                logger.info(LogDomain.AUTH, "Mot de passe refusé (${failure.kind}).")
+                logger.info(LogDomain.AUTH, "Mot de passe refusé (${failure.kind}).${failure.detail()}")
                 _state.value = _state.value.copy(isSubmitting = false, failure = failure.kind)
                 return@launch
             } catch (failure: Throwable) {
@@ -639,7 +639,7 @@ class AuthViewModel(
                 )
                 loadAccount(session)
             } catch (failure: AuthException) {
-                logger.info(LogDomain.AUTH, "Confirmation refusée (${failure.kind}).")
+                logger.info(LogDomain.AUTH, "Confirmation refusée (${failure.kind}).${failure.detail()}")
                 _state.value = AuthUiState(
                     isReady = true,
                     isSignedIn = false,
@@ -853,3 +853,18 @@ class AuthViewModel(
         }
     }
 }
+
+/**
+ * Ce que le serveur a répondu, quand il a dit autre chose que sa catégorie.
+ *
+ * `UNKNOWN` est la case de ce qu'on n'a pas su ranger — donc exactement celle
+ * où s'arrêter au nom de la catégorie n'apprend rien. « Connexion refusée
+ * (UNKNOWN) » ne dit ni ce que GoTrue a répondu, ni s'il a seulement répondu :
+ * une clé publiable erronée, un projet éteint et un mot de passe faux mènent au
+ * même mot dans le journal, et à trois gestes différents.
+ *
+ * Le message du serveur ne porte aucun secret : le mot de passe ne fait que
+ * l'aller, et un refus ne rend pas de jeton.
+ */
+private fun AuthException.detail(): String =
+    serverMessage?.takeIf { it.isNotBlank() }?.let { " — $it" }.orEmpty()

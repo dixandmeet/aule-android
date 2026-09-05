@@ -137,19 +137,19 @@ fun AccountAvatarButton(
     val label = stringResource(R.string.menu_open)
     Surface(
         onClick = onClick,
-        // Dessiné au cran de la pastille, touché au plancher : Material
-        // agrandit lui-même la cible autour d'une surface cliquable, et c'est
-        // ce qui permet à l'avatar d'être **plus petit que le doigt** sans rien
-        // lui coûter. Il tient ainsi la moitié de la hauteur de la carte du
-        // socle — la proportion d'iOS — là où, à la taille de sa cible, il la
-        // remplissait d'un bord à l'autre et pesait plus lourd que le champ
-        // qu'il accompagne.
+        // Dessiné à [AuleChrome.socleControl] — la mesure du champ qu'il
+        // accompagne, pas celle d'une pastille. C'est désormais le plancher
+        // tactile lui-même : il l'a longtemps tenu trente points, dessiné plus
+        // petit que sa cible, parce que la carte du socle n'avait pas la
+        // hauteur de l'y loger. Elle l'a maintenant, et l'avatar tient un peu
+        // plus de la moitié de sa hauteur — la proportion d'iOS, à qui cette
+        // rangée est empruntée.
         //
         // Le portrait qu'elle porte donne la couleur et la photo ; cette
         // surface-ci ne donne que le geste, et se tait — deux aplats
         // superposés, c'en est un de trop.
         modifier = modifier
-            .size(AuleChrome.pill)
+            .size(AuleChrome.socleControl)
             // Fusionnée : sans photo, le portrait écrit deux initiales, et
             // TalkBack les annonçait comme un arrêt de plus après le bouton.
             .semantics(mergeDescendants = true) { contentDescription = label },
@@ -159,7 +159,7 @@ fun AccountAvatarButton(
         AvatarPortrait(
             name = name,
             bytes = state.avatarBytes,
-            size = AuleChrome.pill,
+            size = AuleChrome.socleControl,
             shape = CircleShape,
             container = MaterialTheme.colorScheme.primary,
             onContainer = MaterialTheme.colorScheme.onPrimary,
@@ -178,6 +178,12 @@ fun AccountMenuSheet(
      * qu'un écran garde `:feature:auth` ignorant de la carte.
      */
     onOpenGuet: () -> Unit,
+    /**
+     * La messagerie. Elle vit dans `:feature:hub` ; le menu ne fait que la
+     * désigner, pour la raison du Guet : lui passer un rappel plutôt qu'un écran
+     * garde `:feature:auth` ignorant du reste de l'application.
+     */
+    onOpenHub: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -244,14 +250,23 @@ fun AccountMenuSheet(
                 onClick = onOpenProfile,
                 modifier = Modifier.auleEnter(index = 2),
             )
+            // La messagerie passe avant les réglages du Guet : on l'ouvre
+            // plusieurs fois par service, l'autre une fois par mois.
+            DestinationCard(
+                title = stringResource(R.string.menu_hub),
+                description = stringResource(R.string.menu_hub_desc),
+                glyph = AuleGlyph.MAIL,
+                onClick = onOpenHub,
+                modifier = Modifier
+                    .padding(top = AuleSpacing.md)
+                    .auleEnter(index = 3),
+            )
             DestinationCard(
                 title = stringResource(R.string.menu_guet),
                 description = stringResource(R.string.menu_guet_desc),
                 glyph = AuleGlyph.HEADING,
                 onClick = onOpenGuet,
-                modifier = Modifier
-                    .padding(top = AuleSpacing.md)
-                    .auleEnter(index = 3),
+                modifier = Modifier.auleEnter(index = 4),
             )
         }
 

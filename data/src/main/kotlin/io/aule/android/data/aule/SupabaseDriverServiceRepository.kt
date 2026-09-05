@@ -37,6 +37,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.CancellationException
+import io.aule.android.core.common.log.AuleLogger
+import io.aule.android.core.common.log.LogDomain
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -55,6 +57,8 @@ class SupabaseDriverServiceRepository(
     private val publishableKey: String,
     private val json: Json = AuleHttpClient.defaultJson,
     private val now: () -> Instant = Instant::now,
+    /** Optionnel : un test qui ne s'intéresse pas au journal n'en fabrique pas. */
+    private val logger: AuleLogger? = null,
 ) : DriverServiceRepository {
 
     private val restBase: String
@@ -87,54 +91,34 @@ class SupabaseDriverServiceRepository(
         }
     }
 
+    /** Le parcours de référence : le premier de [fetchJourneyProfiles]. */
     override suspend fun fetchJourney(
         session: AuthSession,
         lineId: String,
         directionId: Int,
-    ): LineJourney {
+        expectedTerminus: String,
+    ): LineJourney = fetchJourneyProfiles(session, lineId, directionId, expectedTerminus).first()
+
+    override suspend fun fetchJourneyProfiles(
+        session: AuthSession,
+        lineId: String,
+        directionId: Int,
+        expectedTerminus: String,
+    ): List<LineJourney> {
         if (!configured) throw DriverServiceException(DriverServiceFailureKind.NOT_CONFIGURED)
         val routeId = lineId.trim()
         if (routeId.isEmpty()) throw DriverServiceException(DriverServiceFailureKind.UNKNOWN)
         return try {
-            val trips = decodeList(
-                client.getRaw(
-                    url = "$restBase/gtfs_trips",
-                    headers = restHeaders(session),
-                    query = mapOf(
-                        "select" to "trip_id,shape_id,direction_id",
-                        "route_id" to "eq.$routeId",
-                        "direction_id" to "eq.$directionId",
-                        "limit" to "40",
-                    ),
-                ),
-                GtfsTripDto.serializer(),
-            )
-            if (trips.isEmpty()) throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
-            val tripFilter = trips.joinToString(",") { "\"${it.tripId}\"" }
-            val times = decodeList(
-                client.getRaw(
-                    url = "$restBase/gtfs_stop_times",
-                    headers = restHeaders(session),
-                    query = mapOf(
-                        "select" to "trip_id,stop_sequence,gtfs_stops(stop_id,stop_name,geom)",
-                        "trip_id" to "in.($tripFilter)",
-                        "order" to "stop_sequence",
-                        "limit" to "5000",
-                    ),
-                ),
-                GtfsStopTimeDto.serializer(),
-            )
-            val byTrip = times.groupBy { it.tripId }
-            val trip = trips
-                .filter { (byTrip[it.tripId]?.size ?: 0) >= 2 }
-                .maxByOrNull { byTrip[it.tripId]?.size ?: 0 }
-                ?: throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
-            val stops = byTrip[trip.tripId]
-                .orEmpty()
-                .sortedBy { it.stopSequence }
-                .mapNotNull { it.stop?.toDomain() }
-            if (stops.size < 2) throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
-            LineJourney(tripId = trip.tripId, stops = stops)
+            val profiles = fetchDirectProfiles(session, routeId, directionId, expectedTerminus)
+            // ⚠️ **Le relais ne s'assemble qu'au parcours de référence.**
+            //
+            // Le montage 1 + 1B recolle deux routes GTFS scindées par des
+            // travaux ; croiser leurs branches donnerait six combinaisons dont
+            // la plupart ne circulent pas. Les autres parcours de la 1 restent
+            // proposés tels quels — ce sont ses branches, et elles se choisissent
+            // sur la partie que le relais ne touche pas.
+            val merged = mergeRelayJourneyIfApplicable(session, routeId, directionId, profiles.first())
+            listOf(merged) + profiles.drop(1)
         } catch (failure: DriverServiceException) {
             throw failure
         } catch (cancelled: CancellationException) {
@@ -146,6 +130,278 @@ class SupabaseDriverServiceRepository(
         } catch (_: Throwable) {
             throw DriverServiceException(DriverServiceFailureKind.UNKNOWN)
         }
+    }
+
+    /**
+     * Tous les parcours d'un sens, **le référence en tête**.
+     *
+     * Voir le choix du parcours de référence plus bas : c'est lui qui décide de
+     * ce que la fiche affiche sans qu'on demande rien. Les autres suivent par
+     * longueur croissante, ce qui met les branches voisines côte à côte et
+     * relègue les détours au bout — l'ordre dans lequel un menu se lit.
+     */
+    private suspend fun fetchDirectProfiles(
+        session: AuthSession,
+        routeId: String,
+        directionId: Int,
+        expectedTerminus: String = "",
+    ): List<LineJourney> {
+        val trips = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_trips",
+                headers = restHeaders(session),
+                query = mapOf(
+                    "select" to "trip_id,shape_id,direction_id",
+                    "route_id" to "eq.$routeId",
+                    "direction_id" to "eq.$directionId",
+                    // ⚠️ **Un ordre explicite, et ce n'est pas cosmétique.**
+                    // PostgREST n'en garantit aucun sans lui : c'est celui que le
+                    // planificateur choisit, et il peut changer d'un jour à
+                    // l'autre. Tout le soin pris plus bas à départager les
+                    // égalités « pour que deux lancements peignent la même
+                    // carte » ne sert à rien si l'échantillon d'entrée, lui,
+                    // varie.
+                    "order" to "trip_id",
+                    "limit" to "$TRIP_WINDOW",
+                ),
+            ),
+            GtfsTripDto.serializer(),
+        )
+        if (trips.isEmpty()) throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
+        val distinctShapes = trips.distinctBy { it.shapeId ?: it.tripId }
+        val candidates = distinctShapes.take(MAX_PROFILES)
+        val tripFilter = candidates.joinToString(",") { "\"${it.tripId}\"" }
+        val times = decodeList(
+            client.getRaw(
+                url = "$restBase/gtfs_stop_times",
+                headers = restHeaders(session),
+                query = mapOf(
+                    "select" to "trip_id,stop_sequence,gtfs_stops(stop_id,stop_name,geom)",
+                    "trip_id" to "in.($tripFilter)",
+                    "order" to "trip_id,stop_sequence",
+                    "limit" to "5000",
+                ),
+            ),
+            GtfsStopTimeDto.serializer(),
+        )
+        val byTrip = times.groupBy { it.tripId }
+        val served = candidates
+            .map { candidate -> candidate to byTrip[candidate.tripId].orEmpty().sortedBy { it.stopSequence } }
+            .filter { (_, sequence) -> sequence.size >= 2 }
+
+        // ## Le parcours de référence est le plus **court** entre les deux mêmes bouts
+        //
+        // ⚠️ Une ligne n'a pas un parcours par sens : la C1 en publie douze. Ils
+        // relient tous Gare de Chantenay à Haluchère, et ne diffèrent que par ce
+        // qu'ils traversent — 30 arrêts pour le service courant, 37 et 39 pour
+        // des courses qui ajoutent un crochet par Procé.
+        //
+        // On retenait le plus fourni. C'est exactement l'inverse de ce qu'il
+        // fallait : entre deux mêmes terminus, **des arrêts en plus sont un
+        // détour**, jamais le trajet ordinaire. La carte peignait donc neuf
+        // arrêts que la C1 ne dessert pas, très loin de son tracé — signalé à
+        // l'écran, et c'est ce qui a renversé cette règle.
+        //
+        // Le filtre sur les extrémités est ce qui rend le « plus court » sûr :
+        // une course partielle est plus courte elle aussi, mais elle s'arrête en
+        // chemin, et on l'écarte parce qu'elle ne relie pas les mêmes bouts que
+        // le parcours complet. À égalité de longueur, le parcours est départagé
+        // par son identifiant : deux lancements doivent peindre la même carte.
+        // ⚠️ **Départagé jusqu'au bout, y compris ici.** `maxByOrNull` rend le
+        // premier maximum rencontré, donc l'ordre où PostgREST a servi les
+        // courses : deux branches de même longueur — Beaujoire et Babinière en
+        // ont quinze chacune — auraient fait la référence à tour de rôle d'un
+        // lancement à l'autre. L'identifiant tranche, et la fiche s'ouvre
+        // toujours sur la même.
+        // ## Ce que « le plus long » ne peut pas savoir, et d'où vient le repère
+        //
+        // ⚠️ Les deux pas qui suivent tiennent l'un par l'autre : les bouts
+        // viennent du parcours le plus long, puis on retient le plus court qui
+        // les relie. Le second écarte les détours ; le premier **suppose** que le
+        // plus long relie les vrais terminus.
+        //
+        // Une course qui pousse au-delà du terminus — un dépôt, une antenne de
+        // service — renverse cette supposition, et rien dans sa forme ne la
+        // distingue d'un trajet ordinaire : elle contient l'autre, exactement
+        // comme un parcours complet contient une course partielle. Le repère ne
+        // peut donc pas sortir des courses.
+        //
+        // Il vient du terminus que le référentiel **annonce** pour ce sens
+        // (`route_long_name`, via `ServiceLine.directions`). Quand un parcours
+        // finit là, ce sont ceux-là qui donnent les bouts ; sinon — le terminus
+        // manque, ou il nomme une paire comme « Beaujoire / Babinière » — la
+        // règle d'origine reprend la main. **Un repère qu'on ne sait pas lire ne
+        // doit rien décider.**
+        val wanted = normalizeStopName(expectedTerminus)
+        val ending = served.filter { (_, candidateStops) ->
+            wanted.isNotEmpty() && candidateStops.terminals().second == wanted
+        }
+        val fullest = (ending.ifEmpty { served })
+            .sortedWith(
+                compareByDescending<Pair<GtfsTripDto, List<GtfsStopTimeDto>>> { (_, sequence) ->
+                    sequence.size
+                }.thenBy { (candidate, _) -> candidate.shapeId ?: candidate.tripId },
+            )
+            .firstOrNull()
+            ?: throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
+        val terminals = fullest.second.terminals()
+        val (trip, sequence) = served
+            .filter { (_, candidateStops) -> candidateStops.terminals() == terminals }
+            .minWithOrNull(
+                compareBy(
+                    { (_, candidateStops) -> candidateStops.size },
+                    { (candidate, _) -> candidate.shapeId ?: candidate.tripId },
+                ),
+            )
+            ?: fullest
+
+        val stops = sequence.mapNotNull { it.stop?.toDomain() }
+        if (stops.size < 2) throw DriverServiceException(DriverServiceFailureKind.LINES_EMPTY)
+        // Le choix ci-dessus est invisible partout ailleurs : c'est lui qui
+        // décide de ce que la carte peindra, et rien à l'écran ne dit qu'il a eu
+        // lieu. On le dit ici, une fois par ouverture de fiche.
+        logger?.info(
+            LogDomain.NET,
+            "Desserte $routeId sens $directionId : ${trips.size} courses, " +
+                "${distinctShapes.size} parcours distincts, " +
+                "${candidates.size} candidats [" +
+                served.joinToString(" | ") { (candidate, candidateStops) ->
+                    val ends = candidateStops.endpointNames()
+                    "${candidate.shapeId ?: candidate.tripId}=${candidateStops.size} " +
+                        "(${ends.first} → ${ends.second})"
+                } +
+                "] — retenu ${trip.shapeId ?: trip.tripId} (${stops.size} arrêts).",
+        )
+        // ## Les trois troncatures, et pourquoi elles se disent
+        //
+        // Chacune se lit à l'écran comme une affirmation sur le réseau — « cette
+        // ligne n'a pas d'autre branche », « elle ne dessert que ça » — alors
+        // qu'aucune n'en est une : ce sont des plafonds de requête. C'est la
+        // règle d'iOS pour le plafond de dessertes, appliquée aux trois endroits
+        // où elle mord ici.
+        if (trips.size >= TRIP_WINDOW) {
+            logger?.warn(
+                LogDomain.NET,
+                "Desserte $routeId sens $directionId : échantillon de courses plafonné " +
+                    "à $TRIP_WINDOW — des parcours peuvent manquer.",
+            )
+        }
+        if (distinctShapes.size > MAX_PROFILES) {
+            logger?.warn(
+                LogDomain.NET,
+                "Desserte $routeId sens $directionId : " +
+                    "${distinctShapes.size - MAX_PROFILES} parcours au-delà du plafond, non lu(s) " +
+                    "[${distinctShapes.drop(MAX_PROFILES).joinToString(", ") {
+                        it.shapeId ?: it.tripId
+                    }}].",
+            )
+        }
+        val mute = candidates.filterNot { candidate ->
+            served.any { it.first.tripId == candidate.tripId }
+        }
+        if (mute.isNotEmpty()) {
+            logger?.warn(
+                LogDomain.NET,
+                "Desserte $routeId sens $directionId : " +
+                    "${mute.size} candidat(s) sans desserte lisible " +
+                    "[${mute.joinToString(", ") { it.shapeId ?: it.tripId }}].",
+            )
+        }
+        // Le référence d'abord, puis les autres du plus court au plus long : ce
+        // sont les branches qui voisinent le trajet ordinaire, et les détours qui
+        // s'en éloignent. Un menu se lit dans cet ordre-là.
+        val others = served
+            .filterNot { (candidate, _) -> candidate.tripId == trip.tripId }
+            .sortedWith(
+                compareBy(
+                    { (_, candidateStops) -> candidateStops.size },
+                    { (candidate, _) -> candidate.shapeId ?: candidate.tripId },
+                ),
+            )
+            .mapNotNull { (candidate, candidateStops) ->
+                val candidateDomain = candidateStops.mapNotNull { it.stop?.toDomain() }
+                if (candidateDomain.size < 2) {
+                    null
+                } else {
+                    LineJourney(
+                        tripId = candidate.tripId,
+                        stops = candidateDomain,
+                        profileId = candidate.shapeId ?: candidate.tripId,
+                    )
+                }
+            }
+
+        return listOf(
+            LineJourney(
+                tripId = trip.tripId,
+                stops = stops,
+                profileId = trip.shapeId ?: trip.tripId,
+            ),
+        ) + others
+    }
+
+    /**
+     * Les deux bouts d'un parcours, par quoi on reconnaît qu'il est complet.
+     *
+     * Par **nom** et non par identifiant : un même terminus porte plusieurs
+     * quais, et deux courses qui finissent au même endroit n'y arrivent pas
+     * forcément par le même.
+     *
+     * ⚠️ **Et par nom normalisé.** Le référentiel écrit « Hôtel Dieu » et
+     * « HOTEL-DIEU » pour le même lieu ; comparés bruts, deux courses qui
+     * finissent au même endroit passeraient pour deux parcours de bouts
+     * différents, et le filtre ci-dessous écarterait le parcours ordinaire au
+     * profit d'un détour. C'est la règle de [normalizeStopName], celle qu'applique
+     * déjà le menu des branches.
+     */
+    private fun List<GtfsStopTimeDto>.terminals(): Pair<String, String> =
+        normalizeStopName(first().stop?.stopName.orEmpty()) to
+            normalizeStopName(last().stop?.stopName.orEmpty())
+
+    /** Les deux bouts **tels qu'ils s'écrivent**, pour le journal et rien d'autre. */
+    private fun List<GtfsStopTimeDto>.endpointNames(): Pair<String, String> =
+        first().stop?.stopName.orEmpty() to last().stop?.stopName.orEmpty()
+
+    /**
+     * Reconstitue la ligne 1 complète quand le jeu GTFS est scindé par des travaux.
+     *
+     * Dans le jeu GTFS Naolib en période de travaux, la ligne 1 de tramway a été coupée
+     * au centre : la ligne « 1 » ne contient que les 15 arrêts entre Beaujoire et Commerce,
+     * tandis que le bus relais « 1B » assure les 18 arrêts entre Hôtel Dieu (Commerce)
+     * et François Mitterrand. Si le terminus « François Mitterrand » n'est pas dans la
+     * desserte principale, on assemble les deux tronçons pour retrouver les 32 arrêts
+     * continus de la ligne.
+     */
+    private suspend fun mergeRelayJourneyIfApplicable(
+        session: AuthSession,
+        routeId: String,
+        directionId: Int,
+        primary: LineJourney,
+    ): LineJourney {
+        if (routeId != "1") return primary
+        if (primary.stops.any { it.name.contains("Mitterrand", ignoreCase = true) }) {
+            return primary
+        }
+        // Le parcours de référence du relais, et lui seul : ses autres courses
+        // sont partielles, et le filtre sur les extrémités les a déjà écartées.
+        val relay = runCatching { fetchDirectProfiles(session, "1B", directionId).first() }
+            .getOrNull()
+            ?: return primary
+
+        val mergedStops = if (directionId == 0) {
+            // Sens 0 : tronçon Est (1 : Beaujoire -> Commerce) suivi du tronçon Ouest (1B : Hôtel Dieu -> François Mitterrand)
+            val eastStops = primary.stops
+            val westStops = relay.stops.filterNot { it.name.equals("Hôtel Dieu", ignoreCase = true) }
+            eastStops + westStops
+        } else {
+            // Sens 1 : tronçon Ouest (1B : François Mitterrand -> Hôtel Dieu) suivi du tronçon Est (1 : Commerce -> Beaujoire)
+            val westStops = relay.stops.filterNot { it.name.equals("Hôtel Dieu", ignoreCase = true) }
+            val eastStops = primary.stops
+            westStops + eastStops
+        }
+        // L'identité reste celle de la branche de la ligne 1 : c'est elle qu'un
+        // menu propose, et le relais est la même portion pour toutes.
+        return primary.copy(stops = mergedStops)
     }
 
     override suspend fun nearestActiveTrip(
@@ -612,5 +868,25 @@ class SupabaseDriverServiceRepository(
         const val ACTIVE_SELECT =
             "id,line_id,direction_id,headsign,vehicle_id,train_number," +
                 "start_time_real,created_at"
+
+        /**
+         * Combien de courses on lit pour y chercher les parcours d'un sens.
+         *
+         * Le plafond n'est pas là pour choisir, il est là pour qu'une ligne
+         * aberrante ne parte pas en requête sans fin. Les lignes du réseau en
+         * publient entre cinq et quinze — mesuré le 05/09/2026 sur la C1 (7),
+         * la C3 (5), la 1 (14) et la 2 (6) —, donc il ne mord pas. **S'il
+         * mordait, on le dirait** : c'est ce que journalise `fetchDirectProfiles`.
+         */
+        const val TRIP_WINDOW = 40
+
+        /**
+         * Combien de parcours distincts une fiche propose au plus.
+         *
+         * Six, comme iOS (`AuleNetworkLineRepository.maxDessertes`), et pour la
+         * même raison : le réseau nantais n'en distingue pas plus de deux par
+         * sens, et un service partiel en ajoute rarement plus d'un.
+         */
+        const val MAX_PROFILES = 6
     }
 }

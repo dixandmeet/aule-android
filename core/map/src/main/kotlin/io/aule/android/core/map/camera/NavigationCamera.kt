@@ -535,10 +535,21 @@ object NavigationCamera {
      * une navigation **à l'arrêt**, là où le GPS ne donne aucun cap. Sans
      * lui, la première seconde de guidage se joue dans une direction
      * arbitraire.
+     *
+     * ⚠️ **Le suivi de véhicule échappe au plancher de vitesse.** Ce plancher
+     * protège un cap **GPS** — une trace de déplacement qui n'existe pas à
+     * l'arrêt. Le cap d'un véhicule suivi n'a pas cette faiblesse : il vient
+     * de la télémétrie ou d'un déplacement déjà mesuré entre deux positions,
+     * et reste valable à quai, portes ouvertes — c'est-à-dire **exactement**
+     * quand la vitesse rapportée s'annule. Lui appliquer le même plancher
+     * figeait la caméra à chaque arrêt, au moment même où la veille de
+     * correspondance regarde le véhicule approcher.
      */
     fun bearing(input: CameraInput): Double {
         val heading = input.headingDegrees
-        if (heading != null && input.speedMps >= HEADING_MIN_SPEED_MPS) {
+        val speedIsReliable = input.mode == CameraMode.FOLLOW_VEHICLE ||
+            input.speedMps >= HEADING_MIN_SPEED_MPS
+        if (heading != null && speedIsReliable) {
             return GeoMath.normalizeHeading(heading)
         }
         val routeBearing = input.routeBearingDegrees

@@ -11,7 +11,6 @@ import io.aule.android.core.model.DepartureRow
 import io.aule.android.core.model.DepartureWatch
 import io.aule.android.core.model.DepartureWatchAlert
 import io.aule.android.core.model.FleetSnapshot
-import io.aule.android.core.model.FleetStatus
 import io.aule.android.core.model.GpsTracePoint
 import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
@@ -22,6 +21,7 @@ import io.aule.android.core.model.RouteCandidate
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlace
 import io.aule.android.core.model.RoutePlan
+import io.aule.android.core.model.ServingLine
 import io.aule.android.core.model.StopSearch
 import io.aule.android.core.model.StopSearchHit
 import io.aule.android.core.model.NetworkLinesDigest
@@ -138,8 +138,6 @@ data class MapUiState(
      */
     val stopsFailure: String? = null,
     val mapError: String? = null,
-    val fleetStatus: FleetStatus = FleetStatus.Empty,
-    val showsFleetStatus: Boolean = false,
     val selectedStop: TransitStop? = null,
     val selectedVehicle: TransportVehicle? = null,
     val selectedPlace: Place? = null,
@@ -597,11 +595,7 @@ class MapViewModel(
                             // identifiant que plus personne ne publie.
                             ?: snapshot.vehicles.find { it.twinId == selected.id }
                     }
-                    _state.value = _state.value.copy(
-                        fleetStatus = snapshot.status,
-                        showsFleetStatus = snapshot.isStale || snapshot.vehicles.isNotEmpty(),
-                        selectedVehicle = refreshed ?: current,
-                    )
+                    _state.value = _state.value.copy(selectedVehicle = refreshed ?: current)
                     logger.info(
                         LogDomain.NET,
                         "Flotte : ${snapshot.vehicles.size} véhicule(s) " +
@@ -618,10 +612,6 @@ class MapViewModel(
                     lastSnapshot = stale
                     _fleet.emit(stale)
                     departureWatch.onFleetSnapshot(stale)
-                    _state.value = _state.value.copy(
-                        fleetStatus = stale.status,
-                        showsFleetStatus = stale.isStale || stale.vehicles.isNotEmpty(),
-                    )
                     backoffMs = min(backoffMs * 2, MAX_BACKOFF_MS)
                 }
 
@@ -865,14 +855,40 @@ class MapViewModel(
      * deux, et le mode vient de l'arrêt quand le passage ne le publie pas.
      */
     fun openLine(stop: TransitStop, row: DepartureRow) {
-        val watch = DepartureWatch(
-            stopName = stop.departuresKey,
-            line = row.line,
-            destination = row.destination,
-            lineColor = row.lineColor,
-            mode = row.mode ?: stop.mode,
-            stopCoordinate = stop.coordinate,
+        openWatch(
+            DepartureWatch(
+                stopName = stop.departuresKey,
+                line = row.line,
+                destination = row.destination,
+                lineColor = row.lineColor,
+                mode = row.mode ?: stop.mode,
+                stopCoordinate = stop.coordinate,
+            ),
         )
+    }
+
+    /**
+     * Ouvre une ligne desservie par l'arrêt, sans passage annoncé pour la guider.
+     *
+     * Une ligne desservie n'a pas de passage — c'est justement ce que la section
+     * dit quand elle apparaît de nuit — mais elle porte déjà une direction, et
+     * une direction suffit pour demander la grille horaire d'un autre jour :
+     * c'est tout ce que la fiche horaire lit.
+     */
+    fun openLine(stop: TransitStop, line: ServingLine) {
+        openWatch(
+            DepartureWatch(
+                stopName = stop.departuresKey,
+                line = line.line,
+                destination = line.direction,
+                lineColor = line.lineColor,
+                mode = line.mode ?: stop.mode,
+                stopCoordinate = stop.coordinate,
+            ),
+        )
+    }
+
+    private fun openWatch(watch: DepartureWatch) {
         departureWatch.open(watch)
         timetable.open(watch)
         _state.value = _state.value.copy(lineFocus = watch)
@@ -893,9 +909,7 @@ class MapViewModel(
         if (stop != null) {
             select(stop)
         }
-        departureWatch.open(target)
-        timetable.open(target)
-        _state.value = _state.value.copy(lineFocus = target)
+        openWatch(target)
     }
 
     /** Referme la ligne et revient au tableau de l'arrêt. La veille, elle, reste. */

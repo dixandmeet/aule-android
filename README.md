@@ -102,6 +102,34 @@ Les formulations du domaine vivent dans `res/values/` (français source) et
 `res/values-en/` (anglais, catalogue complet). Un modèle ne porte aucune phrase
 (ADR-011).
 
+## La marque
+
+Un seul dessin pour les trois plateformes, et c'est celui du web :
+`../dashboard/public/aule-logo.png`, fond translucide retiré — le fichier que
+l'icône iOS pose sur son aplat (`../Native/Aule/Resources/AppIcon.icon`). Il y
+a eu ici un chevron de trois traits dans le design system et un « A » vectoriel
+dans l'icône de lancement : trois dessins pour un produit, et cela se voyait à
+l'écran d'accueil, un logo par application.
+
+Il vit donc deux fois dans le dépôt, aux cinq densités, et jamais autrement :
+
+| Où | Quoi |
+|---|---|
+| `core/designsystem/src/main/res/drawable-*/aule_logo.png` | la marque à l'écran, 76 dp — la plus grande tuile d'`AuleBrandMark` |
+| `app/src/main/res/mipmap-*/ic_launcher_foreground.png` | l'icône, canevas de 108 dp, master posé sur les **72 dp** que le masque du lanceur laisse voir |
+
+Le master porte sa propre réserve — le dessin n'occupe que 63 % du carré —
+donc l'étaler sur les 108 dp du canevas le ferait déborder du masque. Le fond
+de l'icône est `aule_brand_teal`, soit le `fill` de l'icône iOS au bit près.
+
+**L'aplat n'est posé que de jour.** Le dessin est clair sur transparent : de
+nuit l'écran lui donne déjà son fond, et une pastille teal sur du presque noir
+n'est plus une pastille, c'est un carré. C'est la règle du web au mot près
+(`hud/map-header.tsx`).
+
+Ne pas le retracer en vecteur : le A est un ruban à dégradés, et un tracé en
+donne un autre dessin — c'est exactement ce qui vient d'être défait.
+
 ## Pièges portés depuis iOS (et deux propres à Android)
 
 1. **Un rechargement de style vide sources, couches et images, en silence.**
@@ -203,6 +231,20 @@ code contre une session. Le mot de passe ne survit pas dans le brouillon
 local. Un compte tout juste créé reste soumis à la validation du réseau : sans
 habilitation, la porte d'accès ramène à la connexion.
 
+La dernière étape offre aussi **l'inscription par compte Google**
+([ADR-014](Docs/adr/ADR-014-inscription-par-fournisseur.md)) : même PKCE, même
+adresse de retour, dans un onglet de navigateur — jamais une WebView, que
+Google refuse. `/authorize` ne transportant pas de métadonnées, le métier, le
+réseau et le matricule sont posés au retour par `PUT /user`, depuis le brouillon
+relu sur le disque : l'écran, lui, peut avoir été tué pendant l'aller-retour.
+Google fournit une identité, pas une habilitation — la validation par le réseau
+est la même que par e-mail. Quatre réglages serveur conditionnent le parcours et
+ne se lisent nulle part dans le code ; l'ADR les énumère. Deux méritent d'être
+sus d'avance : l'application Google est en état *Test*, donc réservée à cent
+comptes inscrits à la main, et un compte e-mail existant qui porte la même
+adresse **se voit lier** l'identité Google plutôt que dupliquer — les
+métadonnées d'onboarding s'écrivent alors sur ce compte-là.
+
 Le profil a deux onglets. **Préférences** mémorise Clair / Sombre / Auto
 (`sae.theme_mode`, défaut clair comme Flutter) et liste les traces GPS de
 diagnostic. **Profil** porte la suppression définitive (`delete_my_account`) :
@@ -235,7 +277,27 @@ Le sélecteur de mode du volet d'itinéraire porte désormais **les trois durée
 Elles coûtent deux appels de plus par destination — le mode demandé répond déjà —
 et aucun de plus quand on bascule d'un mode à l'autre : ce sont les durées d'une
 destination, pas d'un calcul. Sans elles, comparer imposait de toucher un onglet,
-donc de relancer un calcul et de perdre le trajet affiché.
+donc de relancer un calcul et de perdre le trajet affiché. Chaque segment tient
+sur **une ligne** — un pictogramme, la durée — et le nom du mode est passé à
+TalkBack : le mot coûtait vingt points de hauteur pour redire ce que l'icône dit
+plus vite.
+
+Le volet d'itinéraire est le seul dont le palier **ne vaut pas 45 %** de la
+fenêtre mais 60 % (`ROUTE_PEEK_FRACTION`). Les fiches répondent à « qu'est-ce que
+c'est ? » et ce qui dépasse est du détail ; l'itinéraire pose une **décision** —
+d'où l'on part, par quel mode, sur quel trajet, et le bouton qui l'engage. Coupé
+à 45 %, il montrait la question sans jamais la réponse, et il fallait le déplier
+à chaque fois. À 60 %, un trajet à une variante tient entier et la deuxième
+dépasse sous la barre d'action, ce qui est tout ce qui dit qu'elle existe ; un
+trajet à pied, plus court, s'arrête à 47 % et rend le reste à la ville — le
+palier reste mesuré sur le contenu.
+
+« Démarrer » vit **hors du volet**, posé au bord de la fenêtre. Un
+`BottomSheetScaffold` a deux crans, et le bas de son contenu ne tombe au bas de
+l'écran qu'à l'un des deux : épinglé dedans, le bouton se retrouvait coupé par
+les touches de navigation du système dès que le volet était au palier. Le volet
+lui réserve sa hauteur en pied (`RouteActionBarHeight`) pour que la dernière
+variante puisse toujours être amenée au-dessus de lui.
 
 ## Reste à faire (hors jalon 1)
 

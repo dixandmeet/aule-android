@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Catalogue **complet**, chaîne pour chaîne (ADR-011). Android retombe sur la
+  source entrée par entrée : une seule traduction parmi soixante donnerait un
+  écran mi-anglais mi-français, ce qui est pire que pas de traduction du tout.
+-->
+<resources>
+    <string name="hub_title">Messages</string>
+    <string name="hub_empty_title">No conversations</string>
+    <string name="hub_empty_detail">Create a group to write to your colleagues.</string>
+    <string name="hub_new_group">New group</string>
+    <string name="hub_group_name">Group name</string>
+    <string name="hub_create">Create</string>
+    <string name="hub_cancel">Cancel</string>
+    <string name="hub_search_colleagues">Name or badge number</string>
+    <string name="hub_no_colleague">No colleague found</string>
+    <string name="hub_no_account">No Aule Pro account yet</string>
+    <string name="hub_members">Members</string>
+    <string name="hub_leave_group">Leave group</string>
+    <string name="hub_close_group">Close group</string>
+    <string name="hub_message_hint">Message</string>
+    <string name="hub_send">Send</string>
+    <string name="hub_back">Back to conversations</string>
+    <string name="hub_retry">Try again</string>
+    <string name="hub_discard">Delete</string>
+    <string name="hub_refresh">Refresh</string>
+    <string name="hub_stale">Messages not refreshed</string>
+    <string name="hub_pending">%1$d message(s) waiting to be sent</string>
+    <string name="hub_delivery_pending">Waiting for network</string>
+    <string name="hub_delivery_failed">Not sent</string>
+    <string name="hub_message_deleted">Message removed</string>
+    <string name="hub_message_edited">edited</string>
+
+    <string name="hub_section_favorites">FAVOURITES</string>
+    <string name="hub_section_groups">GROUPS</string>
+    <string name="hub_section_directs">DIRECT</string>
+    <string name="hub_section_broadcast">NETWORK AND DEPOT</string>
+
+    <string name="hub_subtitle_network">Network announcements</string>
+    <string name="hub_subtitle_depot">Depot announcements</string>
+    <string name="hub_subtitle_support">Aule support</string>
+    <string name="hub_subtitle_direct">Direct conversation</string>
+    <string name="hub_subtitle_members">%1$d members</string>
+    <string name="hub_subtitle_sender">%1$s: %2$s</string>
+
+    <string name="hub_read_only">This channel is read-only.</string>
+    <string name="hub_closed">This group is closed. Its history remains readable.</string>
+
+    <string name="hub_error_not_authenticated">Your session has expired. Please sign in again.</string>
+    <string name="hub_error_not_member">You are no longer part of this conversation.</string>
+    <string name="hub_error_read_only">This channel is read-only.</string>
+    <string name="hub_error_not_owner">Only a group manager can do that.</string>
+    <string name="hub_error_cannot_invite">You cannot invite people to this group.</string>
+    <string name="hub_error_not_sender">This message is not yours.</string>
+    <string name="hub_error_channel_closed">This group is closed.</string>
+    <string name="hub_error_not_found">This conversation no longer exists.</string>
+    <string name="hub_error_other_network">This colleague belongs to another network.</string>
+    <string name="hub_error_no_network">This account is not attached to any network.</string>
+    <string name="hub_error_cannot_leave">This conversation cannot be left.</string>
+    <string name="hub_error_file">The attachment did not arrive. Send it again.</string>
+    <string name="hub_error_bad_request">This request did not succeed.</string>
+    <string name="hub_error_not_deployed">Messaging is not open on this server yet.</string>
+    <string name="hub_error_unknown">The network did not answer.</string>
+
+</resources>

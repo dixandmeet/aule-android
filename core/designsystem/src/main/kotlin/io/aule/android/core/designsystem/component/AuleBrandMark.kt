@@ -5,12 +5,14 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -21,22 +23,18 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.R
 import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.reduceMotionEnabled
-import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleBrand
 import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleMotion
@@ -44,7 +42,27 @@ import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 
 /**
- * La marque Aule : le chevron dans sa tuile, sous une onde qui s'écarte.
+ * La marque Aule : le A et sa vague, sous une onde qui s'écarte.
+ *
+ * C'est **l'image du web** — `../dashboard/public/aule-logo.png`, fond
+ * translucide retiré — et non un tracé. Il y avait ici un chevron de trois
+ * traits, dessiné à la main parce qu'un dessin de trois lignes tient à toutes
+ * les tailles sans fichier ; c'était vrai, et c'était un deuxième dessin de la
+ * même marque. Le troisième était l'icône de lancement. Trois A pour un
+ * produit, cela se voit à l'écran d'accueil. iOS a tranché avant nous, et
+ * embarque ce même fichier (`../Native/Aule/DesignSystem/Components/AuleLogo.swift`).
+ *
+ * L'aplat n'est posé **que de jour**. Le dessin est clair sur transparent : sur
+ * un fond sombre il se suffit, sur un fond clair il s'efface presque
+ * entièrement. C'est la règle du web au mot près
+ * (`dashboard/components/carte-immersive/next/hud/map-header.tsx`), et l'aplat
+ * y est le teal de l'**identité**, jamais l'accent d'ambiance — le logo d'Aule
+ * ne devient pas menthe à la nuit tombée.
+ *
+ * Le fichier porte sa propre réserve : le dessin n'occupe que 63 % du carré, le
+ * reste est la marge qui l'écarte du bord de la tuile. Une marque de soixante-
+ * seize points se lit donc comme une lettre de quarante-huit — c'est la
+ * proportion du web et celle de l'icône.
  *
  * L'onde est une boucle infinie, donc elle s'arrête quand l'appareil demande
  * moins de mouvement — la marque reste, la respiration part.
@@ -54,7 +72,6 @@ fun AuleBrandMark(
     contentDescription: String,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     val reduceMotion = reduceMotionEnabled()
     val pulse = if (reduceMotion) {
         0f
@@ -86,37 +103,10 @@ fun AuleBrandMark(
                 }
                 .border(AuleStroke.hairline, AuleBrand.teal.color, CircleShape),
         )
-        Box(
-            modifier = Modifier
-                .size(TILE_SIZE)
-                .auleShadow(AuleElevation.LIFTED, tile, AuleShadowTint.ACCENT)
-                .clip(tile)
-                .background(AuleBrand.teal.color.copy(alpha = AuleAlpha.WASH))
-                .border(
-                    AuleStroke.hairline,
-                    AuleBrand.teal.color.copy(alpha = AuleAlpha.OUTLINE),
-                    tile,
-                )
-                .drawBehind { chevron(tokens.accentOnSurface.color, TILE_STROKE) },
-        )
+        Box(modifier = Modifier.size(TILE_SIZE).brandGround(tile, lifted = true)) {
+            Mark()
+        }
     }
-}
-
-/**
- * Le « A » d'Aule : deux jambages et leur barre, tracés à la main.
- *
- * Un dessin et non un `ImageVector` parce qu'il est fait de trois traits dont
- * les proportions se lisent en fractions de la tuile : la même marque tient
- * alors à soixante-seize points comme à trente-deux, sans qu'aucune des deux
- * tailles ait son fichier.
- */
-private fun DrawScope.chevron(color: Color, stroke: Dp) {
-    val w = size.width
-    val h = size.height
-    val width = stroke.toPx()
-    drawLine(color, Offset(w * 0.50f, h * 0.30f), Offset(w * 0.30f, h * 0.70f), width, StrokeCap.Round)
-    drawLine(color, Offset(w * 0.50f, h * 0.30f), Offset(w * 0.70f, h * 0.70f), width, StrokeCap.Round)
-    drawLine(color, Offset(w * 0.38f, h * 0.54f), Offset(w * 0.62f, h * 0.54f), width, StrokeCap.Round)
 }
 
 /**
@@ -141,7 +131,6 @@ fun AuleWordmark(
     contentDescription: String,
     modifier: Modifier = Modifier,
 ) {
-    val tokens = AuleTheme.tokens
     val colors = MaterialTheme.colorScheme
     val tile = RoundedCornerShape(MARK_RADIUS)
     Row(
@@ -151,18 +140,9 @@ fun AuleWordmark(
         horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            modifier = Modifier
-                .size(MARK_SIZE)
-                .clip(tile)
-                .background(AuleBrand.teal.color.copy(alpha = AuleAlpha.WASH))
-                .border(
-                    AuleStroke.hairline,
-                    AuleBrand.teal.color.copy(alpha = AuleAlpha.OUTLINE),
-                    tile,
-                )
-                .drawBehind { chevron(tokens.accentOnSurface.color, MARK_STROKE) },
-        )
+        Box(modifier = Modifier.size(MARK_SIZE).brandGround(tile, lifted = false)) {
+            Mark()
+        }
         Column {
             Text(
                 text = name,
@@ -179,13 +159,37 @@ fun AuleWordmark(
     }
 }
 
-/** Le trait du glyphe, à l'échelle de la grande tuile. */
-private val TILE_STROKE = 3.2.dp
+/**
+ * Le dessin lui-même, décoratif : la phrase est portée par le conteneur, qui
+ * dit « logo Aule Pro » une fois pour toute la marque.
+ */
+@Composable
+private fun Mark() {
+    Image(
+        painter = painterResource(R.drawable.aule_logo),
+        contentDescription = null,
+        modifier = Modifier.fillMaxSize(),
+    )
+}
 
-/** La tuile de la marque en ligne, et le trait qui va avec. */
+/**
+ * L'aplat sous la marque — et pourquoi il disparaît la nuit.
+ *
+ * Voir la règle en tête de [AuleBrandMark] : le dessin est clair, donc il lui
+ * faut un fond sombre, et de nuit l'écran le lui donne déjà. Poser la tuile
+ * quand même mettrait une pastille teal sur du presque noir, et l'ombre qui va
+ * avec creuserait un relief là où il n'y a plus de relief à creuser.
+ */
+@Composable
+private fun Modifier.brandGround(shape: Shape, lifted: Boolean): Modifier {
+    if (AuleTheme.night) return this
+    val raised = if (lifted) auleShadow(AuleElevation.LIFTED, shape, AuleShadowTint.ACCENT) else this
+    return raised.clip(shape).background(AuleBrand.teal.color)
+}
+
+/** La tuile de la marque en ligne. */
 private val MARK_SIZE = 34.dp
 private val MARK_RADIUS = 10.dp
-private val MARK_STROKE = 1.6.dp
 
 /**
  * L'espacement des capitales du sur-titre.

@@ -9,16 +9,28 @@ import kotlin.math.sin
 /**
  * Le volume d'un véhicule : ses cotes réelles, et l'empreinte au sol qu'on extrude.
  *
- * **Pourquoi une empreinte extrudée et pas un modèle.** Le web pose des `.glb`
- * dans une scène three.js greffée sur MapLibre ; le SDK Android n'offre pas cette
- * porte — il n'a pas de couche de modèles, et son `CustomLayer` réclame un hôte
- * C++, pas du Kotlin. Reste `fill-extrusion`, exactement la couche qui donne leur
- * relief aux bâtiments du style : une empreinte, une hauteur, et le moteur
- * s'occupe des faces, de l'ombrage et de la profondeur — un bus derrière un
- * immeuble passe derrière l'immeuble, sans qu'on ait un seul test à écrire.
+ * **Ce fichier ne dessine plus la flotte, il la rattrape.** Bus et trams sont
+ * désormais de vrais modèles, posés par la couche native (ADR-015). L'empreinte
+ * extrudée reste pour deux cas, et ils comptent tous les deux :
  *
- * Ce qu'on y perd est la silhouette ; ce qu'on y gagne est un volume qui suit
- * l'inclinaison de la carte à 120 Hz sans peser plus qu'un polygone.
+ * - **le navibus**, dont le pack ne contient aucun modèle. Une pastille plate
+ *   seule au milieu de la Loire pendant que toute la ville prend du relief se
+ *   lirait comme un oubli — c'est le choix qu'Android fait, là où le web et iOS
+ *   le laissent en icône ;
+ * - **le repli**, quand le rendu natif n'a pas pu démarrer. L'écran est alors
+ *   exactement celui d'avant.
+ *
+ * Que le bateau emprunte le chemin de secours n'est pas un hasard heureux : c'est
+ * ce qui le garde **parcouru à chaque session**. Un chemin de repli jamais
+ * emprunté est un chemin cassé qu'on ignore.
+ *
+ * ⚠️ Une version de ce commentaire affirmait que le SDK Android « n'offre pas
+ * cette porte ». C'était faux, et cela a failli coûter la fonctionnalité :
+ * `CustomLayer` **est** la porte, elle réclame simplement un hôte C++. Voir
+ * l'ADR-015.
+ *
+ * [gauge] est partagé avec la 3D — les deux rendus doivent montrer le même
+ * réseau à la même échelle. [emphasis] et [footprint] ne servent plus qu'ici.
  *
  * Le fichier est du calcul pur — ni MapLibre, ni Android — pour rester vérifiable
  * sur la JVM.
@@ -70,6 +82,21 @@ internal object VehicleBody {
         val base = min(MAX_EMPHASIS, MAX_EMPHASIS - (zoom - EMPHASIS_FROM) * EMPHASIS_DECAY)
             .coerceAtLeast(1.0)
         return if (mode == TransportMode.TRAM) 1 + (base - 1) * TRAM_EMPHASIS_SHARE else base
+    }
+
+    /**
+     * Le fondu du volume, entre le glyphe plat et le relief.
+     *
+     * ⚠️ **Cette fonction et l'expression de la couche doivent dire la même
+     * chose.** L'extrusion interpole son opacité par une `Expression` que
+     * MapLibre évalue, la scène 3D reçoit son alpha calculé ici : deux rampes
+     * écrites séparément divergeraient, et le passage de l'une à l'autre se
+     * verrait comme un ressaut. Les bornes vivent donc à un seul endroit.
+     */
+    fun bodyFade(zoom: Double, fade: Double, from: Double): Double = when {
+        zoom <= from - fade -> 0.0
+        zoom >= from + fade -> 1.0
+        else -> (zoom - (from - fade)) / (2 * fade)
     }
 
     /**

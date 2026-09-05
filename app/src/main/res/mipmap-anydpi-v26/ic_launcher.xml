@@ -1,6 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  La marque du web, pas une seconde version d'elle.
+
+  Le premier-plan est un bitmap et non un tracé : le A d'Aule est un ruban à
+  dégradés, et le retracer en vecteur donne un autre dessin — c'est ce qu'il y
+  avait ici, et l'écran d'accueil montrait bien deux logos pour un seul produit.
+  Le fichier vient du master du web (`../dashboard/public/aule-logo.png`), fond
+  translucide retiré ; c'est celui-là même que l'icône iOS pose sur son aplat
+  (`../Native/Aule/Resources/AppIcon.icon`), et l'aplat y vaut #0D595E, soit
+  `aule_brand_teal` au bit près.
+
+  Le master occupe 72 dp du canevas de 108, c'est-à-dire exactement ce que le
+  masque du lanceur laisse voir. Il porte déjà sa réserve — le dessin n'y tient
+  que 63 % du carré — donc la marque tombe à 45 dp, la proportion du web et
+  d'iOS. L'étaler sur les 108 dp la ferait déborder du masque.
+-->
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/aule_brand_teal" />
-    <foreground android:drawable="@drawable/ic_launcher_foreground" />
-    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
 </adaptive-icon>

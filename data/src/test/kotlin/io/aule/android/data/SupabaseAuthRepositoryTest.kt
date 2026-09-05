@@ -6,6 +6,7 @@ import io.aule.android.core.model.AuthFailureKind
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AuthUser
+import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ProfessionalProfile
 import io.aule.android.core.model.ProfessionalTransportMode
@@ -13,6 +14,7 @@ import io.aule.android.core.network.AuleHttpClient
 import io.aule.android.data.aule.EMAIL_CONFIRMATION_REDIRECT
 import io.aule.android.data.aule.MemoryAuthPkceStore
 import io.aule.android.data.aule.MemoryAuthSessionStore
+import io.aule.android.data.aule.MemoryRegistrationDraftStore
 import io.aule.android.data.aule.SupabaseAuthRepository
 import io.aule.android.data.auth.Pkce
 import io.aule.android.data.dto.GoTrueErrorDto
@@ -25,6 +27,7 @@ import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
 import okhttp3.OkHttpClient
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
@@ -90,6 +93,33 @@ class SupabaseAuthRepositoryTest {
         }
         assertEquals(AuthFailureKind.INVALID_CREDENTIALS, failure.kind)
         assertNull(repository.currentSession())
+    }
+
+    /**
+     * ⚠️ **GoTrue renvoie `code` en nombre, et c'est tout l'objet de ce test.**
+     *
+     * Le corps réel d'un refus porte `"code": 400` à côté de `error_code` — le
+     * test voisin, écrit sans ce champ, ne le voyait pas. Le décodeur du projet
+     * n'est pas permissif (`isLenient = false`) : un nombre dans un champ texte
+     * fait échouer l'objet **entier**, `error_code` compris. Le refus retombait
+     * alors en `UNKNOWN`, et l'écran disait « Une erreur est survenue.
+     * Réessayez. » à quelqu'un qui s'était simplement trompé de mot de passe.
+     *
+     * Relevé sur le S21 le 04/09, journal à l'appui : « Connexion refusée
+     * (UNKNOWN). — HTTP 400 ».
+     */
+    @Test
+    fun `un refus GoTrue reste lisible avec son code numerique`() = runTest {
+        respond(
+            """{"code":400,"error_code":"invalid_credentials","msg":"Invalid login credentials"}""",
+            status = 400,
+        )
+
+        val failure = assertThrows<AuthException> {
+            repository.signIn("a@b.fr", "nope")
+        }
+        assertEquals(AuthFailureKind.INVALID_CREDENTIALS, failure.kind)
+        assertEquals("Invalid login credentials", failure.serverMessage)
     }
 
     @Test
@@ -547,7 +577,138 @@ class SupabaseAuthRepositoryTest {
         assertEquals(session, store.read())
     }
 
+    @Test
+    fun `l inscription Google rend l URL d autorisation et marque le genre`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        val verifier = "verifier-google-0123456789012345678901234567890"
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            createVerifier = { verifier },
+        )
+
+        val url = signing.beginOAuthSignUp(OAuthProvider.GOOGLE).toHttpUrl()
+
+        // Rien n'est parti sur le réseau : c'est le navigateur qui suivra
+        // l'adresse, et un appel ici n'aurait fait que consommer le code.
+        assertEquals(0, server.requestCount)
+        assertTrue(url.encodedPath.endsWith("/auth/v1/authorize"))
+        assertEquals("google", url.queryParameter("provider"))
+        assertEquals(EMAIL_CONFIRMATION_REDIRECT, url.queryParameter("redirect_to"))
+        assertEquals(Pkce.challenge(verifier), url.queryParameter("code_challenge"))
+        assertEquals("s256", url.queryParameter("code_challenge_method"))
+        assertEquals(verifier, pkce.readVerifier())
+        // Le genre distingue ce retour de celui d'un lien e-mail : c'est lui
+        // qui déclenchera la pose des métadonnées d'onboarding.
+        assertEquals(AuthPkceFlow.OAUTH_SIGN_UP, pkce.readFlow())
+    }
+
+    @Test
+    fun `le retour Google pose les metadonnees d onboarding et vide le brouillon`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        pkce.writeVerifier("stored-verifier", AuthPkceFlow.OAUTH_SIGN_UP)
+        val drafts = MemoryRegistrationDraftStore()
+        drafts.write(SIGNUP_DRAFT.encode(), "account")
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            drafts = drafts,
+            nowEpochSeconds = { 1_700_000_000L },
+        )
+        respond(TOKEN_BODY)
+        respond("""{ "id": "user-1" }""")
+
+        val session = signing.exchangeAuthCode("auth-code-1")
+
+        assertEquals("agent@aule.fr", session.user.email)
+        server.takeRequest()
+        val posted = server.takeRequest()
+        assertEquals("PUT", posted.method)
+        assertTrue(posted.url.encodedPath.endsWith("/auth/v1/user"))
+        assertEquals("Bearer access-1", posted.headers["Authorization"])
+        val body = posted.body?.utf8().orEmpty()
+        // Ce que `/authorize` n'a pas pu transporter : le rôle demandé, le
+        // réseau, le matricule.
+        assertTrue("\"msr_agent\"" in body)
+        assertTrue("\"naolib\"" in body)
+        assertTrue("MSR21" in body)
+        assertNull(drafts.readDraft())
+    }
+
+    @Test
+    fun `des metadonnees refusees gardent la session ouverte et le brouillon`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        pkce.writeVerifier("stored-verifier", AuthPkceFlow.OAUTH_SIGN_UP)
+        val drafts = MemoryRegistrationDraftStore()
+        drafts.write(SIGNUP_DRAFT.encode(), "account")
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            drafts = drafts,
+            nowEpochSeconds = { 1_700_000_000L },
+        )
+        respond(TOKEN_BODY)
+        respond("""{ "msg": "boom" }""", status = 500)
+
+        // Le compte existe et la session est ouverte : la refuser laisserait un
+        // compte Google lié à Aule que personne ne pourrait plus ni utiliser ni
+        // recréer. Le brouillon reste, l'inscription est reprenable.
+        val session = signing.exchangeAuthCode("auth-code-1")
+
+        assertEquals(session, store.read())
+        assertEquals(session, signing.currentSession())
+        assertEquals(SIGNUP_DRAFT.encode(), drafts.readDraft())
+    }
+
+    @Test
+    fun `un retour de lien e-mail ne pose aucune metadonnee`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        pkce.writeVerifier("stored-verifier", AuthPkceFlow.SIGN_UP)
+        val drafts = MemoryRegistrationDraftStore()
+        drafts.write(SIGNUP_DRAFT.encode(), "account")
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            drafts = drafts,
+            nowEpochSeconds = { 1_700_000_000L },
+        )
+        respond(TOKEN_BODY)
+
+        signing.exchangeAuthCode("auth-code-1")
+
+        // L'inscription par e-mail a déjà posé ses métadonnées au `signup` :
+        // les réécrire écraserait un compte que le back-office a peut-être
+        // déjà traité.
+        assertEquals(1, server.requestCount)
+        assertEquals(SIGNUP_DRAFT.encode(), drafts.readDraft())
+    }
+
     private companion object {
+        /** Un brouillon d'inscription complet, tel que l'étape 4 le laisse. */
+        val SIGNUP_DRAFT = ProRegistrationDraft(
+            profiles = setOf(ProfessionalProfile.CONTROLEUR),
+            networkKey = "naolib",
+            fullName = "Sam Dupont",
+            employeeId = "MSR21",
+            termsAccepted = true,
+        )
+
         const val TOKEN_BODY = """
             {
               "access_token": "access-1",

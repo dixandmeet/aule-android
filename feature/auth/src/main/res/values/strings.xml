@@ -25,7 +25,7 @@
     <string name="auth_error_rate_limited">Trop de tentatives. Patientez quelques minutes avant de réessayer.</string>
     <string name="auth_error_weak_password">Ce mot de passe est trop faible. Utilisez au moins 8 caractères.</string>
     <string name="auth_error_invalid_email">Cette adresse e-mail n\'est pas valide.</string>
-    <string name="auth_error_not_configured">Supabase n\'est pas configuré sur cet appareil.</string>
+    <string name="auth_error_not_configured">Supabase non configuré — renseignez local.properties, puis réinstallez.</string>
     <string name="auth_error_network">Connexion impossible. Réessayez dans un instant.</string>
     <string name="auth_error_unknown">Une erreur est survenue. Réessayez.</string>
     <string name="auth_error_no_habilitation">Ce compte n\'a aucune habilitation Aule Pro. Contactez votre administrateur réseau.</string>
@@ -139,9 +139,15 @@
     <string name="register_network_title">Votre réseau de transport</string>
     <string name="register_network_subtitle">Sélectionnez le réseau auquel vous êtes rattaché.</string>
     <string name="register_network_search">Rechercher un réseau</string>
-    <string name="register_network_naolib">Naolib</string>
-    <string name="register_network_naolib_desc">Nantes Métropole</string>
-    <string name="register_network_empty">Aucun résultat. De nouveaux réseaux sont ajoutés régulièrement.</string>
+    <string name="register_network_clear">Effacer la recherche</string>
+    <plurals name="register_network_results">
+        <item quantity="one">%1$d réseau</item>
+        <item quantity="other">%1$d réseaux</item>
+    </plurals>
+    <string name="register_network_empty_title">Aucun réseau ne correspond</string>
+    <string name="register_network_empty">Essayez le nom de la ville, ou celui de l\'exploitant. De nouveaux réseaux sont ouverts régulièrement.</string>
+    <string name="register_network_absent_title">Votre réseau n\'y est pas ?</string>
+    <string name="register_network_absent_body">De nouveaux réseaux sont ouverts régulièrement. Revenez vous inscrire dès que le vôtre apparaît.</string>
     <string name="register_identity_title">Votre identité professionnelle</string>
     <string name="register_identity_subtitle">Ces informations permettent de rattacher votre compte aux équipes du réseau.</string>
     <string name="register_full_name">Nom complet</string>
@@ -167,6 +173,11 @@
     <string name="register_terms_link">Conditions Générales d\'Utilisation</string>
     <string name="register_terms_open">Ouvrir les conditions d\'utilisation</string>
     <string name="register_terms_failed">Impossible d\'ouvrir les conditions d\'utilisation.</string>
+    <string name="register_oauth_separator">ou</string>
+    <string name="register_google">S\'inscrire avec Google</string>
+    <string name="register_google_hint">Votre nom et votre adresse Google serviront à créer le compte. Les informations professionnelles déjà saisies sont conservées.</string>
+    <string name="register_error_terms">Acceptez les conditions d\'utilisation pour continuer.</string>
+    <string name="register_error_no_browser">Aucun navigateur n\'est disponible sur cet appareil pour ouvrir la page Google.</string>
     <string name="register_error_incomplete">Certaines informations professionnelles sont manquantes.</string>
     <string name="register_confirm_title">Vérifiez votre boîte mail</string>
     <string name="register_confirm_body">Si cette adresse est nouvelle, confirmez-la pour activer votre compte. Les habilitations métier restent soumises à la validation de votre réseau.</string>
@@ -239,4 +250,8 @@
     <string name="auth_biometric_setting_generic">Connexion biométrique</string>
     <string name="auth_biometric_setting_on">Activée</string>
     <string name="auth_biometric_setting_off">Désactivée</string>
+
+    <!-- L'entrée de la messagerie dans le menu du compte. -->
+    <string name="menu_hub">Messagerie</string>
+    <string name="menu_hub_desc">Écrire à vos collègues et lire les annonces</string>
 </resources>

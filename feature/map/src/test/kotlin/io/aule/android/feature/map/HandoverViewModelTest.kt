@@ -629,6 +629,7 @@ class HandoverViewModelTest {
             session: AuthSession,
             lineId: String,
             directionId: Int,
+        expectedTerminus: String,
         ) = journeyFailure?.let { throw it } ?: JOURNEY
 
         override suspend fun nearestActiveTrip(

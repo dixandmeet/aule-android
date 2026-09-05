@@ -121,4 +121,41 @@ class VehicleBodyTest {
             assertTrue(gauge.heightMeters > 2.0, "$mode")
         }
     }
+
+    /**
+     * La rampe de fondu, partagée entre l'extrusion et les modèles.
+     *
+     * ⚠️ **C'est le seul endroit qui empêche les deux rendus de diverger.**
+     * L'extrusion interpole son opacité par une `Expression` que MapLibre évalue,
+     * la scène 3D reçoit son alpha calculé en Kotlin. Deux rampes écrites
+     * séparément se décaleraient, et le passage de l'une à l'autre se verrait
+     * comme un ressaut — exactement ce que le fondu existe pour éviter.
+     */
+    @Test
+    fun `le fondu du volume est nul avant le seuil et plein apres`() {
+        val fade = 0.3
+        val from = MapZoom.VEHICLE_BODIES_FROM
+
+        assertEquals(0.0, VehicleBody.bodyFade(from - fade, fade, from), 1e-9)
+        assertEquals(0.0, VehicleBody.bodyFade(from - 2 * fade, fade, from), 1e-9)
+        assertEquals(1.0, VehicleBody.bodyFade(from + fade, fade, from), 1e-9)
+        assertEquals(1.0, VehicleBody.bodyFade(18.0, fade, from), 1e-9)
+        // À mi-chemin, la moitié : c'est ce qui fait croiser les deux rendus.
+        assertEquals(0.5, VehicleBody.bodyFade(from, fade, from), 1e-9)
+    }
+
+    @Test
+    fun `le fondu ne recule jamais quand on approche`() {
+        val fade = 0.3
+        val from = MapZoom.VEHICLE_BODIES_FROM
+        var previous = -1.0
+        var zoom = from - 2 * fade
+        while (zoom <= from + 2 * fade) {
+            val value = VehicleBody.bodyFade(zoom, fade, from)
+            assertTrue(value >= previous, "le fondu recule à z$zoom : $value après $previous")
+            assertTrue(value in 0.0..1.0, "le fondu sort de l'intervalle à z$zoom : $value")
+            previous = value
+            zoom += 0.05
+        }
+    }
 }

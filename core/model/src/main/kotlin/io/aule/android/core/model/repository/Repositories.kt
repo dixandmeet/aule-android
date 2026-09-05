@@ -6,6 +6,18 @@ import io.aule.android.core.model.AgentAccess
 import io.aule.android.core.model.AppearanceMode
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
+import io.aule.android.core.model.HubBootstrap
+import io.aule.android.core.model.HubChannel
+import io.aule.android.core.model.HubColleague
+import io.aule.android.core.model.HubException
+import io.aule.android.core.model.HubFile
+import io.aule.android.core.model.HubFileKind
+import io.aule.android.core.model.HubMember
+import io.aule.android.core.model.HubMessage
+import io.aule.android.core.model.HubMessagePage
+import io.aule.android.core.model.HubPendingMessage
+import io.aule.android.core.model.HubUnread
+import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.Depot
 import io.aule.android.core.model.DriverProfile
 import io.aule.android.core.model.DriverProfileUpdate
@@ -24,6 +36,7 @@ import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ScheduledTrip
 import io.aule.android.core.model.ServiceHeartbeat
 import io.aule.android.core.model.ServiceLine
+import io.aule.android.core.model.ServiceNote
 import io.aule.android.core.model.ServiceStartRequest
 import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.Place
@@ -207,6 +220,26 @@ interface AuthRepository {
 
     /** Renvoie l'e-mail de confirmation, avec le même redirect PKCE. */
     suspend fun resendSignupConfirmation(email: String)
+
+    /**
+     * Prépare une inscription par fournisseur externe et rend l'URL à ouvrir
+     * dans le navigateur.
+     *
+     * Rien ne part sur le réseau ici : GoTrue ne demande qu'une URL bien formée,
+     * et c'est le navigateur qui la suit. Ce que fait cet appel, c'est écrire le
+     * vérifieur PKCE marqué [io.aule.android.core.model.AuthPkceFlow.OAUTH_SIGN_UP]
+     * — sans quoi le retour ne pourrait pas être échangé, et surtout ne saurait
+     * pas qu'il doit poser les métadonnées d'onboarding.
+     *
+     * L'écran ouvre l'URL dans un onglet du navigateur, **jamais** dans une
+     * WebView : Google refuse d'y authentifier (RFC 8252, `disallowed_useragent`),
+     * et une WebView verrait passer le mot de passe du compte Google.
+     *
+     * Le brouillon doit être complet ([ProRegistrationDraft.professionalDataComplete])
+     * avant l'appel : c'est lui qu'on posera au retour, et un brouillon
+     * incomplet donnerait un compte sans demande d'habilitation.
+     */
+    suspend fun beginOAuthSignUp(provider: OAuthProvider): String
 
     /**
      * Envoie le lien « mot de passe oublié », avec le même redirect PKCE que
@@ -747,15 +780,63 @@ interface DriverServiceRepository {
     suspend fun fetchLines(session: AuthSession): List<ServiceLine>
 
     /**
-     * La desserte d'une ligne dans un sens : le plus long circuit du jour,
-     * pour proposer tous les arrêts réels. Sans tracé : le repli de relève
-     * n'en a pas besoin.
+     * Le parcours de **référence** d'une ligne dans un sens.
+     *
+     * C'est le premier de [fetchJourneyProfiles] : celui qui décrit le trajet
+     * ordinaire. La relève n'a pas de branche à proposer — elle cherche un
+     * point où se relayer, pas un choix à offrir.
+     *
+     * @param expectedTerminus le terminus que le référentiel **annonce** pour ce
+     *   sens — [ServiceDirection.terminus]. Vide quand l'appelant ne l'a pas.
+     *   Voir [fetchJourneyProfiles] : c'est le seul repère extérieur aux courses,
+     *   et il ne décide que là où il nomme un arrêt.
      */
     suspend fun fetchJourney(
         session: AuthSession,
         lineId: String,
         directionId: Int,
+        expectedTerminus: String = "",
     ): LineJourney
+
+    /**
+     * **Tous** les parcours d'une ligne dans un sens, le référence en tête.
+     *
+     * L'ordre porte le sens : le premier est celui qu'on affiche sans rien
+     * demander, les suivants sont ceux qu'on propose au choix. Une liste vide
+     * n'arrive pas — l'implémentation lève plutôt que de rendre le vide, parce
+     * qu'une fiche sans desserte se lit « cette ligne ne dessert rien ».
+     *
+     * ## Pourquoi c'est celle-ci qui a un défaut, et non [fetchJourney]
+     *
+     * Une source qui ne connaît qu'un parcours par sens en rend **un**, et c'est
+     * une réponse juste : la fiche n'affichera pas de menu, ce qui est le cas de
+     * cent trente lignes sur cent trente-huit. Le défaut évite d'imposer ce
+     * repli à chaque doublure de test qui n'a rien à dire des branches.
+     *
+     * ## Le terminus annoncé, et pourquoi il faut le passer
+     *
+     * ⚠️ **Les courses ne suffisent pas à dire où finit la ligne.** L'implémenta-
+     * tion GTFS déduit les bouts du parcours le plus long, ce qui suppose que le
+     * plus long relie les vrais terminus. Une course qui pousse jusqu'au dépôt
+     * renverse cette supposition, et **rien dans sa forme ne la distingue** d'un
+     * trajet ordinaire : elle contient l'autre, exactement comme un parcours
+     * complet contient une course partielle.
+     *
+     * Le repère doit donc venir d'ailleurs, et il existe déjà :
+     * [ServiceLine.directions] le tire de `route_long_name`. L'appelant qui l'a
+     * sous la main le passe ; celui qui ne l'a pas laisse le défaut, et la règle
+     * d'origine reprend la main.
+     *
+     * @param expectedTerminus le terminus annoncé du sens. Vide, ou ne nommant
+     *   aucun arrêt desservi — « Beaujoire / Babinière » nomme une paire —, il
+     *   ne décide de rien : un repère qu'on ne sait pas lire ne doit pas trancher.
+     */
+    suspend fun fetchJourneyProfiles(
+        session: AuthSession,
+        lineId: String,
+        directionId: Int,
+        expectedTerminus: String = "",
+    ): List<LineJourney> = listOf(fetchJourney(session, lineId, directionId, expectedTerminus))
 
     /**
      * Course GTFS du jour la plus proche de [near] : profils, départs actifs
@@ -834,4 +915,167 @@ interface HandoverRepository {
     ): HandoverSummary?
 
     suspend fun activeForMe(session: AuthSession): HandoverEngagement?
+}
+
+/**
+ * Les notes de service en vigueur — ce que l'exploitant a décidé, et qui vaut
+ * aujourd'hui.
+ *
+ * ## Pourquoi une interface à part de [DriverServiceRepository]
+ *
+ * Parce qu'une note **ne s'écrit pas depuis le téléphone**, et que sa durée de vie
+ * n'a rien à voir avec celle d'un service. Ce contrat n'a qu'un verbe, en lecture
+ * seule ; le glisser dans celui du service donnerait une interface de dix verbes
+ * dont un seul n'écrit rien, et ferait relire les notes à chaque heartbeat.
+ */
+interface ServiceNoteRepository {
+    /**
+     * Les notes affichées ce jour, la plus récemment applicable d'abord.
+     *
+     * @param line l'indice public — « 1 », « C3 ». `null` demande tout le réseau.
+     *
+     * ⚠️ **Filtrer sur une ligne ne retire pas les notes générales** : une note sans
+     * ligne vaut pour tout le réseau, et le serveur la garde dans la réponse. Voir
+     * [ServiceNote.concerns], qui applique la même règle côté client.
+     *
+     * @return une liste éventuellement vide. **Aucune note n'est pas une erreur** —
+     * il n'y a pas tous les jours une consigne neuve, et lever pour un réseau calme
+     * ferait un bandeau rouge chaque matin.
+     */
+    suspend fun fetchNotes(session: AuthSession, line: String? = null): List<ServiceNote>
+}
+
+/**
+ * La messagerie Aule Pro — les routes `api/hub` du BFF (contrat §12).
+ *
+ * ## Deux lectures qui n'ont rien en commun
+ *
+ * [messages] remonte l'historique. [delta] rend **ce qui a changé** : les
+ * messages neufs, mais aussi les éditions, les suppressions et les réactions sur
+ * un message déjà affiché. La base compare une date d'activité, et non la date
+ * de création — qui, elle, ne bouge jamais.
+ *
+ * ## Ce qu'une liste vide veut dire
+ *
+ * Rien. Un réseau calme n'est pas une panne : toutes les lectures aplatissent un
+ * 404 en vide, comme le reste du dépôt. Les **écritures**, elles, lèvent un
+ * [HubException] — et une réponse vide sur une écriture n'est jamais un succès.
+ */
+interface HubRepository {
+    /**
+     * Crée les canaux Réseau et Dépôt, et y inscrit l'agent.
+     *
+     * ⚠️ À l'ouverture de l'écran, et au retour au premier plan après une heure.
+     * **Pas à chaque tour de boucle** : c'est une écriture.
+     */
+    suspend fun bootstrap(session: AuthSession): HubBootstrap
+
+    suspend fun channels(session: AuthSession): List<HubChannel>
+
+    suspend fun messages(
+        session: AuthSession,
+        channelId: String,
+        before: Instant? = null,
+    ): HubMessagePage
+
+    suspend fun delta(session: AuthSession, channelId: String, after: Instant): HubMessagePage
+
+    /**
+     * [clientId] porte l'idempotence : le même identifiant rejoué ne poste
+     * qu'une fois, et la base rend le premier message.
+     */
+    suspend fun send(
+        session: AuthSession,
+        channelId: String,
+        body: String,
+        clientId: String,
+        replyTo: String? = null,
+        fileId: String? = null,
+    ): HubMessage
+
+    suspend fun edit(session: AuthSession, messageId: String, body: String): HubMessage
+
+    suspend fun delete(session: AuthSession, messageId: String): HubMessage
+
+    suspend fun toggleReaction(session: AuthSession, messageId: String, emoji: String): HubMessage
+
+    suspend fun markRead(session: AuthSession, channelId: String, at: Instant? = null): HubChannel
+
+    suspend fun updateMembership(
+        session: AuthSession,
+        channelId: String,
+        muted: Boolean? = null,
+        favorite: Boolean? = null,
+        archived: Boolean? = null,
+    ): HubChannel
+
+    suspend fun createGroup(
+        session: AuthSession,
+        name: String,
+        memberIds: List<String> = emptyList(),
+    ): HubChannel
+
+    suspend fun rename(session: AuthSession, channelId: String, name: String): HubChannel
+
+    suspend fun addMembers(
+        session: AuthSession,
+        channelId: String,
+        userIds: List<String>,
+    ): HubChannel
+
+    suspend fun removeMember(session: AuthSession, channelId: String, userId: String): HubChannel
+
+    suspend fun leave(session: AuthSession, channelId: String)
+
+    suspend fun closeGroup(session: AuthSession, channelId: String): HubChannel
+
+    suspend fun members(session: AuthSession, channelId: String): List<HubMember>
+
+    suspend fun openDirect(session: AuthSession, userId: String): HubChannel
+
+    /**
+     * Rend une liste vide sous deux caractères : on ne montre pas l'annuaire du
+     * réseau, et la base refuserait de toute façon de le servir.
+     */
+    suspend fun searchColleagues(session: AuthSession, query: String): List<HubColleague>
+
+    suspend fun unread(session: AuthSession): HubUnread
+
+    /**
+     * Téléverse une pièce jointe **en trois temps** : URL signée, envoi direct
+     * vers Storage, déclaration. Le fichier ne traverse pas le BFF — Vercel
+     * plafonne un corps de requête à 4,5 Mo, et un planning photographié le
+     * dépasse.
+     */
+    suspend fun upload(
+        session: AuthSession,
+        channelId: String,
+        bytes: ByteArray,
+        fileName: String,
+        mimeType: String,
+        kind: HubFileKind,
+    ): HubFile
+
+    /**
+     * Le jeton d'appareil.
+     *
+     * ⚠️ [appEnv] vient du **binaire**, pas du BFF : il décide de l'hôte APNs
+     * côté serveur, et un jeton de build de développement envoyé en production
+     * serait marqué mort à tort.
+     */
+    suspend fun registerPushToken(session: AuthSession, token: String, appEnv: String)
+
+    suspend fun unregisterPushToken(session: AuthSession, token: String)
+}
+
+/**
+ * Ce qui attend le réseau, sur le disque.
+ *
+ * Un tunnel, un dépôt en sous-sol, une zone blanche : ce sont les endroits d'où
+ * un conducteur écrit. Une file en mémoire meurt avec le processus, et le
+ * message avec elle — sans que personne ne le sache.
+ */
+interface HubOutboxStore {
+    suspend fun load(): List<HubPendingMessage>
+    suspend fun save(pending: List<HubPendingMessage>)
 }

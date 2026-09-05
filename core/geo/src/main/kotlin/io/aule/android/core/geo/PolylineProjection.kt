@@ -44,14 +44,69 @@ data class PolylineMatch(
 object PolylineProjection {
 
     /**
-     * Fenêtre arrière : 1,8 % du tracé. Un bus ne recule pas.
+     * Fenêtre arrière, **en mètres**. Un bus ne recule pas.
      *
-     * Port de `SAE/lib/navigation/route_progress.dart`.
+     * Port de `SAE/lib/navigation/route_progress.dart`, où elle valait 1,8 % du
+     * tracé — voir [FORWARD_WINDOW_M] pour ce que la fraction coûtait.
      */
-    const val BACK_WINDOW = 0.018
+    const val BACK_WINDOW_M = 40.0
 
-    /** Fenêtre avant : 12 %. De quoi franchir un tunnel entre deux positions. */
-    const val FORWARD_WINDOW = 0.12
+    /**
+     * Fenêtre avant, **en mètres**. De quoi franchir un tunnel entre deux
+     * positions.
+     *
+     * ## Pourquoi des mètres, et non un pourcentage
+     *
+     * Les deux fenêtres valaient une fraction du tracé : 1,8 % en arrière, 12 %
+     * en avant. Une fraction ne mesure pourtant rien de ce qui compte ici — ce
+     * qu'on veut borner, c'est **le chemin qu'on a pu parcourir depuis la
+     * position précédente**, et cela se compte en mètres, pas en proportion d'un
+     * trajet dont la longueur n'a rien à voir.
+     *
+     * La fraction se retournait aux deux bouts. Sur les 1 832 m du trajet de
+     * recette, 12 % faisaient **220 m** de fenêtre avant : dans un rond-point,
+     * la branche de sortie tombe dedans, la projection pouvait s'y poser alors
+     * qu'on abordait à peine l'entrée, et l'avancement décrochait — la fenêtre
+     * arrière de 33 m ne permettait plus de revenir. L'écran annonçait alors
+     * « Vous avez quitté l'itinéraire » sur un trajet suivi au mètre près, et
+     * un recalcul partait toutes les douze secondes. Mesuré le 28/08/2026 : deux
+     * à quatre fois sur le tiers du trajet qui enchaîne huit ronds-points,
+     * **zéro** sur la portion droite qui le suit.
+     *
+     * À l'autre bout, sur un trajet de 50 km, 12 % auraient fait **six
+     * kilomètres** : la parade n'en était plus une.
+     *
+     * Cent cinquante mètres, c'est treize secondes à 40 km/h et quatre secondes
+     * à 130 : de quoi absorber un trou de signal sans offrir à la projection la
+     * moitié d'un giratoire.
+     */
+    const val FORWARD_WINDOW_M = 150.0
+
+    /**
+     * Écart au-delà duquel on soupçonne un décrochage plutôt qu'une sortie.
+     *
+     * La fenêtre protège du saut, mais quand elle a laissé passer un saut, elle
+     * emprisonne : l'avancement est en avant, la fenêtre arrière est courte, et
+     * plus rien ne ramène au bon brin. C'est ce que [RouteProgress] rattrape.
+     *
+     * Le seuil est sous les 32 m d'`OffRouteDetector` : on vérifie **avant** de
+     * conclure à une sortie, jamais après.
+     */
+    const val RECOVERY_DEVIATION_M = 25.0
+
+    /**
+     * Jusqu'où le rattrapage a le droit de déplacer l'avancement.
+     *
+     * Sans cette borne, le rattrapage **annulerait la fenêtre** : les deux
+     * situations se ressemblent trait pour trait — dans les deux cas la position
+     * est sur le tracé et la fenêtre ne l'y trouve pas. Ce qui les sépare, c'est
+     * la distance. Un décrochage de giratoire se compte en dizaines de mètres ;
+     * un brin parallèle pris pour l'autre, ou une position aberrante, envoie à
+     * des kilomètres.
+     *
+     * On rattrape donc un décrochage **local**, jamais une téléportation.
+     */
+    const val RECOVERY_SPAN_M = 400.0
 
     /**
      * Projette une position sur un tracé, en ne cherchant que dans une fenêtre
@@ -62,6 +117,10 @@ object PolylineProjection {
      * l'avancement fait des bonds de plusieurs kilomètres. Les bornes sont
      * dissymétriques — on avance beaucoup plus souvent qu'on ne recule.
      *
+     * Les bornes sont données **en mètres** et converties en fraction pour ce
+     * tracé-ci : c'est la longueur parcourue qu'on borne, pas une proportion du
+     * trajet — voir [FORWARD_WINDOW_M].
+     *
      * @param currentT avancement connu, ou `null` pour chercher sur tout le tracé
      *   (premier appel).
      */
@@ -69,11 +128,18 @@ object PolylineProjection {
         position: Coordinate,
         onto: List<Coordinate>,
         currentT: Double? = null,
-        backWindow: Double = BACK_WINDOW,
-        forwardWindow: Double = FORWARD_WINDOW,
+        backWindowMeters: Double = BACK_WINDOW_M,
+        forwardWindowMeters: Double = FORWARD_WINDOW_M,
     ): PolylineMatch? {
-        val minT = if (currentT != null) max(0.0, currentT - backWindow) else 0.0
-        val maxT = if (currentT != null) min(1.0, currentT + forwardWindow) else 1.0
+        if (currentT == null) return projectWithin(position, onto)
+        // Le second parcours des longueurs cumulées est dans `projectWithin`.
+        // Une fois par seconde sur quelques centaines de points, il ne pèse
+        // rien — contrairement à la boucle d'image des véhicules, qui passe
+        // par `PolylinePath` justement pour ne pas le refaire.
+        val total = length(onto)
+        if (total <= 0) return null
+        val minT = max(0.0, currentT - backWindowMeters / total)
+        val maxT = min(1.0, currentT + forwardWindowMeters / total)
         return projectWithin(position, onto, minT = minT, maxT = maxT)
     }
 

@@ -164,7 +164,18 @@ fun tripSummary(
                 java.time.Duration.between(now, arrival).atLeastZero()
             }
         }
-        plan.arrivalAt != null -> {
+        // ⚠️ `plan.arrivalAt` ne fait autorité que sur un trajet à horaire.
+        //
+        // C'est une heure figée au moment du calcul. Sur un tram, elle est
+        // juste et le restera : le réseau l'a décidée. Sur une voiture, elle
+        // vieillit — et la campagne du 28/08/2026 a lu à l'écran « Distance
+        // 0 m » à côté de « Temps restant 11 min », puis « 8 min » treize
+        // minutes plus tard, l'heure d'arrivée ne bougeant pas d'un pouce.
+        // Trois chiffres qui se contredisent sur la même barre.
+        //
+        // Un guidage automobile doit donc retomber sur la branche suivante, qui
+        // recalcule à mesure qu'on avance.
+        plan.arrivalAt != null && plan.hasSchedule -> {
             arrival = plan.arrivalAt
             remaining = java.time.Duration.between(now, arrival).atLeastZero()
         }

@@ -2,17 +2,29 @@ package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -34,10 +46,12 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.designsystem.AuleTheme
@@ -49,6 +63,8 @@ import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.token.AuleChrome
+import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.geo.GeoMath
@@ -101,12 +117,46 @@ import kotlinx.coroutines.flow.StateFlow
  * hauts arrondis, poignée — parce qu'une liste de résultats se lit sur une
  * surface, pas sur une carte posée sur la ville.
  *
- * ## Il ne s'ouvre qu'au doigt posé sur le champ
+ * ## Ce que la carte a repris au volet d'iOS
  *
- * Le glissement est coupé tant qu'il est fermé (`sheetSwipeEnabled`). Une carte
- * flottante ne s'annonce pas comme un volet : lui laisser le geste de montée
- * aurait promis un palier que rien n'indique, et l'aurait ouverte au premier
- * défilement de carte mal visé.
+ * Elle en était la version serrée : une bande de 56 points, un champ et un
+ * avatar de 30 dessinés sous le plancher tactile, un blanc plein, pas de
+ * poignée. Côte à côte avec la capture d'iOS, ce n'était pas la même surface —
+ * la nôtre se lisait comme un contrôle rangé en bas de l'écran, la sienne
+ * comme le socle de l'écran. Quatre choses les séparaient, et ce sont les
+ * quatre qui changent ici :
+ *
+ * - **la hauteur** — [AuleChrome.socle] est désormais la somme d'iOS, la bande
+ *   qui dégage la poignée plus le contenu à sa taille tactile plus la même
+ *   bande dessous ;
+ * - **le contenu** — champ et avatar au plancher, [AuleChrome.socleControl],
+ *   et le champ au cran du titre de volet : au repos, « Où allez-vous ? » est
+ *   le seul mot de l'écran ;
+ * - **la poignée** — celle de Material, dessinée dans la carte : voir plus
+ *   bas ;
+ * - **le verre** — la carte laisse deviner la ville dessous
+ *   ([AuleAlpha.GLASS]) et se borde d'un trait clair, comme tout ce qui flotte
+ *   au-dessus de la carte dans cette application. Ce n'est pas le flou
+ *   d'arrière-plan d'iOS, et ça ne peut pas l'être : la `MapView` est une vue
+ *   native rendue hors de l'arbre Compose, hors d'atteinte de tout effet, et
+ *   la capturer image par image pour la flouter coûterait au rendu
+ *   cartographique lui-même. Voir `AuleGlassSurface`, qui porte l'argument.
+ *
+ * ## Il s'ouvre au doigt posé sur la carte, ou tiré vers le haut
+ *
+ * Le glissement du **volet** reste coupé tant que la recherche est fermée
+ * (`sheetSwipeEnabled`) : la surface du volet couvre alors toute la largeur de
+ * l'écran, marges de la carte flottante comprises, et lui laisser le geste
+ * aurait fait monter la recherche au premier défilement de ville mal visé, en
+ * bas de l'écran, là où le pouce travaille.
+ *
+ * La carte, elle, prend les deux gestes **sur sa propre surface** : l'appui,
+ * qui donne la mise au point au champ et ouvre le clavier, et le glissement
+ * vers le haut, qui monte le volet **sans** clavier — on ne tape pas dans un
+ * champ qu'on n'a pas visé. C'est ce que la poignée promet, et c'est la seule
+ * raison de la dessiner : un trait de préhension inerte est un mensonge, et
+ * l'ancienne version s'en passait précisément parce qu'elle n'avait rien à
+ * tenir.
  *
  * ## Ce qu'il montre suit son palier, et non l'état de la recherche
  *
@@ -135,6 +185,7 @@ import kotlinx.coroutines.flow.StateFlow
  * les distances, les lignes desservies. Sans elles, la recherche ne peut
  * répondre qu'avec ce que l'usager vient de taper.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun MapSearchSheet(
     search: MapSearchState,
@@ -146,6 +197,14 @@ internal fun MapSearchSheet(
     focusRequested: Boolean,
     onQueryChange: (String) -> Unit,
     onFieldFocused: () -> Unit,
+    /**
+     * La carte tirée vers le haut : elle monte le volet, et rien de plus.
+     *
+     * Distinct d'[onFieldFocused] par ce qu'il ne fait **pas** — donner la
+     * mise au point au champ, donc ouvrir le clavier. Tirer un volet est un
+     * geste de lecture : on veut voir ce qu'il y a dessous, pas taper.
+     */
+    onDragOpen: () -> Unit,
     onFocusConsumed: () -> Unit,
     onSocleHeightPx: (Float) -> Unit,
     onSelectStop: (StopSearchHit) -> Unit,
@@ -220,9 +279,14 @@ internal fun MapSearchSheet(
                         // repos : déployée, la recherche occupe l'écran, et
                         // prendre cette hauteur-là pour palier rouvrirait le
                         // volet en grand à chaque fermeture.
+                        //
+                        // La gouttière écarte la carte des trois bords de
+                        // l'écran, plus large que celle des volets : au repos,
+                        // c'est une carte flottante et non une bande collée,
+                        // et l'écart au bord est ce qui le dit.
                         Modifier
                             .onSizeChanged { onSocleHeightPx(it.height.toFloat()) }
-                            .padding(horizontal = AuleSpacing.lg)
+                            .padding(horizontal = AuleSpacing.xl)
                             .padding(bottom = AuleSpacing.sm)
                     },
                 ),
@@ -234,13 +298,19 @@ internal fun MapSearchSheet(
                         if (expanded) {
                             Modifier
                         } else {
+                            // ⚠️ **Un plancher, et non une hauteur.** La carte
+                            // vaut la somme d'iOS — voir [AuleChrome.socle] —,
+                            // et un réglage de texte agrandi la pousse au-delà
+                            // plutôt que d'y rogner le champ. Le palier suit,
+                            // puisqu'il se mesure quelques lignes plus haut.
                             Modifier
+                                .heightIn(min = AuleChrome.socle)
                                 .auleShadow(AuleElevation.FLOATING, shape)
                                 // **Toute la carte donne la mise au point au
                                 // champ.** Ce qui l'entoure est une marge, et
                                 // une marge qu'on touche sans rien obtenir est
                                 // une marge qui a l'air cassée. La carte
-                                // entière répond.
+                                // entière répond — poignée comprise.
                                 //
                                 // Par `pointerInput` et non `clickable` : ce
                                 // n'est pas un bouton. Un `clickable` poserait
@@ -253,57 +323,136 @@ internal fun MapSearchSheet(
                                 .pointerInput(Unit) {
                                     detectTapGestures { field.requestFocus() }
                                 }
+                                // **Et la carte tirée vers le haut la monte.**
+                                // C'est ce que promet la poignée, et le volet
+                                // ne peut pas tenir cette promesse à sa place :
+                                // son glissement à lui couvrirait toute la
+                                // largeur de l'écran, y compris la ville autour
+                                // de la carte. Un second `pointerInput` plutôt
+                                // qu'un seul : les deux détecteurs de Compose
+                                // ne se composent pas dans le même bloc, et
+                                // c'est le glissement qui perdrait.
+                                //
+                                // Vers le bas, rien : le socle ne se rejette
+                                // pas, et le volet refuse déjà ce geste-là.
+                                .pointerInput(Unit) {
+                                    detectVerticalDragGestures { change, delta ->
+                                        if (delta < 0f) {
+                                            change.consume()
+                                            onDragOpen()
+                                        }
+                                    }
+                                }
                         },
                     ),
                 shape = shape,
                 // Déployé, le volet peint déjà sa surface : une seconde
                 // par-dessus n'ajouterait qu'un aplat sur un aplat, et son coin
                 // arrondi viendrait doubler celui du volet.
-                color = if (expanded) Color.Transparent else MaterialTheme.colorScheme.surface,
+                //
+                // Au repos, c'est du verre : la ville se devine sous la carte,
+                // et le trait clair la détache d'un fond de tuile imprévisible.
+                // Le même dosage que tout ce qui flotte ici — voir
+                // `AuleGlassSurface`.
+                color = if (expanded) {
+                    Color.Transparent
+                } else {
+                    MaterialTheme.colorScheme.surface.copy(alpha = AuleAlpha.GLASS)
+                },
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (expanded) {
-                                Modifier.padding(
-                                    horizontal = AuleSpacing.lg,
-                                    vertical = AuleSpacing.sm,
-                                )
-                            } else {
-                                // La gouttière de la carte. Elle a suivi la
-                                // hauteur du champ quand celui-ci est redescendu
-                                // au plancher tactile : c'est la proportion
-                                // qu'on garde, pas la mesure. Ce qu'elle empêche
-                                // n'a pas changé — le champ et l'avatar
-                                // touchaient le bord, et la carte se lisait
-                                // comme un aplat coupé plutôt que comme une
-                                // surface posée.
-                                Modifier.padding(AuleSpacing.sm)
-                            },
-                        ),
-                    horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    SheetSearchField(
-                        query = search.query,
-                        onQuery = onQueryChange,
-                        placeholder = hint,
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    // La poignée, et la bande qui la dégage du champ.
+                    //
+                    // Elle est **dans** la carte et non au-dessus du volet :
+                    // le volet, lui, s'efface au repos, et sa poignée à lui
+                    // serait tombée sur la ville, à huit points au-dessus d'une
+                    // carte flottante à laquelle rien ne la rattache.
+                    //
+                    // La bande garde sa place dans les deux états — hauteur
+                    // nulle une fois déployée, mais le même nœud — pour la
+                    // raison qui commande tout ce bloc : ce qui suit est le
+                    // champ, et un frère qui apparaît et disparaît le fait
+                    // remonter d'un cran dans l'arbre.
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .focusRequester(field)
-                            // Le doigt posé sur le champ ouvre le volet — c'est
-                            // le seul chemin, et il ouvre le clavier du même
-                            // geste : on ne tape pas dans un champ qu'on n'a
-                            // pas visé.
-                            .onFocusChanged { if (it.isFocused) onFieldFocused() },
-                    )
-                    // L'avatar cède la place au champ dès que la recherche
-                    // s'ouvre : deux cibles dans le même coin finissent par se
-                    // toucher l'une pour l'autre, et c'est le champ qui gagne
-                    // quand on cherche.
-                    if (!expanded && accountAvatar != null) {
-                        accountAvatar()
+                            .fillMaxWidth()
+                            .height(if (expanded) 0.dp else AuleSpacing.lg),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        if (!expanded) {
+                            // ⚠️ **La poignée de Material réserve vingt-deux
+                            // points au-dessus et autant en dessous** d'un
+                            // trait qui en fait quatre : quarante-huit points
+                            // pour un volet qui les a, et que la carte du socle
+                            // n'a pas. `wrapContentHeight` la laisse se mesurer
+                            // à sa taille pleine puis la centre dans la bande —
+                            // le trait tombe au milieu des seize points, ses
+                            // marges transparentes débordent sans rien couvrir,
+                            // et c'est bien le trait de Material qu'on voit,
+                            // pas une copie qui en dériverait.
+                            //
+                            // Muette pour TalkBack : la carte entière porte
+                            // déjà l'action, et un nœud « poignée » de plus au
+                            // balayage annoncerait une seconde commande là où
+                            // il n'y en a qu'une.
+                            BottomSheetDefaults.DragHandle(
+                                modifier = Modifier
+                                    .wrapContentHeight(unbounded = true)
+                                    .clearAndSetSemantics {},
+                            )
+                        }
+                    }
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .then(
+                                if (expanded) {
+                                    Modifier.padding(
+                                        horizontal = AuleSpacing.lg,
+                                        vertical = AuleSpacing.sm,
+                                    )
+                                } else {
+                                    // La gouttière de la carte : ce qui empêche
+                                    // le champ et l'avatar de toucher le bord,
+                                    // et la carte de se lire comme un aplat
+                                    // coupé plutôt que comme une surface posée.
+                                    //
+                                    // Plus serrée de côté qu'en dessous, comme
+                                    // sur iOS : la carte est large et basse,
+                                    // et deux marges égales y auraient étranglé
+                                    // le champ dans le seul sens où il a besoin
+                                    // de place.
+                                    Modifier
+                                        .padding(horizontal = AuleSpacing.md)
+                                        .padding(bottom = AuleSpacing.lg)
+                                },
+                            ),
+                        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SheetSearchField(
+                            query = search.query,
+                            onQuery = onQueryChange,
+                            placeholder = hint,
+                            // Le cran du titre de volet, dans les deux paliers :
+                            // au repos, la question est le seul mot de l'écran,
+                            // et le champ ne change pas de voix en montant.
+                            textStyle = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier
+                                .weight(1f)
+                                .focusRequester(field)
+                                // Le doigt posé sur le champ ouvre le volet, et
+                                // il ouvre le clavier du même geste : on ne tape
+                                // pas dans un champ qu'on n'a pas visé.
+                                .onFocusChanged { if (it.isFocused) onFieldFocused() },
+                        )
+                        // L'avatar cède la place au champ dès que la recherche
+                        // s'ouvre : deux cibles dans le même coin finissent par
+                        // se toucher l'une pour l'autre, et c'est le champ qui
+                        // gagne quand on cherche.
+                        if (!expanded && accountAvatar != null) {
+                            accountAvatar()
+                        }
                     }
                 }
             }
@@ -679,6 +828,64 @@ private fun SearchSection(
  * @param highlighted le meilleur résultat, qui prend la surface de marque.
  */
 @Composable
+private fun WalkDistanceBadge(
+    walkMinutes: Int?,
+    distance: String?,
+    onBrand: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    val colors = MaterialTheme.colorScheme
+    val text = when {
+        walkMinutes != null && distance != null -> "$walkMinutes min · $distance"
+        walkMinutes != null -> "$walkMinutes min"
+        distance != null -> distance
+        else -> return
+    }
+    val ink = if (onBrand) AuleTheme.tokens.onAccent.color else colors.onSurfaceVariant
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = if (onBrand) {
+            AuleTheme.tokens.onAccent.color.copy(alpha = AuleAlpha.TINT)
+        } else {
+            colors.surfaceContainerHighest
+        },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = AuleSpacing.sm, vertical = PILL_TIGHT),
+            horizontalArrangement = Arrangement.spacedBy(PILL_TIGHT),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (walkMinutes != null) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.DirectionsWalk,
+                    contentDescription = null,
+                    tint = ink,
+                    modifier = Modifier.size(PILL_GLYPH),
+                )
+            }
+            Text(
+                text = text,
+                style = MaterialTheme.typography.labelSmallEmphasized,
+                color = ink,
+            )
+        }
+    }
+}
+
+/**
+ * Un arrêt trouvé, et de quoi le reconnaître sans l'ouvrir.
+ *
+ * Quatre faits, dans l'ordre où les questions se posent : **où** (le nom),
+ * *à quelle distance*, **quoi** (le mode, les quais), **quelles lignes**. Les
+ * lignes arrivent après les autres — elles viennent du réseau — et leur rangée
+ * n'existe pas tant qu'elles ne sont pas là : une rangée vide qui se remplit
+ * fait sauter la liste sous le doigt.
+ *
+ * @param kind ce qu'est ce lieu, déjà formulé : « Station de tram · 5 quais ».
+ * @param highlighted le meilleur résultat, qui prend la surface de marque.
+ */
+@Composable
 private fun SearchStopCard(
     name: String,
     mode: TransportMode,
@@ -692,6 +899,9 @@ private fun SearchStopCard(
 ) {
     val colors = MaterialTheme.colorScheme
     val distance = distanceMeters?.let { formatDistance(it) }
+    val walkMinutes = distanceMeters
+        ?.takeIf { it <= SEARCH_WALK_HORIZON_METERS }
+        ?.let { walkMinutesOver(it) }
     val walk = distanceMeters
         ?.takeIf { it <= SEARCH_WALK_HORIZON_METERS }
         ?.let { stringResource(R.string.nearby_walk, walkMinutesOver(it)) }
@@ -738,56 +948,65 @@ private fun SearchStopCard(
 
     val body: @Composable () -> Unit = {
         Row(
-            modifier = Modifier.padding(AuleSpacing.sm),
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
             ModeAvatar(mode = mode, onBrand = highlighted)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
                     Text(
                         text = name,
-                        // Le nom d'arrêt est la réponse à « où » : c'est le seul
-                        // mot de la carte qu'on lit avant tous les autres.
-                        style = MaterialTheme.typography.titleSmallEmphasized,
+                        style = MaterialTheme.typography.titleMediumEmphasized,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    if (distance != null) {
-                        Text(
-                            text = distance,
-                            style = MaterialTheme.typography.labelMedium,
-                            color = secondaryInk,
-                            modifier = Modifier.padding(start = AuleSpacing.sm),
+                    if (walkMinutes != null || distance != null) {
+                        WalkDistanceBadge(
+                            walkMinutes = walkMinutes,
+                            distance = distance,
+                            onBrand = highlighted,
+                            modifier = Modifier.padding(start = AuleSpacing.xs),
                         )
                     }
                 }
                 Text(
-                    // Le temps de marche voyage sur la ligne du mode : seul, il
-                    // coûterait une rangée entière pour trois mots.
-                    text = if (walk != null) "$kind · $walk" else kind,
-                    style = MaterialTheme.typography.bodyMedium,
+                    text = kind,
+                    style = MaterialTheme.typography.bodySmall,
                     color = secondaryInk,
-                    maxLines = 2,
+                    maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (lines.isNotEmpty()) {
-                    ServingStrip(lines = lines)
+                    ServingStrip(
+                        lines = lines,
+                        modifier = Modifier.padding(top = AuleSpacing.xs),
+                    )
                 }
             }
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                contentDescription = null,
+                tint = secondaryInk.copy(alpha = AuleAlpha.DISABLED),
+                modifier = Modifier.size(AuleControl.icon),
+            )
         }
     }
 
     if (highlighted) {
         AuleBrandSurface(
             modifier = cardModifier,
-            shape = MaterialTheme.shapes.medium,
-            // `RESTING` et non `FLOATING` : la liste est posée à plat sur la
-            // surface de la recherche, et une ombre haute ferait flotter une
-            // carte au-dessus d'une page qui n'en est pas une.
+            shape = MaterialTheme.shapes.large,
             elevation = AuleElevation.RESTING,
             onClick = onSelect,
         ) {
@@ -797,6 +1016,7 @@ private fun SearchStopCard(
         Card(
             onClick = onSelect,
             modifier = cardModifier,
+            shape = MaterialTheme.shapes.large,
             colors = CardDefaults.cardColors(
                 containerColor = colors.surfaceContainerHigh,
                 contentColor = colors.onSurface,
@@ -848,14 +1068,17 @@ private fun SearchPlaceCard(
                 contentDescription = label
                 onClick(label = hint, action = null)
             },
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = colors.surfaceContainerHigh,
             contentColor = colors.onSurface,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(AuleSpacing.sm),
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm),
+            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             ModeAvatar(mode = place.stopMode)
@@ -863,27 +1086,50 @@ private fun SearchPlaceCard(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
             ) {
-                Text(
-                    text = title,
-                    style = MaterialTheme.typography.titleSmallEmphasized,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMediumEmphasized,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    if (distance != null) {
+                        Surface(
+                            shape = CircleShape,
+                            color = colors.surfaceContainerHighest,
+                            modifier = Modifier.padding(start = AuleSpacing.xs),
+                        ) {
+                            Text(
+                                text = distance,
+                                style = MaterialTheme.typography.labelSmallEmphasized,
+                                color = colors.onSurfaceVariant,
+                                modifier = Modifier.padding(
+                                    horizontal = AuleSpacing.sm,
+                                    vertical = PILL_TIGHT,
+                                ),
+                            )
+                        }
+                    }
+                }
                 Text(
                     text = context,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = colors.onSurfaceVariant,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            if (distance != null) {
-                Text(
-                    text = distance,
-                    style = MaterialTheme.typography.labelMedium,
-                    color = colors.onSurfaceVariant,
-                )
-            }
+            Icon(
+                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                contentDescription = null,
+                tint = colors.onSurfaceVariant.copy(alpha = AuleAlpha.DISABLED),
+                modifier = Modifier.size(AuleControl.icon),
+            )
         }
     }
 }
@@ -956,3 +1202,27 @@ private const val SEARCH_WALK_HORIZON_METERS = 2_000.0
  * levé.
  */
 private const val SEARCH_DETAIL_DEBOUNCE_MS = 450L
+
+/**
+ * Le serrage des pastilles de la recherche — « 12 min · 900 m », « 300 m ».
+ *
+ * Deux points, là où le plus petit cran du kit en pose quatre, et le même
+ * chiffre pour l'écart entre le glyphe et son texte. Ces pastilles ne sont pas
+ * des blocs mais des **annotations** posées à côté d'un nom d'arrêt : au cran de
+ * base, elles atteindraient la hauteur de la ligne qu'elles qualifient et se
+ * liraient comme un second titre au lieu d'une précision.
+ *
+ * La mesure ne monte pas dans le design system : c'est le seul endroit du
+ * produit qui annote une rangée de cette façon, et un jeton qu'un seul appelant
+ * utilise ne fait pas une échelle.
+ */
+private val PILL_TIGHT = 2.dp
+
+/**
+ * Le glyphe de marche dans cette pastille.
+ *
+ * Sous le cran des icônes de contrôle ([AuleControl.icon], 24 points), qui
+ * domine un texte de onze plutôt que de l'accompagner. Il se règle sur la
+ * hauteur des chiffres qu'il précède, pas sur l'échelle des boutons.
+ */
+private val PILL_GLYPH = 13.dp

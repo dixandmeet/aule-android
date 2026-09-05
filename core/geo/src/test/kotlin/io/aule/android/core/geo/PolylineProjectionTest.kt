@@ -47,13 +47,11 @@ class PolylineProjectionTest {
     @Test
     fun `la fenetre empeche l avancement de sauter en avant`() {
         val far = Coordinate(latitude = 47.2136, longitude = -1.5420) // ≈ 90 % du tracé
+        val avant = PolylineProjection.FORWARD_WINDOW_M / PolylineProjection.length(line)
 
         val constrained = PolylineProjection.project(far, onto = line, currentT = 0.1)
         requireNotNull(constrained)
-        assertTrue(
-            constrained.t <= 0.1 + PolylineProjection.FORWARD_WINDOW + 0.001,
-            "t contraint = ${constrained.t}",
-        )
+        assertTrue(constrained.t <= 0.1 + avant + 0.001, "t contraint = ${constrained.t}")
 
         val unconstrained = PolylineProjection.project(far, onto = line)
         requireNotNull(unconstrained)
@@ -63,11 +61,38 @@ class PolylineProjectionTest {
     @Test
     fun `la fenetre arriere est serree — un bus ne recule pas`() {
         val behind = Coordinate(latitude = 47.2136, longitude = -1.5600)
+        val arriere = PolylineProjection.BACK_WINDOW_M / PolylineProjection.length(line)
         val match = PolylineProjection.project(behind, onto = line, currentT = 0.6)
         requireNotNull(match)
-        assertTrue(
-            match.t >= 0.6 - PolylineProjection.BACK_WINDOW - 0.001,
-            "t = ${match.t}",
+        assertTrue(match.t >= 0.6 - arriere - 0.001, "t = ${match.t}")
+    }
+
+    /**
+     * Ce que la fraction faisait perdre : la même fenêtre, exprimée en
+     * pourcentage, valait 220 m sur un trajet de 1,8 km et **six kilomètres**
+     * sur un trajet de 50 km. En mètres, elle vaut la même chose partout.
+     */
+    @Test
+    fun `la fenetre vaut autant de metres quelle que soit la longueur du trace`() {
+        fun fenetreEnMetres(points: List<Coordinate>): Double {
+            val total = PolylineProjection.length(points)
+            val bout = PolylineProjection.pointAt(points, 1.0)!!.point
+            val match = PolylineProjection.project(bout, onto = points, currentT = 0.0)!!
+            return match.t * total
+        }
+        // Un tracé dix fois plus long ne donne pas une fenêtre dix fois plus grande.
+        val longue: List<Coordinate> = (0..100).map {
+            Coordinate(latitude = 47.2136, longitude = -1.5600 + it * 0.002)
+        }
+        assertEquals(
+            PolylineProjection.FORWARD_WINDOW_M,
+            fenetreEnMetres(line),
+            15.0,
+        )
+        assertEquals(
+            PolylineProjection.FORWARD_WINDOW_M,
+            fenetreEnMetres(longue),
+            15.0,
         )
     }
 

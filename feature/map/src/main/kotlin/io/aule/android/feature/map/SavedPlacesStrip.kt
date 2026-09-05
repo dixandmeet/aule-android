@@ -15,6 +15,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Tune
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -35,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.component.asImageVector
+import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleTouch
@@ -187,10 +189,8 @@ private fun SavedPlaceChip(
                 contentDescription = label
                 onClick(label = hint, action = null)
             },
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
-            // Une pastille vide se distingue par sa surface, pas par un trait :
-            // le contour se serait ajouté aux quatre bords déjà dessinés par la
-            // rangée, et la ligne serait devenue une grille.
             containerColor = if (detail == null) {
                 colors.surfaceContainer
             } else {
@@ -200,7 +200,7 @@ private fun SavedPlaceChip(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(AuleSpacing.sm),
+            modifier = Modifier.padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm),
             horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -244,13 +244,14 @@ private fun ManageChip(hasPlaces: Boolean, rank: Int, onClick: () -> Unit) {
             .defaultMinSize(minWidth = AuleTouch.minimum, minHeight = AuleTouch.minimum)
             .auleEnter(index = rank)
             .semantics(mergeDescendants = true) { contentDescription = label },
+        shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
             containerColor = colors.surfaceContainer,
             contentColor = colors.onSurfaceVariant,
         ),
     ) {
         Row(
-            modifier = Modifier.padding(AuleSpacing.sm),
+            modifier = Modifier.padding(horizontal = AuleSpacing.md, vertical = AuleSpacing.sm),
             horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
             verticalAlignment = Alignment.CenterVertically,
         ) {
@@ -272,11 +273,6 @@ private fun ManageChip(hasPlaces: Boolean, rank: Int, onClick: () -> Unit) {
 
 /**
  * La pastille d'icône d'un favori.
- *
- * Même dessin que [ModeAvatar], teinte en moins : un favori n'appartient à
- * aucun mode de transport, et lui donner la couleur du tram ferait croire à un
- * lien avec le réseau. Elle prend donc la teinte secondaire du thème — présente,
- * mais qui ne prétend rien.
  */
 @Composable
 internal fun SavedPlaceAvatar(
@@ -287,9 +283,9 @@ internal fun SavedPlaceAvatar(
     val colors = MaterialTheme.colorScheme
     Surface(
         modifier = modifier.size(AuleControl.avatarBadge),
-        shape = MaterialTheme.shapes.small,
-        color = if (muted) Color.Transparent else colors.secondaryContainer,
-        contentColor = if (muted) colors.onSurfaceVariant else colors.onSecondaryContainer,
+        shape = CircleShape,
+        color = if (muted) Color.Transparent else colors.primary.copy(alpha = AuleAlpha.TINT),
+        contentColor = if (muted) colors.onSurfaceVariant else colors.primary,
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
@@ -312,16 +308,5 @@ internal fun SavedPlaceSlot.labelRes(): Int = when (this) {
 
 /**
  * La part de la largeur qu'occupe une pastille.
- *
- * 42 % : deux pastilles entières, leur gouttière, et ce qui reste laisse voir la
- * troisième — assez pour qu'on sache qu'il y a une suite, pas assez pour qu'on
- * la prenne pour une pastille tronquée.
- *
- * Toutes de la même largeur, et c'est le point : deux lignes de texte coupées au
- * même endroit se balayent d'un regard, là où des pastilles réglées sur leur
- * contenu font une rangée en dents de scie où l'œil s'arrête à chaque bord.
- * « Domicile » et « 12 rue Paul Bellamy » tiennent ; « Salle de sport de la
- * Beaujoire » s'ellipse — le sous-titre n'est là que pour départager deux
- * raccourcis voisins.
  */
-private const val CHIP_WIDTH_FRACTION = 0.42f
+private const val CHIP_WIDTH_FRACTION = 0.48f

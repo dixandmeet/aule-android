@@ -1,7 +1,6 @@
 package io.aule.android.feature.map
 
 import android.view.HapticFeedbackConstants
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
@@ -49,7 +49,6 @@ import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleGlassSurface
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.RealtimeDot
 import io.aule.android.core.designsystem.component.realtimeInk
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleAlpha
@@ -82,12 +81,19 @@ internal fun MapHud(
     state: MapUiState,
     authorization: LocationAuthorization,
     lastLocationError: String?,
-    onShowNearby: () -> Unit,
     onRetryStops: () -> Unit,
     onOpenSettings: () -> Unit,
     onRequestPrecise: () -> Unit,
     onOpenTrip: () -> Unit = {},
     onSummaryHeightPx: (Float) -> Unit = {},
+    /**
+     * La limitation réglementaire, quand une note de service en décrit une ici.
+     *
+     * Elle ne dépend **pas** du guidage, contrairement au cadran : un conducteur de
+     * tramway ne suit aucun itinéraire, et c'est précisément lui que la note
+     * concerne. Voir [io.aule.android.core.model.SpeedLimitTable].
+     */
+    speedLimitKmh: Int? = null,
     serviceBanner: String? = null,
     serviceBannerAction: String? = null,
     onServiceBannerAction: (() -> Unit)? = null,
@@ -142,14 +148,6 @@ internal fun MapHud(
                 if (watch != null) {
                     WatchPill(watch = watch, onClick = onOpenWatch)
                 }
-                if (state.showsFleetStatus) {
-                    FleetStatusPill(
-                        label = state.fleetStatus.label(),
-                        isLive = state.fleetStatus is io.aule.android.core.model.FleetStatus.LiveOnly ||
-                            state.fleetStatus is io.aule.android.core.model.FleetStatus.Mixed,
-                        onClick = onShowNearby,
-                    )
-                }
                 IssueBanner(
                     state = state,
                     authorization = authorization,
@@ -162,6 +160,25 @@ internal fun MapHud(
         }
 
         Box(modifier = Modifier.weight(1f))
+
+        // Hors guidage, le panneau se pose **seul**, au-dessus du socle de
+        // recherche et du côté qui ne tombe pas sous le pouce.
+        //
+        // C'est le cas courant de ce panneau, et non l'exception : un conducteur de
+        // tramway ne suit aucun itinéraire, et c'est précisément lui que la note de
+        // service concerne. Le ranger dans la bande de guidage l'aurait rendu
+        // invisible à qui il s'adresse.
+        if (!navigating && speedLimitKmh != null) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = AuleSpacing.lg)
+                    .padding(bottom = AuleSpacing.sm),
+            ) {
+                SpeedLimitSign(kmh = speedLimitKmh)
+                Spacer(modifier = Modifier.weight(1f))
+            }
+        }
 
         // La bande du bas appartient au **volet** — au socle de recherche hors
         // guidage, à la barre d'arrivée dès qu'on roule. Le HUD n'y pose que la
@@ -186,8 +203,18 @@ internal fun MapHud(
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 val speed = navigation.speedKmh
-                if (speed != null) {
-                    SpeedPill(kmh = speed)
+                if (speed != null || speedLimitKmh != null) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (speed != null) SpeedPill(kmh = speed)
+                        // ⚠️ **À côté du cadran, et sans verre ni teinte.** Un
+                        // panneau réglementaire se reconnaît, il ne se lit pas :
+                        // l'arrondir ou le fondre dans l'ambiance lui retirerait la
+                        // seule chose qui le rende instantané.
+                        speedLimitKmh?.let { SpeedLimitSign(kmh = it) }
+                    }
                 }
                 TripSummaryBar(
                     summary = navigation.summary,
@@ -305,45 +332,6 @@ private fun WatchPill(watch: DepartureWatch, onClick: () -> Unit) {
     )
 }
 
-@Composable
-private fun FleetStatusPill(
-    label: String,
-    isLive: Boolean,
-    onClick: () -> Unit,
-) {
-    val hint = stringResource(R.string.fleet_nearby_hint)
-    val colors = MaterialTheme.colorScheme
-    AssistChip(
-        onClick = onClick,
-        // Le libellé descend d'un cran, appuyé. Une pastille d'état n'est pas
-        // une commande : elle répond à « est-ce que ça vit ? » d'un coup d'œil
-        // et rien ne se joue si on ne la lit pas. Au corps d'un libellé de
-        // bouton, elle se disputait le bandeau posé juste au-dessus.
-        label = {
-            Text(text = label, style = MaterialTheme.typography.labelMediumEmphasized)
-        },
-        leadingIcon = {
-            RealtimeDot(
-                isLive = isLive,
-                liveDescription = label,
-                scheduledDescription = label,
-            )
-        },
-        // Une puce transparente posée sur une carte se lit sur ce qui passe
-        // dessous : au-dessus d'un toit sombre, « 22 à l'horaire » disparaissait.
-        // Le verre lui donne un fond sans la couper de la ville, et l'ombre la
-        // pose franchement au-dessus plutôt que dedans.
-        colors = AssistChipDefaults.assistChipColors(
-            containerColor = colors.surface.copy(alpha = AuleAlpha.GLASS),
-            labelColor = colors.onSurface,
-        ),
-        border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
-        modifier = Modifier
-            .auleShadow(AuleElevation.RESTING, AssistChipDefaults.shape)
-            .semantics { contentDescription = "$label. $hint" },
-    )
-}
-
 /**
  * Ce qui ne va pas, et ce qu'on peut y faire.
  *
@@ -412,6 +400,11 @@ private fun IssueBanner(
  *
  * Le suivi reste visible : le verre prend la teinte de la marque et le contour
  * s'allume, plutôt que de repeindre le disque entier.
+ *
+ * Sa taille est posée en toutes lettres — [AuleChrome.button] — alors que
+ * Material la donne déjà par défaut au *small FAB* : une mesure qui ne vient
+ * pas d'un jeton nommé, même quand elle coïncide avec lui, est une mesure
+ * qu'on ne peut plus auditer d'un coup d'œil sur ce fichier seul.
  */
 @Composable
 internal fun RecenterButton(
@@ -445,6 +438,7 @@ internal fun RecenterButton(
         // qui tient le bord du bouton au-dessus d'une tuile claire, là où
         // l'aplat opaque se suffisait à lui-même.
         modifier = modifier
+            .size(AuleChrome.button)
             .auleShadow(
                 level = AuleElevation.FLOATING,
                 shape = shape,

@@ -1,41 +1,58 @@
 package io.aule.android.feature.map
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.DirectionsWalk
+import androidx.compose.material.icons.outlined.DirectionsCar
+import androidx.compose.material.icons.outlined.DirectionsTransit
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
-import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleCappedFontScale
+import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.auleEnter
+import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleConnectedButtonGroup
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
@@ -43,9 +60,13 @@ import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.component.auleAccentButtonColors
-import io.aule.android.core.designsystem.token.AuleAlpha
+import io.aule.android.core.designsystem.component.delayInk
+import io.aule.android.core.designsystem.component.realtimeInk
+import io.aule.android.core.designsystem.token.AuleChrome
 import io.aule.android.core.designsystem.token.AuleControl
+import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.model.RouteCandidate
@@ -67,6 +88,30 @@ import java.time.Duration
  * « Démarrer » n'apparaît que sur un trajet retenu : un bouton offert
  * sans guidage derrière lui mentirait.
  *
+ * ## Ce que ce volet a rendu à la carte
+ *
+ * Il occupait **82 % de l'écran** une fois déployé, mesuré sur le S21 : un
+ * titre, deux rangées de liste pour les extrémités, un sélecteur sur deux
+ * lignes, deux rangées de trajet dont une en aplat de marque plein, un bouton.
+ * Il restait à la ville une bande de la hauteur d'un doigt — c'est-à-dire que
+ * l'écran ne montrait plus *où* passe le trajet qu'il décrivait.
+ *
+ * Quatre décisions lui ont rendu le tiers de sa hauteur, et aucune n'a retiré
+ * d'information :
+ *
+ * - le **titre a disparu**. « Itinéraire » nommait ce qu'on venait de demander,
+ *   au-dessus de deux lignes qui le disaient déjà mieux — d'où l'on part, où
+ *   l'on va. TalkBack, lui, garde le nom du volet : il vient de `paneTitle`
+ *   (`MapScreen`), pas d'un texte à l'écran ;
+ * - les **extrémités tiennent sur deux lignes** au lieu de deux rangées de
+ *   liste, tenues par un rail dessiné qui dit le sens sans l'écrire ;
+ * - le **sélecteur de modes tient sur une ligne** : un glyphe, la durée, et
+ *   c'est tout — voir [RouteModes] ;
+ * - « Démarrer » **ne défile plus** : il a quitté le volet pour se poser au bord
+ *   de l'écran — voir [RouteStartBar]. Le volet lui réserve sa hauteur en pied
+ *   ([RouteActionBarHeight]), pour que la dernière variante puisse toujours être
+ *   amenée au-dessus de lui.
+ *
  * ## Un choix, donc des boutons radio
  *
  * Les variantes ne sont pas une liste qu'on parcourt, c'est un choix dont une
@@ -77,62 +122,30 @@ import java.time.Duration
  *
  * **Sauf quand il n'y en a qu'une.** Le moteur ne renvoie souvent qu'un seul
  * trajet, et « sélectionné, 1 sur 1 » annonce alors un choix qui n'existe pas :
- * on n'y coche rien, on regarde ce qu'on va faire. La rangée unique perd donc
- * son rôle et son geste — elle garde l'aplat, qui ne dit plus « celle-ci parmi
+ * on n'y coche rien, on regarde ce qu'on va faire. La carte unique perd donc
+ * son rôle et son geste — elle garde le cerne, qui ne dit plus « celle-ci parmi
  * les autres » mais « celle que Démarrer engage ».
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun RouteSheet(
     state: RouteUiState,
     onSelect: (String) -> Unit,
     onMode: (RouteMode) -> Unit,
     onSwap: () -> Unit,
-    onStart: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    SheetBody(modifier = modifier) {
-        SheetTitle(stringResource(R.string.route_title))
+    val engaged = state.engaged()
 
+    // La marge de pied ordinaire ne sert qu'en l'absence de barre : quand il y
+    // en a une, c'est sa propre hauteur que le volet réserve, plus bas.
+    SheetBody(modifier = modifier, footer = engaged == null) {
         RouteEndpoints(
             origin = state.origin.label,
             destination = state.destination.label,
             onSwap = onSwap,
         )
 
-        // L'ordre est celui du produit, pas celui de l'énumération : le transport
-        // en commun d'abord — c'est l'objet d'Aule — puis la marche, qui est la
-        // suite naturelle d'un trajet court, puis la voiture.
-        val modes = listOf(RouteMode.TRANSIT, RouteMode.WALK, RouteMode.CAR)
-        AuleConnectedButtonGroup(
-            options = modes,
-            selected = state.mode,
-            // ⚠️ **Le libellé porte la durée**, sur une seconde ligne.
-            //
-            // Sans elle, le groupe offrait trois choix sans rien pour les
-            // départager : il fallait en toucher un — donc relancer un calcul et
-            // perdre le trajet affiché — pour apprendre ce qu'il coûtait. Le
-            // segment fait déjà deux lignes (voir `AuleConnectedButtonGroup`), et
-            // la seconde était vide.
-            //
-            // Un mode qui n'a pas encore répondu garde son libellé seul : une
-            // ligne réservée pour un chiffre à venir ferait sauter le groupe
-            // sous le doigt au moment où il arrive.
-            label = { mode ->
-                val minutes = state.durations[mode]
-                if (minutes == null) {
-                    stringResource(mode.labelRes())
-                } else {
-                    stringResource(
-                        R.string.route_mode_with_duration,
-                        stringResource(mode.labelRes()),
-                        minutes,
-                    )
-                }
-            },
-            onSelect = onMode,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        RouteModes(mode = state.mode, durations = state.durations, onMode = onMode)
 
         when (state.status) {
             RouteLoadStatus.LOADING -> AuleLoadingState(
@@ -153,35 +166,71 @@ internal fun RouteSheet(
                     )
                 } else {
                     val choice = plan.alternatives.size > 1
-                    SheetCard(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .then(if (choice) Modifier.selectableGroup() else Modifier),
-                    ) {
-                        plan.alternatives.forEachIndexed { index, candidate ->
-                            RouteCandidateRow(
-                                candidate = candidate,
-                                selected = candidate.id == state.selectedId,
-                                choice = choice,
-                                rank = index,
-                                onClick = { onSelect(candidate.id) },
-                            )
-                            if (index < plan.alternatives.lastIndex) {
-                                SheetRowDivider()
+                    AuleCappedFontScale {
+                        Column(
+                            verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .then(if (choice) Modifier.selectableGroup() else Modifier),
+                        ) {
+                            plan.alternatives.forEachIndexed { index, candidate ->
+                                RouteOptionCard(
+                                    candidate = candidate,
+                                    selected = candidate.id == engaged?.id,
+                                    choice = choice,
+                                    rank = index,
+                                    onClick = { onSelect(candidate.id) },
+                                )
                             }
                         }
-                    }
-                    if (state.selected != null) {
-                        RouteStartButton(onStart = onStart)
                     }
                 }
             }
         }
+
+        // La barre flotte **au-dessus** du volet : sans cette réserve, la
+        // dernière variante ne pourrait jamais être amenée en clair, quel que
+        // soit le défilement. Elle ne compte pas la barre système — le volet
+        // porte déjà celle-ci, et la barre d'action aussi.
+        if (engaged != null) Spacer(Modifier.height(RouteActionBarHeight))
     }
 }
 
 /**
- * Les deux extrémités, et le geste qui les retourne.
+ * Le trajet que « Démarrer » engage, et lui seul.
+ *
+ * `selectedId` peut être nul le temps d'un aller-retour du modèle ; le plan, lui,
+ * retombe toujours sur sa première variante. Prendre l'un pour l'autre donnait
+ * une barre d'action armée au-dessus d'une liste où rien n'était cerné.
+ *
+ * Le volet et la barre lisent **la même** fonction : elle vit ici, et non dans
+ * chacun d'eux, parce que c'est la définition de « ce qu'on va prendre » — deux
+ * copies auraient fini par désigner deux trajets différents.
+ */
+internal fun RouteUiState.engaged(): RouteCandidate? =
+    selected?.takeIf { status == RouteLoadStatus.READY }
+
+/**
+ * Les deux extrémités, le rail qui les relie, et le geste qui les retourne.
+ *
+ * ## Deux lignes, et non deux rangées de liste
+ *
+ * C'étaient deux `ListItem` empilés, chacun avec son surtitre — « Départ »,
+ * « Arrivée » — au-dessus de son lieu. Cent-cinquante points de haut pour deux
+ * noms de rue, en tête d'un volet qui n'en avait pas à donner.
+ *
+ * Ce que les surtitres disaient, le **rail** le dit sans texte : un anneau en
+ * haut, un carré plein en bas, un pointillé entre les deux. C'est la grammaire
+ * commune à toutes les applications de mobilité, et c'est la seule chose de
+ * l'écran qu'on n'ait pas besoin d'apprendre. Les mots restent pour TalkBack,
+ * qui lit le bloc d'une traite — l'annoncer en deux rangées séparées faisait
+ * deux arrêts au balayage pour une seule question, « d'où vers où ».
+ *
+ * Le bloc porte aussi le rôle d'en-tête : le volet n'a plus de titre au-dessus
+ * de lui, et une navigation par en-têtes qui ne trouve rien tombe directement
+ * dans la liste des trajets.
+ *
+ * ## Le bouton d'inversion
  *
  * Inverser un trajet est le deuxième calcul le plus demandé après le premier :
  * on rentre par où l'on est venu. Sans ce bouton il fallait refermer le volet,
@@ -189,24 +238,62 @@ internal fun RouteSheet(
  * yeux — six gestes pour dire « dans l'autre sens ».
  *
  * Il se pose à droite des **deux** lignes plutôt que sur l'une d'elles : ce
- * n'est l'action ni du départ ni de l'arrivée, c'est celle de la paire. Le
- * filet s'arrête donc au bord de la colonne de texte — un trait qui passerait
- * sous le bouton le rattacherait à la ligne du dessous.
+ * n'est l'action ni du départ ni de l'arrivée, c'est celle de la paire.
  */
 @Composable
 private fun RouteEndpoints(origin: String, destination: String, onSwap: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val spoken = stringResource(R.string.route_endpoints_a11y, origin, destination)
     SheetCard(modifier = Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(modifier = Modifier.weight(1f)) {
-                RouteEndpoint(label = stringResource(R.string.route_from), value = origin)
-                SheetRowDivider()
-                RouteEndpoint(label = stringResource(R.string.route_to), value = destination)
+        Row(
+            modifier = Modifier
+                .padding(start = AuleSpacing.lg, end = AuleSpacing.xs)
+                .padding(vertical = AuleSpacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics(mergeDescendants = true) {
+                        heading()
+                        contentDescription = spoken
+                    },
+            ) {
+                RouteEndpointLine(value = origin) {
+                    // L'anneau, et non le disque : on part d'un point qu'on
+                    // occupe, on ne le vise pas. C'est la même distinction que
+                    // le point temps réel fait entre mesuré et théorique.
+                    Canvas(Modifier.size(RAIL_MARK)) {
+                        val stroke = AuleStroke.emphasis.toPx()
+                        drawCircle(
+                            color = colors.onSurfaceVariant,
+                            radius = size.minDimension / 2f - stroke / 2f,
+                            style = Stroke(width = stroke),
+                        )
+                    }
+                }
+                RouteRail(color = colors.outlineVariant)
+                RouteEndpointLine(value = destination) {
+                    // Le carré plein, à l'encre de marque : c'est la seule
+                    // chose de la paire qu'on ait choisie, et la seule qui
+                    // mérite la couleur du produit.
+                    Canvas(Modifier.size(RAIL_MARK)) {
+                        val side = size.minDimension
+                        drawRoundRect(
+                            color = colors.primary,
+                            topLeft = Offset((size.width - side) / 2f, (size.height - side) / 2f),
+                            size = Size(side, side),
+                            cornerRadius = CornerRadius(RAIL_MARK_CORNER.toPx()),
+                        )
+                    }
+                }
             }
             IconButton(
                 onClick = onSwap,
-                modifier = Modifier
-                    .padding(end = AuleSpacing.sm)
-                    .defaultMinSize(minWidth = AuleTouch.minimum, minHeight = AuleTouch.minimum),
+                modifier = Modifier.defaultMinSize(
+                    minWidth = AuleTouch.minimum,
+                    minHeight = AuleTouch.minimum,
+                ),
             ) {
                 Icon(
                     imageVector = AuleGlyph.SWAP.asImageVector(),
@@ -218,117 +305,299 @@ private fun RouteEndpoints(origin: String, destination: String, onSwap: () -> Un
 }
 
 /**
- * Une extrémité du trajet.
+ * Une extrémité : sa marque sur le rail, puis son nom.
  *
- * L'intitulé passe en surtitre plutôt qu'en sous-titre : « Départ » qualifie le
- * lieu qui suit, et le lire après lui oblige à revenir en arrière.
+ * Une seule ligne, coupée s'il le faut. Un nom de lieu qui se replierait sur
+ * deux ferait glisser la marque du dessous hors de son alignement, et le rail
+ * cesserait d'être un rail.
  */
 @Composable
-private fun RouteEndpoint(label: String, value: String) {
-    ListItem(
-        overlineContent = {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmallEmphasized,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        },
-        headlineContent = {
-            Text(
-                text = value,
-                // Un nom de lieu n'est pas du texte courant : c'est une réponse
-                // à « d'où » et « vers où », et ces deux réponses sont ce qu'on
-                // relit avant de valider un trajet. Le corps de texte les
-                // rendait aussi discrètes que leur propre intitulé.
-                style = MaterialTheme.typography.titleMedium,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-        },
-        // Transparent : la couleur vient du cartouche qui la porte.
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-    )
-}
-
-/**
- * Le seul engagement du volet, et il ouvre le guidage.
- *
- * Il prend la hauteur des actions principales de la maison — [AuleControl.height] —
- * au lieu de celle que Material donne par défaut, qui passe sous le plancher
- * tactile tenu partout ailleurs. Il porte l'icône de lecture pour la même
- * raison que « Y aller » porte celle d'itinéraire : un bouton pleine largeur
- * qui n'a qu'un mot se confond avec une bannière.
- *
- * TalkBack, lui, entend « Démarrer **le guidage** » : « Démarrer » seul, lu
- * hors de la rangée qui le précède, ne dit pas ce qui démarre.
- */
-@Composable
-private fun RouteStartButton(onStart: () -> Unit) {
-    val spoken = stringResource(R.string.route_start_a11y)
-    Button(
-        onClick = onStart,
-        modifier = Modifier
-            .fillMaxWidth()
-            .defaultMinSize(minHeight = AuleControl.height)
-            .semantics { contentDescription = spoken },
-        colors = auleAccentButtonColors(),
-        // Les crans d'un bouton à icône sont ceux de Material : ni la taille de
-        // l'icône ni son écart au texte ne se décident ici.
-        contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
-    ) {
-        Icon(
-            imageVector = AuleGlyph.PLAY.asImageVector(),
-            contentDescription = null,
-            modifier = Modifier.size(ButtonDefaults.IconSize),
+private fun RouteEndpointLine(value: String, mark: @Composable () -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier.width(RAIL_WIDTH),
+            contentAlignment = Alignment.Center,
+            content = { mark() },
         )
-        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-        Text(stringResource(R.string.route_start))
+        Spacer(Modifier.width(AuleSpacing.md))
+        Text(
+            text = value,
+            // Un nom de lieu n'est pas du texte courant : c'est une réponse à
+            // « d'où » et « vers où », et ces deux réponses sont ce qu'on relit
+            // avant de valider un trajet.
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
 /**
- * Une variante de trajet : quand elle part, combien elle dure, quand elle
- * arrive, ce qu'elle emprunte, ce qu'elle vaut.
+ * Le pointillé entre les deux marques.
  *
- * La durée est l'information qu'on compare — elle porte donc le rôle `DATA`,
- * aux chiffres à chasse fixe, pour que trois variantes empilées alignent leurs
- * minutes au lieu de les décaler.
- *
- * ## L'heure d'arrivée, qui manquait
- *
- * La rangée disait « 9 min » et « Départ 17:24 », et laissait faire l'addition.
- * Or ce qu'on cherche en calculant un itinéraire n'est presque jamais sa durée :
- * c'est l'heure à laquelle on sera là-bas, parce que c'est elle qu'on a promise
- * à quelqu'un. Le modèle la portait déjà (`arrivalAt`), le volet ne l'affichait
- * pas. Elle prend la droite de la ligne de titre, en encre secondaire — le
- * premier regard reste sur la durée, le deuxième trouve l'heure sans quitter
- * la ligne.
- *
- * Les deux heures se lisent en 24 heures via [rememberPassageClock], comme
- * partout ailleurs dans l'application. `FormatStyle.SHORT`, qui était employé
- * ici, suit la locale : le même trajet annonçait « 17:24 » en français et
- * « 5:24 PM » en anglais, quand les poteaux du réseau affichent 17:24 dans les
- * deux cas.
- *
- * ## La chaîne, puis les faits
- *
- * Ce qu'on emprunte se lit dans l'ordre où on l'emprunte : marche, ligne,
- * marche. Les badges seuls disaient « 80 » sans dire qu'il fallait d'abord
- * marcher — et une variante qui commence par dix minutes de marche n'est pas la
- * même que celle qui commence à l'arrêt d'en face.
- *
- * Sous la chaîne, ce que le serveur sait de la variante et que la rangée
- * jetait : le temps de marche, le nombre de changements, la tenue de la
- * correspondance. Ce sont les trois critères qui départagent deux trajets de
- * durée voisine.
- *
- * La distance, elle, ne s'affiche plus **que** sur un trajet qu'on fait par ses
- * propres moyens — la voiture, ou la marche seule. Sur un trajet en transports,
- * les kilomètres parcourus assis ne se décident pas, et ce qu'on marche est
- * déjà dit en minutes.
+ * Dessiné, et non écrit : la famille d'icônes d'Aule n'a pas de trait vertical,
+ * et un caractère typographique en guise de signe est ce que le kit interdit.
+ * Trois points suffisent à dire « et ensuite » ; un trait plein dirait « et
+ * pendant ce temps », ce qui serait faux — entre les deux extrémités il y a un
+ * trajet, pas une continuité de lieu.
  */
 @Composable
-private fun RouteCandidateRow(
+private fun RouteRail(color: Color) {
+    Box(modifier = Modifier.width(RAIL_WIDTH), contentAlignment = Alignment.Center) {
+        Canvas(
+            Modifier
+                .width(RAIL_WIDTH)
+                .height(RAIL_GAP),
+        ) {
+            val radius = RAIL_DOT.toPx() / 2f
+            val step = RAIL_DOT_STEP.toPx()
+            var y = radius
+            while (y <= size.height - radius) {
+                drawCircle(color = color, radius = radius, center = Offset(size.width / 2f, y))
+                y += step
+            }
+        }
+    }
+}
+
+/**
+ * Le choix du mode : un glyphe, une durée.
+ *
+ * ## Le libellé a laissé la place au chiffre
+ *
+ * Le segment portait « Transports » sur une ligne et « 15 min » sur la
+ * suivante. Le mot y coûtait vingt points de hauteur, répétés sur toute la
+ * largeur de l'écran, pour redire ce que le pictogramme dit plus vite — et
+ * personne ne lit « Transports » : on cherche le chiffre à côté du bus.
+ *
+ * Le glyphe prend donc le nom à sa charge et le groupe passe de deux lignes à
+ * une. TalkBack, lui, entend la phrase entière — « Transports, 15 min » — parce
+ * qu'un « 15 min » lu seul n'apprend pas de quoi il est la durée.
+ *
+ * L'ordre est celui du produit, pas celui de l'énumération : le transport en
+ * commun d'abord — c'est l'objet d'Aule — puis la marche, qui est la suite
+ * naturelle d'un trajet court, puis la voiture.
+ *
+ * Un mode qui n'a pas encore répondu n'affiche **que** son glyphe. Il ne
+ * réserve pas la place du chiffre à venir : le segment ne change que de
+ * largeur intérieure quand la durée arrive, jamais de hauteur, et le groupe ne
+ * saute pas sous le doigt.
+ */
+@Composable
+private fun RouteModes(
+    mode: RouteMode,
+    durations: Map<RouteMode, Int?>,
+    onMode: (RouteMode) -> Unit,
+) {
+    val modes = listOf(RouteMode.TRANSIT, RouteMode.WALK, RouteMode.CAR)
+    AuleConnectedButtonGroup(
+        options = modes,
+        selected = mode,
+        label = { candidate ->
+            durations[candidate]
+                ?.let { stringResource(R.string.route_duration, it) }
+                .orEmpty()
+        },
+        onSelect = onMode,
+        modifier = Modifier.fillMaxWidth(),
+        icon = { candidate ->
+            Icon(
+                imageVector = candidate.icon(),
+                contentDescription = null,
+                modifier = Modifier.fillMaxSize(),
+            )
+        },
+        spoken = { candidate ->
+            val name = stringResource(candidate.labelRes())
+            when (val minutes = durations[candidate]) {
+                null -> stringResource(R.string.route_mode_unknown_a11y, name)
+                else -> stringResource(R.string.route_mode_a11y, name, minutes)
+            }
+        },
+    )
+}
+
+/** Le pictogramme d'un mode, à la place du mot qu'il remplace. */
+private fun RouteMode.icon(): ImageVector = when (this) {
+    RouteMode.TRANSIT -> Icons.Outlined.DirectionsTransit
+    RouteMode.WALK -> Icons.AutoMirrored.Outlined.DirectionsWalk
+    RouteMode.CAR -> Icons.Outlined.DirectionsCar
+}
+
+/**
+ * La barre d'action, posée au bord de l'écran et non dans le volet.
+ *
+ * ## Pourquoi elle a quitté le volet
+ *
+ * « Démarrer » était le dernier bloc de la colonne qui défile : sur un plan à
+ * trois variantes, il passait sous le pli, et la seule action du volet demandait
+ * de faire défiler pour la trouver.
+ *
+ * L'épingler en bas du **volet** ne suffisait pas, et le S21 l'a montré tout de
+ * suite : un `BottomSheetScaffold` a deux crans, et le bas du contenu ne tombe
+ * au bas de l'écran qu'à l'un des deux. Au palier — 45 % de l'écran, voir
+ * `SHEET_PEEK_FRACTION` — le volet est simplement *descendu*, et son contenu
+ * dépasse par le bas : le bouton s'y retrouvait coupé en deux par les trois
+ * touches de navigation du système. Le calcul n'a pas de bonne issue : pour que
+ * la coupe tombe ailleurs que sur la barre, il faudrait que le contenu tienne
+ * sous le palier (il fait 449 dp pour un seul trajet, contre 360 de palier) ou
+ * qu'il le dépasse d'au moins la hauteur de la barre — et les plans réels
+ * tombent entre les deux.
+ *
+ * Elle est donc **hors du volet**, posée par `MapScreen` au bas de la fenêtre.
+ * C'est la position que les cartes de mobilité lui donnent toutes, et la seule
+ * qui vaille aux deux crans : au palier comme déployé, le pouce la trouve au
+ * même endroit.
+ *
+ * Elle porte son propre aplat, à la surface du volet : le contenu défile
+ * **dessous**, et un bouton posé sur du texte qui glisse se lit comme un défaut
+ * d'empilement. Le volet lui réserve [RouteActionBarHeight] en pied, de sorte
+ * que la dernière variante puisse toujours être amenée en clair.
+ *
+ * ## Pourquoi elle porte la durée
+ *
+ * Le bouton engage **une** variante, et la barre est précisément l'endroit d'où
+ * l'on ne voit plus laquelle : au palier, la carte cernée est au-dessus du pli.
+ * « Démarrer · 15 min » referme cette distance en trois caractères — c'est le
+ * même chiffre que la carte retenue affiche en grand, et le lire ici confirme
+ * qu'on part bien avec celle-là.
+ *
+ * TalkBack entend la phrase entière, heure d'arrivée comprise : c'est la
+ * dernière chose annoncée avant un geste qui allume le GPS et ouvre un service
+ * de premier plan.
+ */
+@Composable
+internal fun RouteStartBar(
+    candidate: RouteCandidate,
+    onStart: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val shape = MaterialTheme.shapes.medium
+    val hairline = MaterialTheme.colorScheme.outlineVariant
+    val clock = rememberPassageClock()
+    val spoken = listOfNotNull(
+        stringResource(R.string.route_start_a11y),
+        stringResource(R.string.route_duration, candidate.durationMinutes),
+        candidate.arrivalAt?.let { stringResource(R.string.route_arrives, clock.format(it)) },
+    ).joinToString(", ")
+
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        color = MaterialTheme.colorScheme.surface,
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    ) {
+        Column(
+            modifier = Modifier
+                .navigationBarsPadding()
+                .drawBehind {
+                    // Le filet d'arête : il dit que la barre est **posée sur**
+                    // la liste, et non qu'elle en est le dernier élément. Sans
+                    // lui, une variante coupée net par un aplat de la même
+                    // couleur que le volet se lit comme une variante tronquée.
+                    drawRect(
+                        color = hairline,
+                        size = Size(size.width, AuleStroke.hairline.toPx()),
+                    )
+                }
+                .padding(horizontal = AuleSpacing.lg)
+                .padding(top = AuleSpacing.md, bottom = AuleSpacing.lg),
+        ) {
+            Button(
+                onClick = onStart,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .auleShadow(
+                        level = AuleElevation.RESTING,
+                        shape = shape,
+                        tint = AuleShadowTint.ACCENT,
+                    )
+                    // La hauteur des actions principales de la maison, au lieu de
+                    // celle que Material donne par défaut — qui passe sous le
+                    // plancher tactile tenu partout ailleurs.
+                    .defaultMinSize(minHeight = AuleControl.height)
+                    .semantics { contentDescription = spoken },
+                shape = shape,
+                colors = auleAccentButtonColors(),
+                // Les crans d'un bouton à icône sont ceux de Material : ni la
+                // taille de l'icône ni son écart au texte ne se décident ici.
+                contentPadding = ButtonDefaults.ButtonWithIconContentPadding,
+            ) {
+                Icon(
+                    imageVector = AuleGlyph.PLAY.asImageVector(),
+                    contentDescription = null,
+                    modifier = Modifier.size(ButtonDefaults.IconSize),
+                )
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text(
+                    text = stringResource(
+                        R.string.route_start_with_duration,
+                        candidate.durationMinutes,
+                    ),
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Ce que la barre prend au volet, hors barre système.
+ *
+ * Calculée et non chiffrée : la barre et la réserve que le volet lui laisse
+ * sont **la même** mesure, et deux nombres écrits séparément auraient divergé au
+ * premier réglage de marge.
+ */
+internal val RouteActionBarHeight = AuleSpacing.md + AuleControl.height + AuleSpacing.lg
+
+/**
+ * Une variante de trajet, sur sa propre carte.
+ *
+ * ## Une carte par proposition, et non des rangées dans une carte
+ *
+ * Les variantes vivaient dans **un** cartouche, séparées par un filet. Deux
+ * trajets séparés d'un trait d'un point se lisent comme deux lignes d'un même
+ * tableau — or ce ne sont pas deux lignes d'un tableau, ce sont deux offres
+ * concurrentes entre lesquelles il faut trancher. Huit points de vide entre
+ * deux cartes disent ce que le filet ne disait pas : ce sont deux objets, pas
+ * deux moitiés d'un objet.
+ *
+ * ## La retenue se cerne, elle ne se peint plus
+ *
+ * La variante retenue prenait l'**aplat de marque plein** : un rectangle teal
+ * de cent-vingt points de haut, deux fois dans l'écran quand deux plans se
+ * suivaient. Le procédé disait bien « celle que vous prenez », et il le disait
+ * si fort qu'il ne restait plus de hiérarchie à l'intérieur de la carte — durée,
+ * heures et lignes s'écrasaient toutes sur le même fond coloré, à des encres
+ * voilées choisies pour survivre au teal plutôt que pour se lire.
+ *
+ * La retenue se dit maintenant **trois fois, sans aplat** : un cerne à l'encre
+ * de marque, la durée passée à cette même encre et appuyée, et la pastille de
+ * profil remplie au lieu d'être posée. Trois signaux qui ne coûtent pas un
+ * point de surface, et qui laissent le contenu se lire sur le fond de tous les
+ * autres cartouches du volet. Le cerne se dessine **dans** la forme : la carte
+ * ne change pas de taille en devenant celle qu'on prend, et la liste ne bouge
+ * pas sous le doigt.
+ *
+ * ## Ce que la carte dit, dans cet ordre
+ *
+ * 1. la **durée**, qui est ce qu'on compare — rôle `DATA`, chiffres à chasse
+ *    fixe, pour que trois variantes empilées alignent leurs minutes ;
+ * 2. le **profil**, en pastille, quand il y a un choix à départager. Seul dans
+ *    la liste, « La plus rapide » ne recommande rien : il rejoint alors les
+ *    faits, où il n'est qu'une qualification de plus ;
+ * 3. les **deux heures**, départ et arrivée sur une ligne. Ce qu'on cherche en
+ *    calculant un itinéraire n'est presque jamais sa durée : c'est l'heure à
+ *    laquelle on sera là-bas, parce que c'est elle qu'on a promise à
+ *    quelqu'un. Elles se lisent en 24 heures via [rememberPassageClock], comme
+ *    les poteaux du réseau ;
+ * 4. la **chaîne** de ce qu'on emprunte, dans l'ordre où on l'emprunte ;
+ * 5. les **faits** qui départagent deux durées voisines — ce qu'on marche, ce
+ *    qu'on change ;
+ * 6. l'**état** de la variante, et lui seul est coloré : tenue de la
+ *    correspondance, perturbations annoncées. Voir [RouteStatusLine].
+ */
+@Composable
+private fun RouteOptionCard(
     candidate: RouteCandidate,
     selected: Boolean,
     choice: Boolean,
@@ -336,14 +605,6 @@ private fun RouteCandidateRow(
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    // Sur l'aplat de marque, aucun rôle « variant » du thème ne tient : ils sont
-    // tous calculés pour une surface claire. L'encre de l'accent, voilée, rend
-    // le même rapport de lecture sur l'autre fond.
-    val secondaryInk = if (selected) {
-        colors.onPrimary.copy(alpha = AuleAlpha.VEIL)
-    } else {
-        colors.onSurfaceVariant
-    }
     val clock = rememberPassageClock()
     val duration = stringResource(R.string.route_duration, candidate.durationMinutes)
     val departure = candidate.departureAt?.let {
@@ -353,72 +614,48 @@ private fun RouteCandidateRow(
         stringResource(R.string.route_arrives, clock.format(it))
     }
     val chain = candidate.chain()
-    val facts = candidate.facts(chain).joinToString(FACT_SEPARATOR)
+    // La pastille ne recommande que s'il y a de quoi choisir. Seule, la
+    // variante garde son profil parmi les faits plutôt que de s'auto-décerner
+    // un titre.
+    val profile = candidate.profiles.firstOrNull()?.takeIf { choice }
+    val facts = candidate.facts(chain, keepProfile = profile == null)
+        .joinToString(FACT_SEPARATOR)
+    val status = candidate.statusLabels()
     val lines = chain.filterIsInstance<RouteChainItem.Line>()
         .map { stringResource(R.string.line_badge, it.id) }
     val spoken = listOfNotNull(
         duration,
-        arrival,
+        profile?.label(),
         departure,
-        facts.takeIf { it.isNotEmpty() },
+        arrival,
         lines.takeIf { it.isNotEmpty() }?.joinToString(FACT_SEPARATOR),
+        facts.takeIf { it.isNotEmpty() },
+        status.takeIf { it.isNotEmpty() }?.joinToString(FACT_SEPARATOR) { it.text },
     ).joinToString(", ")
 
-    AuleCappedFontScale {
-        ListItem(
-            overlineContent = departure?.let {
-                {
-                    Text(text = it, style = MaterialTheme.typography.labelSmallEmphasized)
-                }
-            },
-            headlineContent = {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = duration,
-                        // La durée est ce qu'on compare entre trois variantes :
-                        // celle qu'on a retenue doit se distinguer des deux
-                        // autres autrement que par son fond.
-                        style = if (selected) {
-                            MaterialTheme.typography.titleLargeEmphasized
-                        } else {
-                            MaterialTheme.typography.titleLarge
-                        },
-                    )
-                    if (arrival != null) {
-                        Text(
-                            text = arrival,
-                            style = MaterialTheme.typography.titleMedium,
-                            color = secondaryInk,
-                            maxLines = 1,
-                        )
-                    }
-                }
-            },
-            supportingContent = {
-                Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
-                    if (chain.isNotEmpty()) {
-                        RouteChain(chain = chain, ink = secondaryInk)
-                    } else {
-                        candidate.steps.firstOrNull()?.let { step ->
-                            Text(text = step.label, maxLines = 2)
-                        }
-                    }
-                    if (facts.isNotEmpty()) {
-                        Text(text = facts, style = MaterialTheme.typography.labelSmall)
-                    }
-                }
-            },
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .auleEnter(index = rank),
+        shape = MaterialTheme.shapes.large,
+        color = colors.surfaceContainerHigh,
+        contentColor = colors.onSurface,
+        border = if (selected) {
+            BorderStroke(AuleStroke.emphasis, colors.primary)
+        } else {
+            null
+        },
+    ) {
+        Column(
             modifier = Modifier
-                .defaultMinSize(minHeight = AuleTouch.minimum)
-                .auleEnter(index = rank)
                 // `selectable` et non `clickable` : c'est un choix parmi
                 // plusieurs, et le rôle est ce qui le fait annoncer comme tel.
-                // Seule d'une liste d'une, la rangée n'est plus un choix : elle
+                // Seule d'une liste d'une, la carte n'est plus un choix : elle
                 // cesse d'offrir un geste qui ne change rien.
+                //
+                // Posé **dans** la surface, il laisse l'ondulation se faire
+                // découper par la forme ; posé dessus, elle déborderait des
+                // angles.
                 .then(
                     if (choice) {
                         Modifier.selectable(
@@ -430,17 +667,112 @@ private fun RouteCandidateRow(
                         Modifier
                     },
                 )
+                .defaultMinSize(minHeight = AuleTouch.minimum)
+                .padding(horizontal = AuleSpacing.lg, vertical = AuleSpacing.sm)
                 .semantics(mergeDescendants = true) { contentDescription = spoken },
-            colors = ListItemDefaults.colors(
-                // L'aplat de marque plein, et non le conteneur pastel. Trois
-                // variantes empilées dont une surlignée en pastel clair, c'est
-                // une ligne de tableur mise en évidence ; la même en teal profond,
-                // c'est un choix arrêté. La différence est celle entre « voici
-                // celle qui est cochée » et « voici celle que vous prenez ».
-                containerColor = if (selected) colors.primary else Color.Transparent,
-                headlineColor = if (selected) colors.onPrimary else colors.onSurface,
-                overlineColor = secondaryInk,
-                supportingColor = secondaryInk,
+            // Quatre points entre les lignes, et non huit. Ce sont quatre
+            // formulations d'un même trajet, pas quatre sections : serrées, elles
+            // se lisent comme un bloc, et la carte rend douze points de hauteur —
+            // douze points sur lesquels la variante suivante vient dépasser
+            // sous la barre d'action, ce qui est la seule chose qui dise qu'elle
+            // existe.
+            verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = duration,
+                    style = if (selected) {
+                        MaterialTheme.typography.titleLargeEmphasized
+                    } else {
+                        MaterialTheme.typography.titleLarge
+                    },
+                    color = if (selected) colors.primary else colors.onSurface,
+                )
+                if (profile != null) {
+                    // `fill = false` : la pastille prend ce qu'il lui faut et
+                    // pas davantage, mais jamais plus que ce qui reste. Sans le
+                    // poids, « Moins de changements » à 130 % de taille de
+                    // police poussait la durée hors de la carte.
+                    RouteProfileBadge(
+                        label = profile.label(),
+                        filled = selected,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                }
+            }
+
+            val window = listOfNotNull(departure, arrival).joinToString(FACT_SEPARATOR)
+            if (window.isNotEmpty()) {
+                Text(
+                    text = window,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = colors.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            if (chain.isNotEmpty()) {
+                RouteChain(chain = chain, ink = colors.onSurfaceVariant)
+            } else {
+                candidate.steps.firstOrNull()?.let { step ->
+                    Text(
+                        text = step.label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+
+            if (facts.isNotEmpty()) {
+                Text(
+                    text = facts,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = colors.onSurfaceVariant,
+                )
+            }
+
+            if (status.isNotEmpty()) {
+                RouteStatusLine(status = status)
+            }
+        }
+    }
+}
+
+/**
+ * La pastille de profil : ce que le moteur reproche aux autres variantes.
+ *
+ * Remplie sur la variante retenue, posée en lavis sur les autres. C'est le
+ * troisième signal de la retenue — après le cerne et l'encre de la durée — et
+ * le seul qui se voie du coin de l'œil quand on compare deux cartes empilées.
+ *
+ * `CircleShape` sur une plaque plus large que haute donne la pilule ; le kit
+ * interdit d'écrire une forme dans un écran, et c'est la seule forme du thème
+ * qui rende celle-là sans la chiffrer.
+ */
+@Composable
+private fun RouteProfileBadge(label: String, filled: Boolean, modifier: Modifier = Modifier) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier,
+        shape = CircleShape,
+        color = if (filled) colors.primary else colors.secondaryContainer,
+        contentColor = if (filled) colors.onPrimary else colors.onSecondaryContainer,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelSmallEmphasized,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.padding(
+                horizontal = AuleSpacing.sm,
+                vertical = BADGE_VERTICAL_PADDING,
             ),
         )
     }
@@ -450,29 +782,47 @@ private fun RouteCandidateRow(
  * Ce qu'on emprunte, dans l'ordre.
  *
  * La rangée coule (`FlowRow`) : un trajet à deux changements aligne cinq
- * éléments, et à 130 % de taille de police ils ne tiennent plus sur une ligne.
- * Ils passent alors à la suivante au lieu de sortir du cartouche.
+ * maillons et autant de traits, et à 130 % de taille de police ils ne tiennent
+ * plus sur une ligne. Ils passent alors à la suivante au lieu de sortir de la
+ * carte.
  *
- * Rien ne sépare les maillons — ni chevron, ni flèche. La famille d'icônes
- * d'Aule n'en a pas, et un caractère typographique en guise de signe est
- * précisément ce que le kit interdit. L'ordre de lecture suffit à dire l'ordre
- * du trajet.
+ * ## Le trait entre deux maillons
+ *
+ * Rien ne les séparait : ni chevron, ni flèche, faute d'en avoir dans la
+ * famille d'icônes et parce qu'un caractère typographique en guise de signe est
+ * ce que le kit interdit. Restaient des badges posés côte à côte, dont on ne
+ * savait pas s'ils formaient une suite ou une liste — « 80 » et « 1 » lus l'un
+ * à côté de l'autre peuvent aussi bien être deux lignes possibles que deux
+ * lignes successives.
+ *
+ * Le trait est **dessiné**, ce qui lève l'interdit sans le contourner : c'est
+ * une forme du kit, pas un caractère emprunté à la fonte. Court, épais d'un
+ * point et demi, à l'encre secondaire — il relie sans se faire lire.
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun RouteChain(chain: List<RouteChainItem>, ink: Color) {
     val walkLabel = stringResource(R.string.route_leg_walk)
     FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
+        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
         verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
         itemVerticalAlignment = Alignment.CenterVertically,
     ) {
-        chain.forEach { item ->
+        chain.forEachIndexed { index, item ->
+            if (index > 0) {
+                Box(
+                    modifier = Modifier
+                        .width(CHAIN_LINK)
+                        .height(CHAIN_LINK_THICKNESS)
+                        .background(color = ink, shape = CircleShape),
+                )
+            }
             when (item) {
                 RouteChainItem.Walk -> Icon(
                     imageVector = Icons.AutoMirrored.Outlined.DirectionsWalk,
                     contentDescription = walkLabel,
                     tint = ink,
+                    modifier = Modifier.size(AuleChrome.pillGlyph),
                 )
                 is RouteChainItem.Line -> LineBadge(
                     line = item.id,
@@ -482,6 +832,89 @@ private fun RouteChain(chain: List<RouteChainItem>, ink: Color) {
             }
         }
     }
+}
+
+/**
+ * La ligne d'état : la seule chose colorée de la carte.
+ *
+ * ## Ce qu'elle porte, et ce qu'elle ne peut pas porter
+ *
+ * `GET /api/route` ne rend **aucun drapeau temps réel** par variante : il n'y a
+ * pas de champ à afficher pour dire « ces horaires sont mesurés ». Ce qu'il
+ * rend et que ce volet jetait, ce sont les deux seules choses qui datent :
+ * la tenue de la correspondance la plus tendue (`reliability`) et le nombre de
+ * perturbations relevées sur le trajet (`alerts`). Les inventer autrement
+ * aurait donné un point vert qui n'atteste de rien — exactement ce que le point
+ * temps réel des passages existe pour ne pas faire.
+ *
+ * ## Pourquoi elle est colorée alors que le reste ne l'est plus
+ *
+ * Le volet a perdu ses aplats ; il lui reste une couleur, et elle est ici.
+ * C'est ce qui la rend lisible : sur une carte entièrement en gris et en encre
+ * de marque, un mot orange se voit sans avoir à crier. Les teintes sont celles
+ * du métier — [realtimeInk] pour ce qui tient, [delayInk] pour ce qui est
+ * serré — et non des rôles de hiérarchie : « correspondance risquée » n'est pas
+ * une erreur d'interface, c'est un fait du réseau.
+ *
+ * Le point n'est pas décoratif pour autant qu'il soit lu : la carte entière
+ * porte déjà sa description, ce qui vaut à ce point de n'être qu'une forme.
+ */
+@Composable
+private fun RouteStatusLine(status: List<RouteStatus>) {
+    Column(verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs)) {
+        status.forEach { entry ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(STATUS_DOT)) {
+                    drawCircle(color = entry.ink, radius = size.minDimension / 2f)
+                }
+                Spacer(Modifier.width(AuleSpacing.sm))
+                Text(
+                    text = entry.text,
+                    style = MaterialTheme.typography.labelMediumEmphasized,
+                    color = entry.ink,
+                )
+            }
+        }
+    }
+}
+
+/** Un fait daté de la variante, avec l'encre qui dit de quel côté il penche. */
+private data class RouteStatus(val text: String, val ink: Color)
+
+/**
+ * Ce que le serveur sait de l'état de la variante.
+ *
+ * La fiabilité d'abord — c'est elle qui décide si on court —, les
+ * perturbations ensuite. Une variante sans correspondance tendue et sans alerte
+ * ne rend rien : une ligne « tout va bien » sur chaque carte cesserait d'être
+ * lue au deuxième trajet.
+ */
+@Composable
+private fun RouteCandidate.statusLabels(): List<RouteStatus> = buildList {
+    reliability?.let { add(RouteStatus(it.label(), it.ink())) }
+    if (alertCount > 0) {
+        val text = if (alertCount == 1) {
+            stringResource(R.string.route_alerts_one)
+        } else {
+            stringResource(R.string.route_alerts_many, alertCount)
+        }
+        add(RouteStatus(text, MaterialTheme.colorScheme.error))
+    }
+}
+
+/**
+ * L'encre d'une tenue de correspondance.
+ *
+ * Elle emprunte au vocabulaire des passages plutôt qu'à la hiérarchie du thème :
+ * une correspondance confortable est de la même famille qu'un passage mesuré,
+ * une correspondance serrée de la même famille qu'un retard. `error` est réservé
+ * à la seule qui puisse coûter le trajet.
+ */
+@Composable
+private fun RouteReliability.ink(): Color = when (this) {
+    RouteReliability.COMFORTABLE -> realtimeInk()
+    RouteReliability.TIGHT -> delayInk()
+    RouteReliability.RISKY -> MaterialTheme.colorScheme.error
 }
 
 /** Un maillon du trajet : une ligne qu'on prend, ou la marche qui y mène. */
@@ -517,18 +950,27 @@ private fun RouteSegment.chainItem(): RouteChainItem {
 }
 
 /**
- * Ce qui départage deux variantes de durée voisine, dans l'ordre où on le lit.
+ * Ce qui départage deux variantes de durée voisine, dans l'ordre où on le lit :
+ * ce qu'on marche, ce qu'on change.
  *
- * Le profil d'abord : c'est le verdict du moteur, et il tient en trois mots. Le
- * reste ensuite, du plus décidant au moins — ce qu'on marche, ce qu'on change,
- * la tenue de la correspondance.
+ * Le profil n'y figure que lorsqu'il n'est pas monté en pastille — seul dans la
+ * liste, il ne recommande rien et redescend au rang de qualification.
+ *
+ * La tenue de la correspondance en est sortie : elle a sa ligne, et sa couleur.
+ *
+ * La distance ne s'affiche **que** sur un trajet qu'on fait par ses propres
+ * moyens — la voiture, ou la marche seule. Sur un trajet en transports, les
+ * kilomètres parcourus assis ne se décident pas, et ce qu'on marche est déjà
+ * dit en minutes.
  */
 @Composable
-private fun RouteCandidate.facts(chain: List<RouteChainItem>): List<String> = buildList {
-    profiles.firstOrNull()?.let { add(it.label()) }
+private fun RouteCandidate.facts(
+    chain: List<RouteChainItem>,
+    keepProfile: Boolean,
+): List<String> = buildList {
+    if (keepProfile) profiles.firstOrNull()?.let { add(it.label()) }
     walk?.walkMinutes()?.let { add(stringResource(R.string.route_walk, it)) }
     transfers?.let { add(transfersLabel(it)) }
-    reliability?.let { add(it.label()) }
     if (chain.isEmpty()) {
         add(
             GeoMath.formatDistance(
@@ -573,3 +1015,31 @@ internal fun RouteReliability.label(): String = when (this) {
 
 /** Ce qui sépare deux faits d'une même ligne de sous-titre. */
 private const val FACT_SEPARATOR = " · "
+
+/** La colonne du rail : assez large pour centrer la plus grosse des marques. */
+private val RAIL_WIDTH = 16.dp
+
+/** L'anneau du départ, le carré de l'arrivée. Ils font la même taille. */
+private val RAIL_MARK = 11.dp
+
+/** L'arrondi du carré d'arrivée : une plaque, pas un pixel. */
+private val RAIL_MARK_CORNER = 3.dp
+
+/** Ce que le pointillé sépare : assez pour trois points, pas assez pour un vide. */
+private val RAIL_GAP = 12.dp
+
+private val RAIL_DOT = 2.5.dp
+
+/** Le pas du pointillé. Deux fois et demie le point : on lit trois marques. */
+private val RAIL_DOT_STEP = 6.dp
+
+/** Le trait entre deux maillons de la chaîne. */
+private val CHAIN_LINK = 10.dp
+
+private val CHAIN_LINK_THICKNESS = 1.5.dp
+
+/** Le point d'état. Plus petit que celui des passages : il ne pulse pas. */
+private val STATUS_DOT = 8.dp
+
+/** La pastille respire moins que le reste : c'est ce qui la fait lire comme une étiquette. */
+private val BADGE_VERTICAL_PADDING = 3.dp

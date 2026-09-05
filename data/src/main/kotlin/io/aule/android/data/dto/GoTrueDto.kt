@@ -5,6 +5,8 @@ import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AuthUser
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.contentOrNull
 
 @Serializable
 internal data class GoTrueTokenResponseDto(
@@ -28,7 +30,24 @@ internal data class GoTrueErrorDto(
     val msg: String? = null,
     val message: String? = null,
     @SerialName("error_code") val errorCode: String? = null,
-    val code: String? = null,
+    /**
+     * ⚠️ **Tantôt un mot, tantôt un nombre — et il faut accepter les deux.**
+     *
+     * GoTrue met ici le code d'erreur sur certaines routes
+     * (`"code": "over_email_send_rate_limit"`) et le **statut HTTP** sur
+     * d'autres (`"code": 400`, à côté de `error_code`). Typé `String`, le second
+     * cas ne se contentait pas d'être ignoré : le décodeur du projet n'est pas
+     * permissif (`isLenient = false`), et un nombre dans un champ texte fait
+     * échouer l'objet **entier**. Tout le refus partait avec — `error_code`
+     * compris —, la catégorie retombait en `UNKNOWN`, et l'écran répondait
+     * « Une erreur est survenue. Réessayez. » à quelqu'un qui s'était trompé de
+     * mot de passe.
+     *
+     * En `JsonPrimitive`, les deux formes entrent. Un statut recopié ici ne
+     * ressemble à aucun code connu : il traverse le classement sans rien
+     * déclencher, et c'est le statut HTTP réel qui décide.
+     */
+    val code: JsonPrimitive? = null,
 )
 
 internal fun GoTrueTokenResponseDto.toSession(nowEpochSeconds: Long): AuthSession? {
@@ -49,7 +68,7 @@ internal fun GoTrueTokenResponseDto.toSession(nowEpochSeconds: Long): AuthSessio
  * le statut HTTP, puis l'inconnu.
  */
 internal fun authFailureKindOf(status: Int, body: GoTrueErrorDto?): AuthFailureKind {
-    val code = (body?.errorCode ?: body?.code ?: body?.error)
+    val code = (body?.errorCode ?: body?.code?.contentOrNull ?: body?.error)
         ?.trim()
         ?.lowercase()
         .orEmpty()

@@ -6,11 +6,16 @@ import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.NETWORK_SEARCH_FROM
+import io.aule.android.core.model.OAuthProvider
+import io.aule.android.core.model.ProNetwork
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ProfessionalProfile
 import io.aule.android.core.model.ProfessionalTransportMode
+import io.aule.android.core.model.SIGNUP_NETWORKS
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.RegistrationDraftStore
+import io.aule.android.core.model.signupNetworks
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -29,6 +34,17 @@ data class RegistrationUiState(
     val isResending: Boolean = false,
     val failure: AuthFailureKind? = null,
     val missingProfessionalData: Boolean = false,
+    val missingTerms: Boolean = false,
+    /** Aucun navigateur n'a voulu de l'adresse du fournisseur. */
+    val browserMissing: Boolean = false,
+    /**
+     * L'adresse que le navigateur doit ouvrir, une fois et pas deux.
+     *
+     * Elle porte le défi PKCE d'un échange déjà commencé côté dépôt : la laisser
+     * dans l'état après ouverture, c'est risquer qu'une recomposition la
+     * rouvre. L'écran la consomme ([RegistrationViewModel.consumeOAuthUrl]).
+     */
+    val oauthUrl: String? = null,
     val notice: RegistrationNotice? = null,
 ) {
     val emailValid: Boolean
@@ -42,6 +58,16 @@ data class RegistrationUiState(
             password.length >= MIN_PASSWORD_LENGTH &&
             password == confirmPassword &&
             draft.termsAccepted
+
+    /**
+     * Ce que l'inscription par fournisseur externe demande, et rien de plus.
+     *
+     * Ni e-mail ni mot de passe : le premier vient du compte Google, le second
+     * n'existe pas. Les CGU restent, elles — c'est un consentement, pas un
+     * champ de formulaire, et aucune façon d'entrer n'en dispense.
+     */
+    val oauthReady: Boolean
+        get() = draft.professionalDataComplete && draft.termsAccepted
 
     val canContinue: Boolean
         get() = when (step) {
@@ -70,14 +96,20 @@ data class RegistrationUiState(
     val actionIndex: Int
         get() = actionSteps.indexOf(step).coerceAtLeast(0)
 
-    val showsNaolib: Boolean
-        get() {
-            val query = networkQuery.trim().lowercase()
-            if (query.isEmpty()) return true
-            return "naolib".contains(query) ||
-                "nantes métropole".contains(query) ||
-                "nantes metropole".contains(query)
-        }
+    /** Les réseaux que la requête retient — tout le catalogue quand elle est vide. */
+    val networks: List<ProNetwork>
+        get() = signupNetworks(networkQuery)
+
+    /**
+     * Le champ de recherche ne s'affiche qu'à partir d'un catalogue qu'on ne
+     * balaie plus d'un coup d'œil. Voir [NETWORK_SEARCH_FROM].
+     */
+    val networkSearchable: Boolean
+        get() = SIGNUP_NETWORKS.size >= NETWORK_SEARCH_FROM
+
+    /** Le réseau retenu, pour le récapitulatif de fin de parcours. */
+    val selectedNetwork: ProNetwork?
+        get() = SIGNUP_NETWORKS.find { it.key == draft.networkKey }
 }
 
 class RegistrationViewModel(
@@ -130,8 +162,8 @@ class RegistrationViewModel(
         updateDraft { it.toggleProfile(profile) }
     }
 
-    fun selectNaolib() {
-        updateDraft { it.copy(networkKey = ProRegistrationDraft.NAOLIB_NETWORK_KEY) }
+    fun selectNetwork(key: String) {
+        updateDraft { it.copy(networkKey = key) }
     }
 
     fun setNetworkQuery(query: String) {
@@ -172,8 +204,92 @@ class RegistrationViewModel(
 
     fun clearFailure() {
         val current = _state.value
-        if (current.failure == null && !current.missingProfessionalData) return
-        _state.value = current.copy(failure = null, missingProfessionalData = false)
+        if (current.failure == null &&
+            !current.missingProfessionalData &&
+            !current.missingTerms &&
+            !current.browserMissing
+        ) {
+            return
+        }
+        _state.value = current.copy(
+            failure = null,
+            missingProfessionalData = false,
+            missingTerms = false,
+            browserMissing = false,
+        )
+    }
+
+    /**
+     * Part s'inscrire chez un fournisseur externe.
+     *
+     * Le brouillon est écrit **avant** de rendre la main, et pas seulement par
+     * habitude : à partir de l'instant où le navigateur s'ouvre, l'application
+     * peut être tuée à tout moment, et le retour n'aura pour mémoire que le
+     * disque. Une écriture différée d'une image suffirait à perdre la case des
+     * CGU qu'on vient de cocher.
+     *
+     * Aucun état d'attente n'est posé pour la suite : rien ne garantit que
+     * l'utilisateur revienne — il peut fermer l'onglet, changer d'avis, se
+     * tromper de compte. Une roue laissée à tourner ne serait alors jamais
+     * arrêtée par personne. Le retour, quand il a lieu, arrive par le deep link
+     * et ferme cet écran.
+     */
+    fun startOAuthSignUp(provider: OAuthProvider) {
+        val current = _state.value
+        if (current.isSubmitting || current.oauthUrl != null) return
+        if (!current.draft.professionalDataComplete) {
+            _state.value = current.copy(missingProfessionalData = true, failure = null)
+            return
+        }
+        if (!current.draft.termsAccepted) {
+            _state.value = current.copy(missingTerms = true, failure = null)
+            return
+        }
+        _state.value = current.copy(
+            isSubmitting = true,
+            failure = null,
+            missingProfessionalData = false,
+            missingTerms = false,
+            browserMissing = false,
+        )
+        viewModelScope.launch {
+            try {
+                drafts.write(current.draft.encode(), current.step.storageName)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    oauthUrl = auth.beginOAuthSignUp(provider),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: AuthException) {
+                logger.info(LogDomain.AUTH, "Inscription externe refusée (${failure.kind}).")
+                _state.value = _state.value.copy(isSubmitting = false, failure = failure.kind)
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.AUTH, "Inscription externe impossible.", failure)
+                _state.value = _state.value.copy(
+                    isSubmitting = false,
+                    failure = AuthFailureKind.NETWORK,
+                )
+            }
+        }
+    }
+
+    /** L'URL est ouverte : elle ne doit plus l'être une seconde fois. */
+    fun consumeOAuthUrl() {
+        if (_state.value.oauthUrl == null) return
+        _state.value = _state.value.copy(oauthUrl = null)
+    }
+
+    /**
+     * Aucun navigateur n'a voulu de l'adresse — appareil sans navigateur, ou
+     * navigateur désactivé.
+     *
+     * Ce n'est pas un [AuthFailureKind] : rien n'a été refusé, rien n'a même
+     * été demandé. Le dire avec le vocabulaire de l'authentification ferait
+     * chercher une panne de compte là où il manque une application.
+     */
+    fun oauthBrowserMissing() {
+        _state.value = _state.value.copy(oauthUrl = null, browserMissing = true)
     }
 
     fun resendConfirmation() {
@@ -259,6 +375,8 @@ class RegistrationViewModel(
             isSubmitting = submitting,
             failure = null,
             missingProfessionalData = false,
+            missingTerms = false,
+            browserMissing = false,
             notice = null,
             networkQuery = "",
         )
@@ -270,6 +388,8 @@ class RegistrationViewModel(
             draft = edit(_state.value.draft),
             failure = null,
             missingProfessionalData = false,
+            missingTerms = false,
+            browserMissing = false,
         )
         persist()
     }

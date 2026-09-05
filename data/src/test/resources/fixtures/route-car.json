@@ -1,0 +1,94 @@
+{
+  "coordinates": [
+    [
+      -1.558305,
+      47.212647
+    ],
+    [
+      -1.558323,
+      47.212631
+    ],
+    [
+      -1.558344,
+      47.212604
+    ],
+    [
+      -1.55839,
+      47.212517
+    ],
+    [
+      -1.558471,
+      47.212451
+    ],
+    [
+      -1.559005,
+      47.212081
+    ],
+    [
+      -1.542511,
+      47.21785
+    ],
+    [
+      -1.541785,
+      47.218002
+    ]
+  ],
+  "distance": 1832,
+  "duration": 289.2,
+  "maneuvers": [
+    {
+      "location": [
+        -1.558305,
+        47.212647
+      ],
+      "type": "depart"
+    },
+    {
+      "location": [
+        -1.559122,
+        47.212
+      ],
+      "type": "turn",
+      "modifier": "left",
+      "street": "Rue Jean-Jacques Rousseau"
+    },
+    {
+      "location": [
+        -1.558969,
+        47.211489
+      ],
+      "type": "roundabout",
+      "modifier": "slight right",
+      "street": "Rue Félix Éboué",
+      "exit": 2
+    },
+    {
+      "location": [
+        -1.558787,
+        47.211309
+      ],
+      "type": "exit roundabout",
+      "modifier": "slight right",
+      "street": "Rue Félix Éboué",
+      "exit": 2
+    },
+    {
+      "location": [
+        -1.557049,
+        47.211648
+      ],
+      "type": "roundabout",
+      "modifier": "right",
+      "exit": 1
+    },
+    {
+      "location": [
+        -1.556947,
+        47.211635
+      ],
+      "type": "exit roundabout",
+      "modifier": "right",
+      "exit": 1
+    }
+  ]
+}

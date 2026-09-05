@@ -181,6 +181,7 @@ dependencies {
     implementation(projects.core.location)
     implementation(projects.core.security)
     implementation(projects.feature.map)
+    implementation(projects.feature.hub)
     implementation(projects.feature.auth)
 
     implementation(libs.androidx.lifecycle.viewmodel.compose)

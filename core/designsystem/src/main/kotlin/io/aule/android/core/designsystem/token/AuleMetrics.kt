@@ -100,40 +100,54 @@ object AuleControl {
  * barre de recherche mangeaient la moitié de l'écran — un fond de carte réduit à
  * une bande entre deux empilements de pastilles.
  *
- * D'où une deuxième échelle, plus serrée d'un cran à chaque niveau. Elle ne
- * descend pas sous le plancher tactile pour autant : [bar] **est** le plancher,
- * et [pill] s'appuie sur l'agrandissement de cible que Material pose lui-même
- * autour des surfaces cliquables — la pastille se voit à 32 dp et se touche à
- * 48. C'est la seule façon d'être à la fois plus petit et pas moins atteignable.
+ * D'où une deuxième échelle, plus serrée d'un cran à chaque niveau — sauf le
+ * socle, seule exception, carte et contenu compris : voir [AuleChrome.socle]
+ * et [AuleChrome.socleControl]. Elle ne descend pas sous le plancher tactile
+ * pour autant : [bar] **est** le plancher, et [pill] s'appuie sur
+ * l'agrandissement de cible que Material pose lui-même autour des surfaces
+ * cliquables — la pastille se voit à 32 dp et se touche à 48. C'est la seule
+ * façon d'être à la fois plus petit et pas moins atteignable.
  */
 object AuleChrome {
     /**
-     * Une barre, une entrée de menu déplié, le bouton qui le déplie.
+     * Une barre, une entrée de menu déplié : ce qui se lit en **rangée**.
      *
      * 48 dp, soit le plancher tactile exactement : la valeur la plus basse qui
      * ne coûte rien au doigt. Material pose les siens à 56 — la barre de
      * recherche, l'entrée de menu flottant, le bouton d'action — et ces huit
      * points, répétés sur sept surfaces empilées dans le même écran, faisaient
      * cinquante-six points de carte en moins.
+     *
+     * Une rangée garde ce cran quand un bouton isolé peut descendre : elle
+     * s'empile avec ses voisines, et se tromper d'une rangée coûte un aller et
+     * retour, là où un bouton seul dans son coin ne peut pas être manqué au
+     * profit d'autre chose.
      */
     val bar = 48.dp
 
     /**
-     * Un bouton de vue, qui commande la carte sans rien engager.
+     * Le bouton isolé qui **agit** : celui qui déplie le menu de la carte.
      *
-     * Il reste sous [bar] à dessein : le cadrage n'est pas une action au même
-     * rang que celles du menu, et la différence de taille est ce qui le dit
-     * avant la couleur. C'est aussi la taille du *small FAB* de Material, donc
-     * celle que le composant prend déjà tout seul.
+     * La taille du *small FAB* de Material, donc celle que le composant prend
+     * déjà tout seul. Il reste sous [bar] parce qu'il est seul dans son coin :
+     * une rangée se manque au profit de sa voisine, un bouton que rien
+     * n'entoure ne se manque qu'au profit de la carte, et la carte accepte
+     * qu'on la touche.
+     *
+     * C'est le seul cran du chrome qui se vise **à sa taille de dessin** : le
+     * composant qui le porte n'est pas une surface cliquable, et Material
+     * n'agrandit donc pas sa cible.
      */
     val button = 40.dp
 
     /**
-     * Une pastille : un état qu'on lit, une mention qu'on atteint.
+     * Une pastille : un état qu'on lit, une mention qu'on atteint — la mention
+     * légale, l'avatar d'une fiche d'arrêt.
      *
-     * Elle ne porte jamais d'action irréversible — au pire elle ouvre un volet —
-     * et c'est ce qui autorise à la dessiner sous le plancher : la cible, elle,
-     * reste à 48 dp, agrandie par Material autour d'une surface cliquable.
+     * Rien de tout cela ne porte d'action irréversible — au pire on ouvre un
+     * volet —, et c'est ce qui autorise à les dessiner sous le plancher : la
+     * cible, elle, reste à 48 dp, agrandie par Material autour d'une surface
+     * cliquable.
      */
     val pill = 32.dp
 
@@ -145,6 +159,44 @@ object AuleChrome {
      * taille de famille.
      */
     val pillGlyph = 18.dp
+
+    /**
+     * La carte flottante du socle de recherche, au repos.
+     *
+     * Elle porte deux commandes — le champ « Où allez-vous ? » et l'avatar du
+     * compte — sous une poignée, et rien d'autre.
+     *
+     * **La somme est écrite, et c'est celle d'iOS** (`kSearchSheetHeight`) :
+     * la bande qui dégage la poignée, le contenu à sa taille tactile, et la
+     * même bande dessous. Un chiffre posé à la place aurait dit *combien* sans
+     * dire *de quoi* : les 56 dp d'avant tenaient un champ de 30, et personne
+     * ne pouvait deviner à la lecture ce qui tomberait si l'un des deux
+     * bougeait.
+     *
+     * ⚠️ **C'est un plancher, pas une hauteur.** La carte du socle **est** le
+     * palier que `MapScreen` reprend pour cadrer la caméra — mais ce palier se
+     * mesure à l'écran plutôt que de se lire ici, et un réglage de texte
+     * agrandi pousse donc la carte sans que le cadrage décroche.
+     */
+    val socle = AuleSpacing.lg + AuleTouch.minimum + AuleSpacing.lg
+
+    /**
+     * Le champ et l'avatar que porte [socle].
+     *
+     * **Le plancher tactile, et non un cran de chrome.** Ils l'ont tenu à
+     * 30 dp — sous [pill] —, en s'appuyant sur l'agrandissement de cible que
+     * Material pose autour d'une surface cliquable : atteignables, donc, mais
+     * dessinés comme deux pastilles dans une bande. Le socle iOS les pose à sa
+     * taille tactile pleine (44 pt là-bas, [AuleTouch.minimum] ici), et c'est
+     * ce qui fait la différence de présence entre les deux captures : un champ
+     * qu'on lit comme le titre de l'écran, pas comme un contrôle rangé au
+     * bord.
+     *
+     * C'est la seule pièce du chrome à ne pas descendre sous le plancher, et
+     * elle le mérite : au repos, la rangée est la seule porte de la recherche
+     * et du compte.
+     */
+    val socleControl = AuleTouch.minimum
 }
 
 /**

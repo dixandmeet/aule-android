@@ -10,6 +10,7 @@ import io.aule.android.core.model.AvatarFailureKind
 import io.aule.android.core.model.Depot
 import io.aule.android.core.model.DriverProfile
 import io.aule.android.core.model.DriverProfileUpdate
+import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.DriverProfileRepository
@@ -352,6 +353,7 @@ class AuthViewModelProfileTest {
             password: String,
         ) = error("non sollicité")
         override suspend fun resendSignupConfirmation(email: String) = error("non sollicité")
+        override suspend fun beginOAuthSignUp(provider: OAuthProvider) = error("non sollicité")
         override suspend fun sendPasswordRecovery(email: String) = error("non sollicité")
         override suspend fun updatePassword(newPassword: String) = error("non sollicité")
         override suspend fun exchangeAuthCode(code: String) = error("non sollicité")

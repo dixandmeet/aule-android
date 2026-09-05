@@ -145,6 +145,7 @@ class PriseServiceViewModelTest {
             session: AuthSession,
             lineId: String,
             directionId: Int,
+        expectedTerminus: String,
         ) = error("unused")
 
         override suspend fun nearestActiveTrip(

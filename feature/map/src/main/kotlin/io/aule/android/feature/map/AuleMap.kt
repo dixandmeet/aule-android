@@ -1,5 +1,7 @@
 package io.aule.android.feature.map
 
+import android.content.ComponentCallbacks2
+import android.content.res.Configuration
 import android.view.View
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -12,6 +14,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.aule.android.core.map.MapAmbiance
 import io.aule.android.core.map.MapController
+import io.aule.android.core.map.shouldReleaseGraphics
 import org.maplibre.android.maps.MapView
 
 /**
@@ -79,7 +82,29 @@ fun AuleMap(
         lifecycleOwner.lifecycle.addObserver(observer)
         mapView.getMapAsync { map -> controller.attach(mapView, map, ambiance) }
 
+        // Le cache de tuiles ne se rend que si on le lui demande — et personne
+        // ne le demandait. Trente minutes de guidage portaient le `TOTAL PSS`
+        // de 597 à 952 Mo, dont 377 de textures GL, et un
+        // `am send-trim-memory RUNNING_CRITICAL` ne faisait rien retomber. Voir
+        // [shouldReleaseGraphics] pour le seuil, et pourquoi il n'est pas à zéro.
+        //
+        // L'écoute est posée sur le **contexte applicatif** : c'est lui qui
+        // reçoit ces rappels, et l'y attacher évite de la perdre au premier
+        // changement de configuration.
+        val application = context.applicationContext
+        val memoryCallbacks = object : ComponentCallbacks2 {
+            override fun onTrimMemory(level: Int) {
+                if (shouldReleaseGraphics(level)) controller.releaseGraphics()
+            }
+
+            override fun onLowMemory() = controller.releaseGraphics()
+
+            override fun onConfigurationChanged(configuration: Configuration) = Unit
+        }
+        application.registerComponentCallbacks(memoryCallbacks)
+
         onDispose {
+            application.unregisterComponentCallbacks(memoryCallbacks)
             lifecycleOwner.lifecycle.removeObserver(observer)
             // `detach` **avant** `onDestroy` : après, le `Style` est invalide et
             // toute écriture sur une source lève.

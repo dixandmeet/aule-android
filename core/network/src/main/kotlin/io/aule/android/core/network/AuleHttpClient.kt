@@ -175,6 +175,32 @@ class AuleHttpClient(
     }
 
     /**
+     * PUT binaire — **le seul appel qui ne va pas au BFF**.
+     *
+     * Une pièce jointe de la messagerie part en direct vers Storage, sur une URL
+     * signée : Vercel plafonne un corps de requête à 4,5 Mo, et un planning
+     * photographié le dépasse.
+     *
+     * ⚠️ Pas d'en-tête `Accept: application/json` : Storage répond un corps vide
+     * ou du XML, et le réclamer en JSON ferait échouer des envois réussis.
+     */
+    suspend fun putBytes(
+        url: String,
+        bytes: ByteArray,
+        contentType: String,
+        headers: Map<String, String> = emptyMap(),
+        query: Map<String, String?> = emptyMap(),
+    ): RawHttpResponse {
+        val requestUrl = build(url, query)
+        val request = Request.Builder()
+            .url(requestUrl)
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
+            .put(bytes.toRequestBody(contentType.toMediaType()))
+            .build()
+        return executeRaw(request)
+    }
+
+    /**
      * DELETE JSON brut — pour Storage `remove`, qui porte la liste des
      * préfixes dans le corps, pas dans l'URL.
      */

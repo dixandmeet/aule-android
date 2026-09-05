@@ -113,15 +113,41 @@ class ChromeMetricsTest {
     }
 
     /**
-     * Sous la barre : un bouton de vue, puis une pastille. L'ordre porte le
-     * rang — ce qui agit est plus gros que ce qui commande la vue, qui est plus
-     * gros que ce qui se contente d'informer.
+     * Sous la rangée : le bouton qui agit, puis la pastille. L'ordre porte le
+     * rang — ce qui engage quelque chose est plus gros que ce qui commande la
+     * vue ou se contente d'informer, et le glyphe reste sous la pastille qui le
+     * loge.
      */
     @Test
     fun `l echelle du chrome decroit par rang`() {
         assertTrue(AuleChrome.bar > AuleChrome.button)
         assertTrue(AuleChrome.button > AuleChrome.pill)
         assertTrue(AuleChrome.pill > AuleChrome.pillGlyph)
+    }
+
+    /**
+     * Le socle est la seule exception à l'échelle ci-dessus, carte et contenu
+     * compris : le champ et l'avatar y tiennent le plancher tactile au lieu de
+     * s'en remettre à l'agrandissement de cible de Material, et la carte les
+     * loge tous les deux.
+     */
+    @Test
+    fun `la carte du socle loge son contenu sans s y confondre`() {
+        assertTrue(AuleChrome.socle > AuleChrome.bar)
+        assertTrue(AuleChrome.socle > AuleChrome.socleControl)
+        assertEquals(AuleTouch.minimum, AuleChrome.socleControl)
+    }
+
+    /**
+     * Ce que la carte garde autour de son contenu : la bande qui dégage la
+     * poignée, et la même dessous. C'est la mesure d'iOS
+     * (`kSearchSheetHeight`), et l'invariant qui la tient — un socle qu'on
+     * resserre finit par poser la poignée sur le champ, et deux choses qui se
+     * touchent à l'œil se touchent aussi au pouce.
+     */
+    @Test
+    fun `la carte du socle degage sa poignee`() {
+        assertTrue(AuleChrome.socle - AuleChrome.socleControl >= AuleSpacing.lg * 2f)
     }
 }
 

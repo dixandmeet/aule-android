@@ -19,6 +19,8 @@ effort, elle n'a pas besoin d'ADR.
 | [011](ADR-011-localisation.md) | Un modèle ne contient pas de phrase | Où vivent les mots adressés à l'usager |
 | [012](ADR-012-favoris-locaux-d-abord.md) | Les favoris vivent sur l'appareil | Le compte rattrape, il ne commande pas |
 | [013](ADR-013-biometrie-locale.md) | La biométrie est un verrou local | Elle restaure une session, elle n'authentifie pas |
+| [014](ADR-014-inscription-par-fournisseur.md) | Google inscrit, il n'habilite pas | OAuth PKCE, métadonnées posées après coup |
+| [015](ADR-015-couche-native-vehicules.md) | Une couche native pour les véhicules | Du C++ dans un projet Kotlin, et le repère qu'attend MapLibre |
 
 La 006 est celle qu'il faut lire en premier si l'on touche à la carte : c'est la seule règle
 du projet qui soit **invisible dans le code** et qu'un changement anodin suffise à détruire.

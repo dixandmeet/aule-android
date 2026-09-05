@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -34,11 +35,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.token.AuleChrome
+import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 
@@ -171,6 +174,27 @@ internal fun SheetHeading(
  * La touche de validation ferme le clavier : le filtre s'applique déjà à la
  * frappe, et promettre une action qui n'existe pas est pire que de ne rien
  * promettre.
+ *
+ * ## [textStyle] : le champ du socle porte le titre de l'écran
+ *
+ * Un champ de volet est un filtre au-dessus d'une liste : le corps de texte
+ * lui va, la liste dessous porte le sens. Le champ du socle, lui, est le
+ * **seul mot de l'écran** au repos — « Où allez-vous ? » sur une ville —, et
+ * quatorze points le donnaient à lire comme une légende posée sous une carte
+ * vide. Le socle lui passe donc le cran du titre de volet, celui des noms
+ * d'arrêt ; c'est l'argument d'iOS, où le même champ porte `AuleRole.title`,
+ * et il ne coûte rien à la hauteur — le champ tient sa taille tactile bien
+ * au-dessus de ce que le texte réclame.
+ *
+ * ## Une seule taille, dans les deux paliers
+ *
+ * Le socle a longtemps eu son champ à lui : 30 points, la mesure de l'avatar
+ * d'à côté, obtenue en redescendant le cran d'agrandissement de cible de
+ * Material et en rognant le padding vertical à trois points. Deux hauteurs de
+ * champ dans l'application, et une rangée entière — champ et avatar — dessinée
+ * sous le plancher tactile pour tenir dans une carte trop basse. La carte du
+ * socle a grandi ([AuleChrome.socle]), le plancher est revenu des deux côtés,
+ * et ce champ-ci n'a plus qu'une taille.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -179,9 +203,9 @@ internal fun SheetSearchField(
     onQuery: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
 ) {
     val colors = MaterialTheme.colorScheme
-    val fieldStyle = MaterialTheme.typography.bodyMedium
 
     // Le champ tient sa saisie, l'appelant tient la sienne, et les deux se
     // recopient. C'est le prix de l'API à état de Material 3 — la seule qui
@@ -209,24 +233,32 @@ internal fun SheetSearchField(
         // « y » de « Ranzay » perdait sa jambe — vu à l'écran, sur un réseau
         // qui compte aussi Bouffay et Longchamp.
         //
-        // Quatre points suffisent à la ligne. Le plancher tactile donne les
-        // quarante-huit, le volet récupère les huit que le minimum de Material
-        // lui prenait, et un texte agrandi pousse le champ au-delà du plancher
-        // au lieu de se faire couper.
+        // Quatre points suffisent à la ligne. Le cran du chrome donne le reste,
+        // le volet récupère les huit points que le minimum de Material lui
+        // prenait, et un texte agrandi pousse le champ au-delà du plancher au
+        // lieu de se faire couper.
         modifier = modifier
             .fillMaxWidth()
             .heightIn(min = AuleChrome.bar),
         lineLimits = TextFieldLineLimits.SingleLine,
-        textStyle = fieldStyle,
+        textStyle = textStyle,
         shape = MaterialTheme.shapes.extraLarge,
-        placeholder = { Text(text = placeholder, style = fieldStyle) },
-        leadingIcon = { Icon(imageVector = Icons.Outlined.Search, contentDescription = null) },
+        placeholder = { Text(text = placeholder, style = textStyle) },
+        leadingIcon = {
+            Icon(
+                imageVector = Icons.Outlined.Search,
+                contentDescription = null,
+                tint = colors.primary,
+                modifier = Modifier.size(AuleControl.icon),
+            )
+        },
         trailingIcon = if (query.isNotEmpty()) {
             {
                 IconButton(onClick = { onQuery("") }) {
                     Icon(
                         imageVector = Icons.Outlined.Close,
                         contentDescription = stringResource(R.string.search_clear),
+                        modifier = Modifier.size(AuleControl.icon),
                     )
                 }
             }
@@ -242,6 +274,7 @@ internal fun SheetSearchField(
             focusedContainerColor = colors.surfaceContainerHigh,
             unfocusedContainerColor = colors.surfaceContainerHigh,
             disabledContainerColor = colors.surfaceContainerHigh,
+            cursorColor = colors.primary,
             // Le trait sous un champ **plein** est un reste de Material 2 : il
             // souligne un aplat qui se voit déjà, et il casse le rayon plein en
             // bas. La mise au point se dit par le curseur et par le libellé.
@@ -295,18 +328,13 @@ internal fun SheetTitle(text: String, modifier: Modifier = Modifier) {
  *
  * Annoncé comme un titre : c'est ce qui permet à TalkBack de sauter de
  * « prochains passages » à « lignes desservies » sans traverser les rangées.
- *
- * Appuyé lui aussi, et pour la même raison qu'il est en `onSurfaceVariant` : il
- * doit se distinguer du contenu **sans** lui prendre la vedette. La graisse
- * sépare, la couleur retient — les deux ensemble donnent un intitulé qui se
- * repère au balayage sans jamais se lire avant ce qu'il annonce.
  */
 @Composable
 internal fun SheetSectionLabel(text: String, modifier: Modifier = Modifier) {
     Text(
         text = text,
-        style = MaterialTheme.typography.labelMediumEmphasized,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        style = MaterialTheme.typography.titleSmallEmphasized,
+        color = MaterialTheme.colorScheme.onSurface,
         modifier = modifier.semantics { heading() },
     )
 }

@@ -25,7 +25,7 @@
     <string name="auth_error_rate_limited">Too many attempts. Wait a few minutes and try again.</string>
     <string name="auth_error_weak_password">This password is too weak. Use at least 8 characters.</string>
     <string name="auth_error_invalid_email">This email address is not valid.</string>
-    <string name="auth_error_not_configured">Supabase is not configured on this device.</string>
+    <string name="auth_error_not_configured">Supabase is not configured — fill in local.properties, then reinstall.</string>
     <string name="auth_error_network">Unable to connect. Try again in a moment.</string>
     <string name="auth_error_unknown">Something went wrong. Try again.</string>
     <string name="auth_error_no_habilitation">This account has no Aule Pro clearance. Contact your network administrator.</string>
@@ -139,9 +139,15 @@
     <string name="register_network_title">Your transport network</string>
     <string name="register_network_subtitle">Select the network you belong to.</string>
     <string name="register_network_search">Search for a network</string>
-    <string name="register_network_naolib">Naolib</string>
-    <string name="register_network_naolib_desc">Nantes Métropole</string>
-    <string name="register_network_empty">No results. New networks are added regularly.</string>
+    <string name="register_network_clear">Clear search</string>
+    <plurals name="register_network_results">
+        <item quantity="one">%1$d network</item>
+        <item quantity="other">%1$d networks</item>
+    </plurals>
+    <string name="register_network_empty_title">No network matches</string>
+    <string name="register_network_empty">Try the name of the city, or of the operator. New networks open regularly.</string>
+    <string name="register_network_absent_title">Your network isn\'t listed?</string>
+    <string name="register_network_absent_body">New networks open regularly. Come back to sign up as soon as yours appears.</string>
     <string name="register_identity_title">Your professional identity</string>
     <string name="register_identity_subtitle">This information links your account to the network teams.</string>
     <string name="register_full_name">Full name</string>
@@ -167,6 +173,11 @@
     <string name="register_terms_link">Terms of Use</string>
     <string name="register_terms_open">Open the terms of use</string>
     <string name="register_terms_failed">Unable to open the terms of use.</string>
+    <string name="register_oauth_separator">or</string>
+    <string name="register_google">Sign up with Google</string>
+    <string name="register_google_hint">Your Google name and address will be used to create the account. The professional details you already entered are kept.</string>
+    <string name="register_error_terms">Accept the terms of use to continue.</string>
+    <string name="register_error_no_browser">No browser on this device can open the Google page.</string>
     <string name="register_error_incomplete">Some professional information is missing.</string>
     <string name="register_confirm_title">Check your inbox</string>
     <string name="register_confirm_body">If this address is new, confirm it to activate your account. Role clearances still require validation by your network.</string>
@@ -234,4 +245,7 @@
     <string name="auth_biometric_setting_generic">Biometric sign-in</string>
     <string name="auth_biometric_setting_on">On</string>
     <string name="auth_biometric_setting_off">Off</string>
+
+    <string name="menu_hub">Messaging</string>
+    <string name="menu_hub_desc">Write to your colleagues and read announcements</string>
 </resources>

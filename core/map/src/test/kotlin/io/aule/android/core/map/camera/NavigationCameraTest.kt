@@ -179,6 +179,29 @@ class NavigationCameraTest {
         assertEquals(210.0, target.bearing)
     }
 
+    /**
+     * Le cas inverse du précédent : un véhicule suivi, lui, garde un cap
+     * valable à l'arrêt — à quai, portes ouvertes, ou simplement au feu. Le
+     * plancher de vitesse qui protège le cap GPS ne doit pas s'appliquer ici,
+     * sans quoi la caméra se fige précisément quand la veille de
+     * correspondance regarde le véhicule approcher d'un arrêt.
+     */
+    @Test
+    fun `un vehicule suivi garde son cap meme a l arret`() {
+        val target = requireNotNull(
+            NavigationCamera.target(
+                input(
+                    CameraMode.FOLLOW_VEHICLE,
+                    speed = 0.0,
+                    heading = 300.0,
+                    routeBearing = 45.0,
+                    currentBearing = 210.0,
+                ),
+            ),
+        )
+        assertEquals(300.0, target.bearing)
+    }
+
     // ------------------------------------------------- les cadres contextuels
 
     /**

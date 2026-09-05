@@ -11,6 +11,15 @@ import io.aule.android.core.model.TransportMode
  */
 object AuleBrand {
     val teal = AulePalette.Teal.T30
+
+    /**
+     * Le rouge des panneaux réglementaires français.
+     *
+     * ⚠️ **Il ne suit ni l'ambiance ni la marque**, et c'est le seul de ce cas. Un
+     * panneau de limitation se *reconnaît* avant d'être lu ; teinté au vert Aule ou
+     * grisé la nuit, il devient une pastille de plus. Voir `SpeedLimitSign`.
+     */
+    val regulatoryRed = AuleRgba(0xC91721)
 }
 
 /**

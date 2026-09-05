@@ -156,6 +156,15 @@ data class RouteCandidate(
     val walk: Duration? = null,
     val wait: Duration? = null,
     val transfers: Int? = null,
+    /**
+     * Les manœuvres du trajet, quand le moteur les rend.
+     *
+     * Vide sur un trajet en transports — la question ne s'y pose pas, un tram
+     * ne tourne pas — et rempli sur les modes porte-à-porte, où
+     * `/api/route` les publie déjà. Sans elles, le guidage va les redemander à
+     * un second serveur ; avec elles, il n'a plus à sortir.
+     */
+    val maneuvers: List<RoadManeuver> = emptyList(),
 ) {
     /**
      * Les coordonnées réellement peintes — la même source que la couche,

@@ -66,6 +66,13 @@ class MapLineSheetViewModelTest {
         waits = listOf(5, 17),
     )
 
+    private val servingLine = ServingLine(
+        line = "C6",
+        direction = "Hermeland",
+        lineColor = "#8d6cbf",
+        mode = TransportMode.BUS,
+    )
+
     @Test
     fun `la ligne s ouvre sur l arret et le retour y revient`() = runTest {
         withViewModel { viewModel ->
@@ -90,6 +97,34 @@ class MapLineSheetViewModelTest {
     fun `le mode de l arret comble celui du passage`() = runTest {
         withViewModel { viewModel ->
             viewModel.openLine(ranzay, row.copy(mode = null))
+
+            assertEquals(TransportMode.BUS, viewModel.state.value.lineFocus?.mode)
+        }
+    }
+
+    /**
+     * Une ligne desservie n'a pas de passage — c'est justement ce que dit la
+     * section quand elle apparaît de nuit — mais sa direction suffit pour
+     * ouvrir la même fiche horaire qu'un passage annoncé.
+     */
+    @Test
+    fun `une ligne desservie s ouvre comme un passage`() = runTest {
+        withViewModel { viewModel ->
+            viewModel.select(ranzay)
+            viewModel.openLine(ranzay, servingLine)
+
+            assertTrue(viewModel.state.value.showingLine)
+            assertEquals(ranzay, viewModel.state.value.selectedStop)
+            assertEquals("C6", viewModel.departureWatch.state.value.viewed?.line)
+            assertEquals("Hermeland", viewModel.state.value.lineFocus?.destination)
+        }
+    }
+
+    /** Le mode manque parfois à la ligne desservie ; l'arrêt, lui, le connaît toujours. */
+    @Test
+    fun `le mode de l arret comble celui de la ligne desservie`() = runTest {
+        withViewModel { viewModel ->
+            viewModel.openLine(ranzay, servingLine.copy(mode = null))
 
             assertEquals(TransportMode.BUS, viewModel.state.value.lineFocus?.mode)
         }

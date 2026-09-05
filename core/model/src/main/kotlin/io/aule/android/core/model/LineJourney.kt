@@ -5,15 +5,54 @@ import io.aule.android.core.geo.GeoMath
 import java.time.Instant
 
 /**
- * La desserte d'une ligne dans un sens, pour le repli de relève.
+ * Un **parcours** d'une ligne dans un sens : ses arrêts, dans l'ordre.
  *
- * Ce n'est pas un trajet guidé : on n'a besoin que des arrêts, dans l'ordre,
- * pour proposer un point de relève quand personne n'est connecté.
+ * ## Ce n'est pas « la desserte du sens »
+ *
+ * Une ligne n'a pas un parcours par sens. La ligne 1 dessert Beaujoire **ou**
+ * Babinière dans le même sens ; la C1 publie trois parcours entre les deux
+ * mêmes terminus, dont deux ajoutent un crochet. La maille qui décrit un trajet
+ * est donc celle-ci, et tout raisonnement « par ligne » répond faux à « si je
+ * monte ici, où puis-je descendre ».
+ *
+ * Ce n'est pas non plus un trajet guidé : on n'a besoin que des arrêts, dans
+ * l'ordre. Sans tracé — ni le repli de relève ni la fiche d'une ligne n'en ont
+ * besoin, la carte peignant celui des tuiles.
  */
 data class LineJourney(
     val tripId: String,
     val stops: List<LineJourneyStop>,
-)
+    /**
+     * L'identité du parcours — le `shape_id` GTFS, ou [tripId] à défaut.
+     *
+     * ⚠️ **Deux branches d'un même sens en ont deux différentes**, et c'est tout
+     * l'intérêt : c'est par elle qu'un écran retient lequel il affiche.
+     */
+    val profileId: String = tripId,
+    /**
+     * Le terminus annoncé, tel que le référentiel l'écrit.
+     *
+     * Vide quand on ne l'a pas. **Il ne nomme pas la branche** : la ligne 1
+     * porte « Beaujoire / Babinière » sur les deux, ce qui désigne la paire.
+     * Pour nommer un parcours, voir [label].
+     */
+    val headsign: String = "",
+) {
+    /**
+     * Ce qui nomme un parcours **sans ambiguïté** : ses deux bouts.
+     *
+     * Le terminus annoncé ne suffit pas — un menu bâti dessus proposerait deux
+     * fois la même entrée sur une ligne à branches, et l'on ne saurait pas
+     * laquelle on regarde. Le premier et le dernier arrêt, eux, décrivent le
+     * parcours en toutes lettres, et c'est aussi ce que la liste montre en tête
+     * et en pied. Repris d'iOS (`LineDetailSheet.label(of:)`).
+     */
+    val label: String
+        get() = when {
+            stops.isEmpty() -> headsign
+            else -> "${stops.first().name} → ${stops.last().name}"
+        }
+}
 
 data class LineJourneyStop(
     val id: String,

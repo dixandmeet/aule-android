@@ -123,6 +123,45 @@ class MapGuidanceViewModelTest {
         }
     }
 
+    /**
+     * Le trajet arrive avec ses manœuvres — `/api/route` les publie sur les
+     * modes porte-à-porte. Le second routeur n'a alors plus rien à dire, et on
+     * ne l'appelle pas : c'est un aller-retour réseau de moins sur le chemin du
+     * guidage, et une dépendance de moins à un serveur qu'on ne maîtrise pas.
+     */
+    @Test
+    fun `un trajet qui porte ses manoeuvres n interroge pas le second routeur`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val roads = FakeRoadRouter(result = null)
+            val virage = RoadManeuver(
+                instruction = "turn",
+                location = destination.coordinate,
+                distanceMeters = 0.0,
+                durationSeconds = 0.0,
+                streetName = "Rue de la Beaujoire",
+                modifier = "right",
+            )
+            val viewModel = viewModel(
+                dispatcher,
+                routing = FakeRouting(plan = samplePlan("a", maneuvers = listOf(virage))),
+                roads = roads,
+            )
+            advanceUntilIdle()
+
+            viewModel.routeTo(destination, origin)
+            advanceUntilIdle()
+            assertTrue(viewModel.startGuidance(origin.coordinate))
+            advanceUntilIdle()
+
+            assertEquals(0, roads.calls)
+            assertNotNull(viewModel.state.value.navigation?.action)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
     @Test
     fun `une reponse OSRM lente n ecrase pas un guidage arrete`() = runTest {
         val dispatcher = StandardTestDispatcher(testScheduler)
@@ -561,8 +600,9 @@ class MapGuidanceViewModelTest {
      *
      * - l'écart doit dépasser le seuil de base de 32 m — d'où les 120 m, qui
      *   sont l'écart d'une sortie ratée, pas d'une erreur de GPS ;
-     * - la progression n'avance que de [io.aule.android.core.geo.PolylineProjection.FORWARD_WINDOW]
-     *   par mesure, soit 12 % du tracé. Un point choisi au milieu du trajet
+     * - la progression n'avance que de
+     *   [io.aule.android.core.geo.PolylineProjection.FORWARD_WINDOW_M] par
+     *   mesure, soit cent cinquante mètres. Un point choisi au milieu du trajet
      *   serait **hors fenêtre** au premier coup : la projection se collerait au
      *   bord de la fenêtre et rendrait une déviation d'un kilomètre, qui n'est
      *   pas celle qu'on croit mesurer.
@@ -606,7 +646,10 @@ class MapGuidanceViewModelTest {
         logger = NoopLogger,
     )
 
-    private fun samplePlan(vararg ids: String) = RoutePlan(
+    private fun samplePlan(
+        vararg ids: String,
+        maneuvers: List<RoadManeuver> = emptyList(),
+    ) = RoutePlan(
         alternatives = ids.map { id ->
             RouteCandidate(
                 id = id,
@@ -619,6 +662,7 @@ class MapGuidanceViewModelTest {
                 accessible = false,
                 alertCount = 0,
                 profiles = emptyList(),
+                maneuvers = maneuvers,
             )
         },
         departures = emptyList(),

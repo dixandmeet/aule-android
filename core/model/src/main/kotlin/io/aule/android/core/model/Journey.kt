@@ -60,6 +60,21 @@ data class JourneyPlan(
 
     /** Au moins deux jambes en véhicule — donc au moins une correspondance. */
     val hasTransfer: Boolean get() = legs.count { it.mode == LegMode.TRANSIT } > 1
+
+    /**
+     * Vrai quand une heure d'arrivée est **imposée de l'extérieur**.
+     *
+     * Un tram arrive à 18 h 25 parce que le réseau l'a décidé : rouler plus vite
+     * n'y change rien, et c'est cette heure-là qu'il faut afficher. Une voiture,
+     * elle, arrive quand elle arrive — son heure d'arrivée se recalcule à mesure
+     * qu'on avance, et une valeur figée au moment du calcul devient fausse dès
+     * la première minute.
+     *
+     * D'où cette distinction, et non un simple `arrivalAt != null` : le champ
+     * peut être renseigné sur les deux, seul le trajet à horaire lui donne
+     * autorité. Voir [tripSummary].
+     */
+    val hasSchedule: Boolean get() = legs.any { it.mode == LegMode.TRANSIT }
 }
 
 /**
@@ -161,6 +176,11 @@ fun journeyFromCandidate(
                     duration = Duration.ofMinutes(candidate.durationMinutes.toLong()),
                     departureAt = candidate.departureAt,
                     arrivalAt = candidate.arrivalAt,
+                    // Un trajet porte-à-porte est **une** jambe : les manœuvres
+                    // que le moteur a rendues sont toutes les siennes. Posées
+                    // ici, elles évitent au guidage le second appel réseau que
+                    // `loadManeuversAround` déclenche quand la jambe est nue.
+                    maneuvers = candidate.maneuvers,
                 ),
             ),
         )

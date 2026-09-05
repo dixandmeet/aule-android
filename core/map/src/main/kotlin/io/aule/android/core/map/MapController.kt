@@ -258,6 +258,24 @@ class MapController(
         frameClock.setMuted(true)
     }
 
+    /**
+     * Rend au système les tuiles et les textures que la carte gardait.
+     *
+     * Appelé quand Android réclame de la mémoire — voir [shouldReleaseGraphics]
+     * pour le seuil. Le cache se reconstruira tout seul ; ce qu'on perd, c'est
+     * un rechargement de tuiles, ce qu'on gagne, c'est de ne pas être le
+     * processus qu'on tue.
+     *
+     * On le journalise parce que c'est autrement invisible : une baisse de
+     * mémoire ne dit pas qui l'a demandée, et sans cette ligne, personne ne
+     * saurait dire si le relais fonctionne encore.
+     */
+    fun releaseGraphics() {
+        val view = mapView ?: return
+        logger.info(LogDomain.MAP, "Mémoire réclamée : cache de tuiles rendu.")
+        view.onLowMemory()
+    }
+
     // -------------------------------------------------------------------- style
 
     fun setAmbiance(next: MapAmbiance) {

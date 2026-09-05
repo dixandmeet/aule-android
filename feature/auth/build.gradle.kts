@@ -21,5 +21,9 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.core.ktx)
+    // L'onglet de navigateur de l'inscription Google. Voir le catalogue : une
+    // WebView est refusée par Google, et un navigateur complet laisse son
+    // onglet ouvert derrière l'application.
+    implementation(libs.androidx.browser)
     implementation(libs.kotlinx.coroutines.android)
 }

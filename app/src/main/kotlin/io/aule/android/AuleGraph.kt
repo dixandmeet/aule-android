@@ -9,6 +9,8 @@ import io.aule.android.auth.PreferencesAgentAccessStore
 import io.aule.android.auth.PreferencesAuthSessionStore
 import io.aule.android.auth.PreferencesBiometricEnrollmentStore
 import io.aule.android.auth.PreferencesRegistrationDraftStore
+import io.aule.android.data.aule.BffHubRepository
+import io.aule.android.hub.PreferencesHubOutboxStore
 import io.aule.android.search.PreferencesSavedPlacesStore
 import io.aule.android.search.PreferencesSearchHistoryStore
 import io.aule.android.assets.AndroidAssetBytes
@@ -19,6 +21,7 @@ import io.aule.android.core.map.VoirieTiles
 import io.aule.android.data.caching.CachedStopRepository
 import io.aule.android.guet.PreferencesGuetStore
 import io.aule.android.data.tiles.AssetNetworkLineRepository
+import io.aule.android.data.tiles.loadSpeedLimits
 import io.aule.android.welcome.PreferencesWelcomeStore
 import io.aule.android.handover.HandoverAlertNotifier
 import io.aule.android.watch.DepartureWatchNotifier
@@ -42,6 +45,10 @@ import io.aule.android.core.model.repository.BiometricEnrollmentStore
 import io.aule.android.core.model.repository.DriverProfileRepository
 import io.aule.android.core.model.repository.DriverReportRepository
 import io.aule.android.core.model.repository.DriverServiceRepository
+import io.aule.android.core.model.SpeedLimitTable
+import io.aule.android.core.model.repository.HubOutboxStore
+import io.aule.android.core.model.repository.HubRepository
+import io.aule.android.core.model.repository.ServiceNoteRepository
 import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.HandoverAlertPrefsStore
 import io.aule.android.core.model.repository.HandoverRepository
@@ -69,6 +76,7 @@ import io.aule.android.data.aule.OsrmRoadRouter
 import io.aule.android.data.aule.SupabaseAuthRepository
 import io.aule.android.data.aule.SupabaseDriverProfileRepository
 import io.aule.android.data.aule.SupabaseDriverReportRepository
+import io.aule.android.data.aule.AuleServiceNoteRepository
 import io.aule.android.data.aule.SupabaseDriverServiceRepository
 import io.aule.android.data.aule.SupabaseHandoverRepository
 import io.aule.android.data.aule.SupabaseLinePaletteRepository
@@ -145,6 +153,32 @@ class AuleGraph private constructor(
     val traces: GpsTraceCatalog,
     val reports: DriverReportRepository,
     val services: DriverServiceRepository,
+    /**
+     * Les notes de service du réseau, en lecture seule.
+     *
+     * Sur le BFF et non sur PostgREST, contrairement aux trois dépôts voisins :
+     * ici on lit, et la même route sert déjà l'iOS. Deux clients qui composeraient
+     * chacun leur filtre finiraient par ne pas montrer les mêmes consignes.
+     */
+    val serviceNotes: ServiceNoteRepository,
+    /**
+     * La messagerie de l'exploitation.
+     *
+     * Tenue ici comme les autres dépôts, mais sa **file hors ligne** l'est pour
+     * une raison propre : elle porte des messages tapés dans un tunnel, et la
+     * reconstruire à chaque ouverture de l'écran les perdrait — l'agent croirait
+     * avoir écrit.
+     */
+    val hub: HubRepository,
+    val hubOutbox: HubOutboxStore,
+    /**
+     * Les limitations qu'une note de service localise, lues dans les assets.
+     *
+     * Embarquées et non servies : un panneau réglementaire qui s'éteindrait dans un
+     * tunnel n'aurait aucune valeur — c'est là qu'un aller-retour réseau échoue, et
+     * là qu'on roule. Un kilo-octet dans l'APK vaut mieux qu'une requête.
+     */
+    val speedLimits: SpeedLimitTable,
     val handovers: HandoverRepository,
     val location: LocationProvider,
     val alertTone: AlertTone,
@@ -208,6 +242,7 @@ class AuleGraph private constructor(
             val http = AuleHttpClient(okHttp, logger)
             val endpoints = AuleEndpoints(config.apiBase)
             val location = FusedLocationProvider(context, logger)
+            val registrationDrafts = PreferencesRegistrationDraftStore(context)
             val auth = SupabaseAuthRepository(
                 client = http,
                 store = PreferencesAuthSessionStore(context),
@@ -215,6 +250,10 @@ class AuleGraph private constructor(
                 publishableKey = config.supabasePublishableKey,
                 logger = logger,
                 pkce = PreferencesAuthPkceStore(context),
+                // Le même dépôt que l'écran d'inscription, et c'est le point :
+                // au retour de Google, l'écran n'existe peut-être plus, mais le
+                // brouillon qu'il a écrit, si.
+                drafts = registrationDrafts,
             )
 
             val profiles = SupabaseDriverProfileRepository(
@@ -263,7 +302,7 @@ class AuleGraph private constructor(
                     biometricVault = BiometricKeyVault(logger = logger),
                     biometricEnrollment = PreferencesBiometricEnrollmentStore(context),
                     biometricAuthenticator = BiometricAuthenticator(logger = logger),
-                    registrationDrafts = PreferencesRegistrationDraftStore(context),
+                    registrationDrafts = registrationDrafts,
                     searchHistory = PreferencesSearchHistoryStore(context),
                     savedPlaces = PreferencesSavedPlacesStore(context),
                     savedPlaceSync = SupabaseSavedPlaceRepository(
@@ -299,7 +338,18 @@ class AuleGraph private constructor(
                         client = http,
                         supabaseUrl = config.supabaseUrl,
                         publishableKey = config.supabasePublishableKey,
+                        logger = logger,
                     ),
+                    serviceNotes = AuleServiceNoteRepository(
+                        client = http,
+                        endpoints = endpoints,
+                    ),
+                    hub = BffHubRepository(client = http, endpoints = endpoints),
+                    // La clé de la file suit le compte : un téléphone de service
+                    // passe de main en main, et un message en attente ne doit pas
+                    // repartir au nom du collègue suivant.
+                    hubOutbox = PreferencesHubOutboxStore(context) { auth.currentSession()?.user?.id },
+                    speedLimits = loadSpeedLimits(AndroidAssetBytes(context)),
                     handovers = SupabaseHandoverRepository(
                         client = http,
                         supabaseUrl = config.supabaseUrl,

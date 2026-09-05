@@ -50,6 +50,22 @@ class StopsLayer(
     private var byId: Map<String, TransitStop> = emptyMap()
     private var selected: TransitStop? = null
     private var selectionSource: GeoJsonSource? = null
+    private var hidden: Boolean = false
+
+    /**
+     * Masque ou rétablit les arrêts du catalogue général.
+     *
+     * Quand une ligne est ouverte, `LineStopLayer` affiche ses propres arrêts.
+     * Les 2 600 arrêts du catalogue, indiscernables visuellement, créeraient
+     * un bruit qui ne dit rien et fausserait « quels arrêts sont sur cette
+     * ligne ? ». Ce drapeau les éteint le temps de la consultation.
+     */
+    fun setHidden(hidden: Boolean) {
+        if (this.hidden == hidden) return
+        this.hidden = hidden
+        redraw()
+        publishSelection()
+    }
 
     /**
      * Remplace le catalogue.
@@ -198,9 +214,11 @@ class StopsLayer(
         val places = LinkedHashMap<String, TransitStop>()
         val quays = mutableListOf<TransitStop>()
 
-        for (stop in stops) {
-            quays += stop
-            places.putIfAbsent(stop.departuresKey, stop)
+        if (!hidden) {
+            for (stop in stops) {
+                quays += stop
+                places.putIfAbsent(stop.departuresKey, stop)
+            }
         }
 
         val source = placesSource
@@ -210,7 +228,7 @@ class StopsLayer(
             // On le dit — mais seulement quand il y avait quelque chose à perdre :
             // un avertissement qui se déclenche à chaque lancement apprend à ne
             // plus lire les avertissements.
-            if (stops.isNotEmpty()) {
+            if (stops.isNotEmpty() && !hidden) {
                 logger?.warn(
                     LogDomain.MAP,
                     "Arrêts reçus (${stops.size}) avant le montage de la couche.",
@@ -225,15 +243,17 @@ class StopsLayer(
         quaysSource?.setGeoJson(
             FeatureCollection.fromFeatures(quays.map { it.toFeature(withName = false) }),
         )
-        logger?.info(
-            LogDomain.MAP,
-            "Arrêts publiés : ${places.size} lieu(x), ${quays.size} quai(s).",
-        )
+        if (!hidden) {
+            logger?.info(
+                LogDomain.MAP,
+                "Arrêts publiés : ${places.size} lieu(x), ${quays.size} quai(s).",
+            )
+        }
     }
 
     private fun publishSelection() {
         val source = selectionSource ?: return
-        val stop = selected
+        val stop = selected?.takeUnless { hidden }
         if (stop == null) {
             source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
         } else {
@@ -294,6 +314,7 @@ class StopsLayer(
     )
 
     override fun hitTest(map: MapLibreMap, rect: RectF, point: PointF): (() -> Unit)? {
+        if (hidden) return null
         val hits = map.queryRenderedFeatures(rect, PLACE_LAYER, QUAY_LAYER)
         if (hits.isEmpty()) return null
 
@@ -330,7 +351,12 @@ class StopsLayer(
         const val PROP_ICON = "icon"
         const val PROP_NAME = "name"
 
-        /** Les étiquettes n'apparaissent qu'une fois les pastilles bien séparées. */
-        const val LABELS_FROM = 14.5f
+        /**
+         * Les étiquettes n'apparaissent qu'une fois les pastilles bien séparées.
+         *
+         * La mesure vit dans [MapZoom.STOP_LABELS_FROM], avec la desserte d'une
+         * ligne, qui pose exactement la même question.
+         */
+        val LABELS_FROM = MapZoom.STOP_LABELS_FROM.toFloat()
     }
 }

@@ -163,12 +163,19 @@ le titre est plus gros que la réponse a inversé sa hiérarchie.
   libellé flottant 60 · grille d'icône 24 · portrait 52 · pastille collée au
   portrait 22 · case à cocher 22.
 - **Hauteurs du chrome**, c'est-à-dire de ce qui flotte **au-dessus de la
-  carte** : champ de recherche, entrée de menu flottant et bouton d'action 48 —
-  le plancher tactile exactement · bouton de vue (cadrage) 40 · pastille d'état
-  et mention légale 32, dont le glyphe fait 18. Une échelle à part, plus serrée
-  d'un cran : chaque point pris ici est un point de ville qu'on ne voit plus.
-  Une pastille dessinée sous 48 dp reste touchable à 48 — Material agrandit
-  lui-même la cible autour d'une surface cliquable.
+  carte** : barre et entrée de menu flottant 48 — le plancher tactile
+  exactement · bouton qui déplie le menu 40 · cadrage et mention légale 32,
+  dont le glyphe fait 18. Une échelle à part, plus serrée d'un cran : chaque
+  point pris ici est un point de ville qu'on ne voit plus. Une surface dessinée
+  sous 48 dp reste touchable à 48 — Material agrandit lui-même la cible autour
+  d'une surface cliquable, ce qui vaut pour tout le chrome sauf le bouton du
+  menu, qui n'est pas une surface et se vise donc à sa taille.
+- **Le socle de recherche fait exception**, carte et contenu compris : sa carte
+  flottante vaut 16 + 48 + 16 — la bande qui dégage la poignée, le champ à sa
+  taille tactile, la même bande dessous —, et le champ comme l'avatar y tiennent
+  le plancher de 48. C'est la mesure du volet d'iOS (`kSearchSheetHeight`), et
+  la raison est la même des deux côtés : au repos, cette rangée est le seul mot
+  de l'écran, pas un contrôle rangé au bord.
 - **Traits** : filet 1 · contour appuyé (champ actif ou en erreur) 1,4 ·
   trait de la famille d'icônes 1,75 sur la grille de 24.
 - **Mouvement des volets** : un cran plus lent que le reste. Material fait
@@ -276,20 +283,24 @@ l'app, et le seul fait au calme — c'est le seul écran qui peut respirer.
 Une `MapView` plein écran sous un `BottomSheetScaffold` (volet en pic ~30 %,
 déployé ; la carte reste vivante dessous). Par-dessus, de haut en bas :
 - bandeau de service (`AuleBanner`) quand il y en a un ;
-- pastilles : diagnostic, état de la flotte (avec point temps réel pulsant),
-  bandeau d'incident (localisation refusée, arrêts non chargés, position
-  imprécise) ;
+- pastilles : diagnostic, veille de passage en cours, bandeau d'incident
+  (localisation refusée, arrêts non chargés, position imprécise) ;
 - au milieu, rien : la carte ;
 - **en bas, le socle** : la recherche de destination, en volet et non en barre.
   C'est le **volet du dessous** — rien ne l'ouvre, rien ne le ferme, il
   réapparaît dès qu'aucun autre volet n'est présenté, et il refuse d'être
-  rejeté. Au repos c'est une **carte flottante**, écartée des trois bords : le
-  champ « Où allez-vous ? » — sans cartouche, un aplat dans un aplat ne se lit
-  pas — et l'avatar du compte au cran du chrome, plus petit que sa cible. Il
-  s'ouvre **au doigt posé sur le champ**, et par là seulement — le glissement
-  est coupé tant qu'il est fermé, une carte flottante ne promettant pas de
-  palier. Déployé, il redevient un volet — pleine largeur, poignée — et rend
-  les destinations récentes, les arrêts d'à côté, puis les résultats.
+  rejeté. Au repos c'est une **carte flottante**, écartée des trois bords, en
+  verre comme tout ce qui flotte ici : une poignée, puis le champ « Où
+  allez-vous ? » et l'avatar du compte, tous deux au plancher tactile — même
+  hauteur, la rangée se lit comme une seule ligne. Le champ y porte le cran du
+  titre de volet : c'est le seul mot de l'écran. Il s'ouvre **au doigt posé sur
+  la carte** — toute sa surface répond, et le clavier vient du même geste — ou
+  **tiré vers le haut par sa poignée**, qui monte le volet sans clavier. Le
+  glissement du volet, lui, reste coupé : sa surface couvre toute la largeur de
+  l'écran, ville comprise, et il ferait monter la recherche au premier
+  défilement de carte mal visé. Déployé, il redevient un volet — pleine
+  largeur, poignée du volet — et rend les destinations récentes, les arrêts
+  d'à côté, puis les résultats.
   Redescendre **n'efface pas le champ** : repousser n'est pas annuler, et c'est
   la croix du champ qui efface. Port de
   `Native/Aule/Features/Search/SearchSheet.swift` ;

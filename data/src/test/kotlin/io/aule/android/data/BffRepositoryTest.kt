@@ -277,6 +277,35 @@ class BffRepositoryTest {
         assertTrue(query.contains("mode=transit"), query)
     }
 
+    /**
+     * Le champ que le DTO ne déclarait pas, et que l'application allait
+     * redemander à un second serveur — voir `RouteManeuverDto`.
+     */
+    @Test
+    fun `un trajet voiture porte les manoeuvres du BFF`() = runTest {
+        respond(fixture("route-car.json"))
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.CAR,
+            from = Coordinate(latitude = 47.212647, longitude = -1.558305),
+            to = Coordinate(latitude = 47.217708, longitude = -1.541651),
+        )
+
+        val trajet = plan.alternatives.first()
+        assertEquals(6, trajet.maneuvers.size)
+
+        val depart = trajet.maneuvers.first()
+        assertEquals("depart", depart.instruction)
+        assertEquals(47.212647, depart.location.latitude, 1e-6)
+
+        val gauche = trajet.maneuvers[1]
+        assertEquals("turn", gauche.instruction)
+        assertEquals("left", gauche.modifier)
+        assertEquals("Rue Jean-Jacques Rousseau", gauche.streetName)
+
+        val giratoire = trajet.maneuvers.first { it.exit != null }
+        assertEquals(2, giratoire.exit)
+    }
+
     @Test
     fun `des coordonnees inversees portent le message du serveur`() = runTest {
         respond(fixture("route-inverted.json"), 404)

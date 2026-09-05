@@ -5,8 +5,11 @@ import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.LineJourneyStop
+import io.aule.android.core.model.LineStopMarker
 import io.aule.android.core.model.ServingLine
+import io.aule.android.core.model.buildLineStopMarkers
 import io.aule.android.core.model.canonicalLineName
+import io.aule.android.core.model.normalizeStopName
 import io.aule.android.core.model.repository.DriverServiceRepository
 import io.aule.android.core.model.repository.StopRepository
 import kotlinx.coroutines.CancellationException
@@ -22,15 +25,29 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * Une desserte : un sens de la ligne, et les arrêts dans l'ordre.
+ * Un parcours de la ligne : un sens, une branche, et les arrêts dans l'ordre.
  *
- * @param terminus ce que le référentiel annonce au bout — « Beaujoire ». C'est
- *   ce qui nomme l'onglet, et non « sens 0 », qui ne dit rien à personne.
+ * ## Pourquoi ce n'est pas « la desserte d'un sens »
+ *
+ * Un sens n'a pas un parcours mais plusieurs : la ligne 1 dessert Beaujoire
+ * **ou** Babinière dans le même. Le modèle porte donc tous les parcours et
+ * laisse choisir — c'est la seule façon de ne pas répondre faux à « où va-t-elle
+ * ? ». Même maille qu'iOS (`LineProfile`).
+ *
+ * @param id l'identité GTFS du parcours. Deux branches d'un même sens en ont
+ *   deux différentes, et c'est par elle qu'on retient laquelle est affichée.
+ * @param terminus ce que le référentiel annonce au bout — « Beaujoire /
+ *   Babinière ». Il nomme **l'onglet du sens**, jamais la branche : sur une
+ *   ligne à branches, les deux portent le même. Pour nommer un parcours,
+ *   [LineJourney.label] prend ses deux bouts.
  */
 internal data class LineDesserte(
+    val id: String,
     val directionId: Int,
     val terminus: String,
     val stops: List<LineJourneyStop>,
+    /** Les deux bouts, qui nomment ce parcours dans le menu des branches. */
+    val label: String,
 )
 
 internal data class LineStopsUiState(
@@ -38,6 +55,14 @@ internal data class LineStopsUiState(
     val line: String? = null,
     val dessertes: List<LineDesserte> = emptyList(),
     val selectedDirection: Int? = null,
+    /**
+     * La branche affichée dans le sens choisi, ou `null` pour la référence.
+     *
+     * ⚠️ **Un identifiant et non le parcours lui-même** — même raison que
+     * [focusedStopId] : changer de ligne reconstruit la liste, et un objet
+     * retenu là désignerait une branche qui n'est plus proposée.
+     */
+    val selectedProfileId: String? = null,
     /**
      * Les lignes qui desservent chaque arrêt, par **nom d'arrêt**.
      *
@@ -53,9 +78,9 @@ internal data class LineStopsUiState(
     val connections: Map<String, List<ServingLine>> = emptyMap(),
     /**
      * L'arrêt sur lequel la caméra s'est posée, ou `null` quand elle tient la
-     * ligne entière. Un **identifiant** et non l'arrêt lui-même : changer de
-     * sens reconstruit la liste, et un objet retenu là désignerait un arrêt qui
-     * n'est plus dans la desserte affichée.
+     * ligne entière. L'identité d'un **marqueur** — voir [markers] —, et non
+     * l'arrêt lui-même : changer de sens reconstruit la liste, et un objet
+     * retenu là désignerait un arrêt qui n'est plus dans la desserte affichée.
      */
     val focusedStopId: String? = null,
     val isLoading: Boolean = false,
@@ -66,12 +91,86 @@ internal data class LineStopsUiState(
      */
     val failure: LineStopsFailure? = null,
 ) {
-    val selected: LineDesserte?
-        get() = dessertes.firstOrNull { it.directionId == selectedDirection } ?: dessertes.firstOrNull()
+    /**
+     * Les **sens** proposés, un par entrée du groupe de boutons.
+     *
+     * Un par `directionId`, et non un par parcours : le groupe reçoit sinon
+     * autant de segments que la ligne a de branches — cinq sur la 1, dont les
+     * libellés se réduisent à « Vers Fra… » et « Vers Be… », illisibles et
+     * répétés. Vu à l'écran le 05/09/2026.
+     */
+    val directions: List<LineDesserte>
+        get() = dessertes.distinctBy { it.directionId }
+
+    /**
+     * Les parcours du sens affiché **qu'un menu peut distinguer**, référence en
+     * tête.
+     *
+     * ⚠️ **Une branche est un parcours qui finit ailleurs.** C'est le seul
+     * critère, et il tient en une phrase : au moins un de ses deux bouts n'est
+     * pas desservi par la référence. Beaujoire et Babinière ne finissent pas au
+     * même endroit, et c'est exactement ce qui fait d'elles deux branches.
+     *
+     * Tout le reste est un parcours **de** la référence, que la référence
+     * représente déjà :
+     *
+     * - la **variante** — mêmes bouts, un crochet en plus. Les trois parcours
+     *   de la C1 relient Gare de Chantenay à Haluchère, et le menu les
+     *   proposait trois fois à l'identique ;
+     * - la **course partielle** — elle démarre ou s'arrête en chemin, donc
+     *   entre deux arrêts que la référence dessert. La C3 en publie deux, et le
+     *   menu les offrait comme des branches : « Hôtel Dieu → Armor » (24
+     *   arrêts) et « Prairie de Mauves → Armor » (35). Ni l'une ni l'autre n'est
+     *   la ligne, et en choisir une peignait sur la carte des arrêts que la C3
+     *   ne dessert pas ce jour-là. Vu à l'écran le 05/09/2026, journal à
+     *   l'appui.
+     *
+     * Le filtre précédent — « au moins un arrêt que la référence n'ait pas » —
+     * laissait passer les deux : il suffit d'un crochet d'un arrêt, ou d'une
+     * sortie de dépôt, pour qu'une troncature passe pour une branche.
+     *
+     * Les noms se comparent **normalisés** ([normalizeStopName]) : le
+     * référentiel écrit « Hôtel Dieu » et « HOTEL-DIEU » pour le même lieu, et
+     * un bout non reconnu ferait réapparaître le faux choix qu'on vient
+     * d'écarter.
+     */
+    val branches: List<LineDesserte> by lazy {
+        val direction = selectedDirection ?: dessertes.firstOrNull()?.directionId
+        val all = dessertes.filter { it.directionId == direction }
+        val reference = all.firstOrNull()
+        if (reference == null) {
+            emptyList()
+        } else {
+            val served = reference.stops.mapTo(mutableSetOf()) { normalizeStopName(it.name) }
+            listOf(reference) + all.drop(1)
+                .filter { it.divergesFrom(served) }
+                .distinctBy { it.label }
+        }
+    }
+
+    val selected: LineDesserte? by lazy {
+        branches.firstOrNull { it.id == selectedProfileId } ?: branches.firstOrNull()
+    }
+
+    /**
+     * Les arrêts du parcours affiché, **tels que la carte les peint et que la
+     * liste les montre**.
+     *
+     * ⚠️ **Une seule construction pour les deux**, et c'est tout l'enjeu : tant
+     * que chacune se faisait de son côté, rien ne garantissait qu'elles disent
+     * la même chose, et un rang de plus dans le volet que sur la carte se lit
+     * comme une carte incomplète, pas comme un défaut. Voir
+     * [buildLineStopMarkers], qui réunit au passage les rangs désignant le même
+     * lieu — deux pastilles exactement superposées, dont la seconde masque la
+     * première sans que rien ne le dise.
+     */
+    val markers: List<LineStopMarker> by lazy {
+        selected?.let { buildLineStopMarkers(it.id, it.stops) }.orEmpty()
+    }
 
     /** L'arrêt sous la caméra, s'il est encore dans la desserte affichée. */
-    val focusedStop: LineJourneyStop?
-        get() = selected?.stops?.firstOrNull { it.id == focusedStopId }
+    val focusedStop: LineStopMarker?
+        get() = markers.firstOrNull { it.id == focusedStopId }
 
     /**
      * Ce qu'on peut prendre d'autre à cet arrêt.
@@ -91,11 +190,36 @@ internal data class LineStopsUiState(
     }
 
     /**
-     * Vrai quand la ligne a plus d'une desserte à proposer — donc quand il y a un
+     * Vrai quand la ligne a plus d'un **sens** à proposer — donc quand il y a un
      * choix à offrir. Une ligne à sens unique n'a pas besoin d'un sélecteur qui
      * ne sélectionne rien.
      */
-    val hasChoice: Boolean get() = dessertes.size > 1
+    val hasChoice: Boolean get() = dessertes.distinctBy { it.directionId }.size > 1
+
+    /**
+     * Vrai quand le sens affiché se scinde en branches.
+     *
+     * Huit lignes du réseau sur cent trente-huit : le menu ne paraît que pour
+     * elles, et le cas courant garde un volet où rien ne s'intercale entre le
+     * sens et la liste.
+     */
+    val hasBranches: Boolean get() = branches.size > 1
+}
+
+/**
+ * Ce parcours va-t-il ailleurs que la référence ?
+ *
+ * Un parcours dont les deux bouts sont desservis par la référence n'est pas une
+ * branche : il commence ou s'arrête **en chemin**, c'est-à-dire entre deux
+ * arrêts que la référence dessert déjà. Voir [LineStopsUiState.branches] pour
+ * les trois cas du réseau.
+ *
+ * @param served les noms normalisés desservis par la référence.
+ */
+private fun LineDesserte.divergesFrom(served: Set<String>): Boolean {
+    val origin = stops.firstOrNull()?.name?.let(::normalizeStopName) ?: return false
+    val terminus = stops.lastOrNull()?.name?.let(::normalizeStopName) ?: return false
+    return origin !in served || terminus !in served
 }
 
 /**
@@ -134,7 +258,8 @@ internal enum class LineStopsFailure {
  * ## Deux requêtes, et un catalogue relu une fois
  *
  * Le référentiel des services (`fetchLines`) donne l'identifiant GTFS de la
- * ligne et ses sens ; `fetchJourney` donne les arrêts d'un sens. Le premier est
+ * ligne et ses sens ; `fetchJourneyProfiles` donne **tous les parcours** d'un
+ * sens, celui de référence en tête. Le premier est
  * relu **une seule fois** par processus : il change à la fréquence d'un dépôt
  * GTFS, et le redemander à chaque fiche ouverte paierait un catalogue entier
  * pour un identifiant.
@@ -257,8 +382,28 @@ internal class LineStopsModel(
         if (_state.value.selectedDirection == directionId) return
         // Changer de sens **rend la caméra** : l'arrêt visé appartenait à
         // l'autre desserte, et la garder posée dessus laisserait la carte sur un
-        // point que la liste ne montre plus.
-        _state.value = _state.value.copy(selectedDirection = directionId, focusedStopId = null)
+        // point que la liste ne montre plus. La branche repart de la référence,
+        // pour la même raison — celle qu'on avait choisie était de l'autre sens.
+        _state.value = _state.value.copy(
+            selectedDirection = directionId,
+            selectedProfileId = null,
+            focusedStopId = null,
+        )
+    }
+
+    /**
+     * Choisit une branche dans le sens affiché.
+     *
+     * ⚠️ **Le changement se propage jusqu'à la carte.** La desserte affichée
+     * décide des pastilles peintes sur le tracé : sans ce signal, changer de
+     * branche dans le menu laisserait la carte sur l'ancienne — des arrêts
+     * justes attribués à la mauvaise branche, ce que rien à l'écran ne
+     * trahirait. C'est l'avertissement d'iOS (`LineStopsModel.selectedID`), et
+     * il vaut ici parce que `MapScreen` republie la couche sur `selected`.
+     */
+    fun selectProfile(profileId: String) {
+        if (_state.value.selected?.id == profileId) return
+        _state.value = _state.value.copy(selectedProfileId = profileId, focusedStopId = null)
     }
 
     /**
@@ -350,8 +495,17 @@ internal class LineStopsModel(
                 async {
                     // Un sens qui échoue ne fait pas tomber l'autre : une fiche à
                     // un sens vaut mieux qu'une fiche vide.
-                    val stops = runCatching {
-                        repository.fetchJourney(current, line.id, direction.id).stops
+                    val profiles = runCatching {
+                        // Le terminus annoncé part avec la requête : c'est le
+                        // seul repère extérieur aux courses, et sans lui une
+                        // course qui pousse jusqu'au dépôt donne ses bouts à la
+                        // ligne entière. Voir `DriverServiceRepository`.
+                        repository.fetchJourneyProfiles(
+                            current,
+                            line.id,
+                            direction.id,
+                            direction.terminus,
+                        )
                     }.getOrElse { failure ->
                         if (failure is CancellationException) throw failure
                         logger.warn(
@@ -361,13 +515,17 @@ internal class LineStopsModel(
                         )
                         emptyList()
                     }
-                    LineDesserte(
-                        directionId = direction.id,
-                        terminus = direction.terminus,
-                        stops = stops,
-                    )
+                    profiles.map { profile ->
+                        LineDesserte(
+                            id = profile.profileId,
+                            directionId = direction.id,
+                            terminus = direction.terminus,
+                            stops = profile.stops,
+                            label = profile.label,
+                        )
+                    }
                 }
-            }.map { it.await() }.filter { it.stops.isNotEmpty() }
+            }.flatMap { it.await() }.filter { it.stops.isNotEmpty() }
         }
     }
 

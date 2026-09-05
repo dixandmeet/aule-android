@@ -41,6 +41,20 @@ androidxLifecycle = "2.10.0"
 # l'importe, elle ne pèse que dans l'APK.
 androidxBiometric = "1.1.0"
 
+# Custom Tabs — l'onglet de navigateur dans lequel s'ouvre l'inscription Google.
+#
+# Pas un confort : RFC 8252 exclut la WebView pour OAuth, et Google la refuse
+# explicitement (`disallowed_useragent`). Restait le choix entre un `ACTION_VIEW`
+# nu et l'onglet. L'onglet gagne pour une raison qui se voit à l'usage — il se
+# **referme** sur le retour du deep link, là où le navigateur complet garde
+# l'onglet Google ouvert derrière l'application, prêt à rejouer la redirection
+# au prochain passage dans l'historique.
+#
+# 1.9.0, dernière stable vérifiée sur Google Maven le 30/08/2026. La
+# bibliothèque n'apporte rien d'autre au projet : elle est déclarée par le seul
+# module qui l'ouvre, `:feature:auth`.
+androidxBrowser = "1.9.0"
+
 # `FragmentActivity`, dont hérite `MainActivity` — c'est `BiometricPrompt` qui
 # l'exige comme hôte. Déclaré explicitement plutôt que pris dans les transitives
 # de `biometric` : `:app` en a un besoin **direct**, il y déclare une classe qui
@@ -115,6 +129,7 @@ androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-
 
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "androidxBiometric" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "androidxFragment" }
+androidx-browser = { group = "androidx.browser", name = "browser", version.ref = "androidxBrowser" }
 
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "datastore" }
 

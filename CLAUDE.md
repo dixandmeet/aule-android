@@ -13,13 +13,19 @@ redécouvrir.
 | Sujet | Où |
 |---|---|
 | Vue d'ensemble, mesures, pièges | `README.md` |
-| Décisions structurantes | `Docs/adr/` — 13 ADR |
+| Décisions structurantes | `Docs/adr/` — 14 ADR |
 | Contrat du BFF et ses pièges | `../docs/CONTRAT-BFF.md` |
 | Plans en cours | `Docs/PLAN-*.md` |
 
 **Avant de toucher à la carte, lire [ADR-006](Docs/adr/ADR-006-interpolation.md)** —
 l'interpolation vit hors de l'état Compose. C'est la seule règle du projet qui soit invisible
 dans le code et qu'un changement anodin suffise à détruire.
+
+**Avant de toucher au rendu 3D des véhicules, lire
+[ADR-015](Docs/adr/ADR-015-couche-native-vehicules.md)** — et son aînée,
+`../Native/Aule/Core/Map/Render3D/`, qui porte la même fonctionnalité contre le même cœur
+mbgl. Le repère qu'attend MapLibre ne se devine pas : x/y en pixels-monde, **z en mètres**,
+et `pitch`/`bearing` en **radians**.
 
 ## Commandes
 
@@ -60,6 +66,7 @@ Un build `release` **échoue volontairement** si la signature n'est pas renseign
       designsystem/      jetons Aule + thème et composants Material 3
       location/          Fused, HeadingStabilizer, MotionAnchor, FGS, AlertTone
       map/               MapController, couches, caméra, icônes
+      map3d/             **le seul module qui contienne du C++** — modèles 3D des véhicules
       guet/              moteur du mode Guet
     data/                implémentations BFF + GoTrue — seul module qui voie OkHttp
     feature/
@@ -99,6 +106,7 @@ mots de passe du keystore.
 | SDK | `minSdk 26`, `targetSdk 36`, `compileSdk 37` |
 | Toolchain | AGP 9.2.1, Kotlin 2.4.10, JVM target 17 |
 | Carte | MapLibre Native Android 13.5.0, artefact **OpenGL** (`android-sdk-opengl`) |
+| Natif | NDK 28.2.13676358, CMake 3.22.1 — `:core:map3d` seul, ABI `arm64-v8a` |
 
 DSL classique et Kotlin Gradle Plugin assumés : `android.newDsl=false`,
 `android.builtInKotlin=false`. C'est la combinaison éprouvée sur cette machine — ne pas
@@ -133,6 +141,10 @@ basculer sans raison.
 6. `android-sdk` n'est pas OpenGL — l'AAR 13.5.0 embarque Vulkan (ADR-002).
 7. 404 ≠ 502 sur les passages : « rien ne circule » et « le fournisseur est muet » mènent au
    même écran vide mais n'appellent pas la même réaction.
+8. L'épingle du catalogue ne convient pas à l'échelle d'une ligne : 26 dp sur un cadrage de
+   quinze kilomètres, ce sont trente-quatre pastilles qui **recouvrent le tracé qu'elles
+   précisent**. Les arrêts d'une desserte sont des cercles dont le rayon suit le zoom —
+   `LineStopLayer`, qui porte la mesure.
 
 ## Accessibilité
 

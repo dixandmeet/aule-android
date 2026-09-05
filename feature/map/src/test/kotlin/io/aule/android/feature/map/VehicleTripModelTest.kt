@@ -190,6 +190,7 @@ class VehicleTripModelTest {
             session: AuthSession,
             lineId: String,
             directionId: Int,
+        expectedTerminus: String,
         ) = error("unused")
         override suspend fun fetchActiveService(session: AuthSession): ActiveDriverService? = null
         override suspend fun startService(session: AuthSession, request: ServiceStartRequest) =
