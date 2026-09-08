@@ -2,7 +2,9 @@
 <resources>
     <string name="hub_title">Messages</string>
     <string name="hub_empty_title">Aucune discussion</string>
-    <string name="hub_empty_detail">Créez un groupe pour écrire à vos collègues.</string>
+    <string name="hub_empty_detail">Ouvrez le répertoire pour écrire à un collègue.</string>
+    <string name="hub_unreachable_title">Liste non chargée</string>
+    <string name="hub_unavailable_title">Messagerie indisponible</string>
     <string name="hub_new_group">Nouveau groupe</string>
     <string name="hub_group_name">Nom du groupe</string>
     <string name="hub_create">Créer</string>
@@ -10,12 +12,29 @@
     <string name="hub_search_colleagues">Nom ou matricule</string>
     <string name="hub_no_colleague">Aucun collègue trouvé</string>
     <string name="hub_no_account">Pas encore de compte Aule Pro</string>
+
+    <!-- Répertoire du réseau -->
+    <string name="hub_directory">Répertoire</string>
+    <string name="hub_directory_open">Ouvrir le répertoire</string>
+    <string name="hub_directory_empty_title">Répertoire vide</string>
+    <string name="hub_directory_empty_detail">Aucun agent de votre réseau n\'apparaît ici.</string>
+    <string name="hub_directory_unreachable">Répertoire non chargé</string>
+    <string name="hub_directory_more">Voir la suite</string>
+    <string name="hub_directory_typing">Continuez à taper pour chercher.</string>
+    <string name="hub_no_contact">N\'accepte pas les messages directs</string>
+    <string name="hub_write_to">Écrire à %1$s</string>
+
+    <!-- Sa propre porte -->
+    <string name="hub_reachable_title">Être joignable</string>
+    <string name="hub_reachable_detail">Vos collègues du réseau peuvent vous écrire.</string>
+    <string name="hub_unreachable_detail">Personne ne peut vous écrire tant que vous ne l\'acceptez pas.</string>
     <string name="hub_members">Membres</string>
     <string name="hub_leave_group">Quitter le groupe</string>
     <string name="hub_close_group">Fermer le groupe</string>
     <string name="hub_message_hint">Message</string>
     <string name="hub_send">Envoyer</string>
     <string name="hub_back">Retour aux discussions</string>
+    <string name="hub_close">Fermer la messagerie</string>
     <string name="hub_retry">Réessayer</string>
     <string name="hub_discard">Supprimer</string>
     <string name="hub_refresh">Rafraîchir</string>
@@ -54,6 +73,7 @@
     <string name="hub_error_channel_closed">Ce groupe est fermé.</string>
     <string name="hub_error_not_found">Cette discussion n\'existe plus.</string>
     <string name="hub_error_other_network">Ce collègue appartient à un autre réseau.</string>
+    <string name="hub_error_contact_refused">Ce collègue n\'accepte pas les messages directs.</string>
     <string name="hub_error_no_network">Ce compte n\'est rattaché à aucun réseau.</string>
     <string name="hub_error_cannot_leave">Cette discussion ne se quitte pas.</string>
     <string name="hub_error_file">La pièce jointe n\'est pas arrivée. Recommencez l\'envoi.</string>

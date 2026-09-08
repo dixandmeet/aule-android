@@ -8,7 +8,7 @@ import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.HubBootstrap
 import io.aule.android.core.model.HubChannel
-import io.aule.android.core.model.HubColleague
+import io.aule.android.core.model.HubDirectory
 import io.aule.android.core.model.HubException
 import io.aule.android.core.model.HubFile
 import io.aule.android.core.model.HubFileKind
@@ -1034,10 +1034,33 @@ interface HubRepository {
     suspend fun openDirect(session: AuthSession, userId: String): HubChannel
 
     /**
-     * Rend une liste vide sous deux caractères : on ne montre pas l'annuaire du
-     * réseau, et la base refuserait de toute façon de le servir.
+     * Le répertoire de son réseau — parcouru, ou cherché.
+     *
+     * | [query] | ce qui revient |
+     * |---|---|
+     * | vide | le réseau, par ordre alphabétique, paginé |
+     * | un caractère | rien — une frappe en cours n'est pas une intention |
+     * | deux et plus | la recherche, par nom ou matricule |
+     *
+     * ⚠️ La ligne du milieu a l'air d'une bizarrerie et n'en est pas : balayer
+     * le réseau à chaque touche du clavier coûte autant que de le rendre en
+     * entier, et ne rend rien d'utile.
      */
-    suspend fun searchColleagues(session: AuthSession, query: String): List<HubColleague>
+    suspend fun directory(
+        session: AuthSession,
+        query: String = "",
+        limit: Int = 20,
+        offset: Int = 0,
+    ): HubDirectory
+
+    /**
+     * Ouvre — ou referme — sa propre porte.
+     *
+     * ⚠️ Une **écriture** : un 404 lève un [HubException] « route absente »
+     * plutôt que de passer pour un succès. Un agent qui croirait s'être rendu
+     * joignable sans l'être attendrait des messages qui ne peuvent pas venir.
+     */
+    suspend fun setContactPreference(session: AuthSession, accepts: Boolean): Boolean
 
     suspend fun unread(session: AuthSession): HubUnread
 

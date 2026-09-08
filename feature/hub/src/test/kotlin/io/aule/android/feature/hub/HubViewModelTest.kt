@@ -10,6 +10,7 @@ import io.aule.android.core.model.HubChannelMode
 import io.aule.android.core.model.HubChannelStatus
 import io.aule.android.core.model.HubColleague
 import io.aule.android.core.model.HubDeliveryState
+import io.aule.android.core.model.HubDirectory
 import io.aule.android.core.model.HubException
 import io.aule.android.core.model.HubFailureKind
 import io.aule.android.core.model.HubFile
@@ -325,8 +326,273 @@ class HubViewModelTest {
     }
 
     // ------------------------------------------------------------------
+    // Vide, ou inconnu
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `une messagerie non deployee ne se lit pas comme un compte neuf`() = runTest {
+        // Sur une **lecture**, le 404 vaut vide : le BFF ne distingue pas une
+        // route absente d'une liste sans discussion. Seul l'amorçage, qui
+        // écrit, le sait — et sans ce relais l'écran affichait « aucune
+        // discussion » à qui attendait des messages qui ne pouvaient pas venir.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(
+                canaux = emptyList(),
+                amorcageRefus = HubException(HubFailureKind.NOT_DEPLOYED),
+            )
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.state.value.isNotDeployed)
+            assertNull(viewModel.state.value.failure, "un amorçage raté ne crie toujours pas")
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `une liste jamais arrivee n est pas une liste vide`() = runTest {
+        // « Aucune discussion » est une affirmation. Une liste qui n'a pas
+        // chargé n'autorise pas à l'écrire — et le genre du refus doit rester
+        // disponible pour l'écran sans passer par la `Snackbar`.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = emptyList(), echec = HubException(HubFailureKind.NO_NETWORK))
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+
+            assertEquals(HubFailureKind.NO_NETWORK, viewModel.state.value.channelsFailure)
+            assertNull(viewModel.state.value.failure)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `le tourniquet retombe au premier verdict`() = runTest {
+        // Il part à `true` — l'écran s'ouvre pendant que la liste arrive — et
+        // doit retomber, succès ou échec. Resté levé, il laisse un rond qui
+        // tourne devant une messagerie parfaitement chargée.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = emptyList(), echec = HubException(HubFailureKind.UNKNOWN))
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+
+            assertTrue(viewModel.state.value.isLoadingChannels.not())
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    // ------------------------------------------------------------------
     // Doublures
     // ------------------------------------------------------------------
+
+    // ------------------------------------------------------------------
+    // Le répertoire
+    // ------------------------------------------------------------------
+
+    @Test
+    fun `ouvrir le repertoire demande le reseau, sans rien taper`() = runTest {
+        // C'est toute la différence entre un répertoire et une recherche : sans
+        // cet appel à requête vide, un agent qui ne connaît pas le nom exact de
+        // son collègue n'a aucun moyen de le trouver.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            hub.repertoire = { _, _ ->
+                HubDirectory(colleagues = listOf(COLLEGUE), meAcceptsDirect = true)
+            }
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            assertEquals(listOf("" to 0), hub.demandes)
+            assertEquals(1, viewModel.state.value.directory.colleagues.size)
+            assertTrue(viewModel.state.value.directory.isOpen)
+            assertTrue(viewModel.state.value.directory.meAcceptsDirect)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `six touches ne font qu un appel, et c est la derniere qui gagne`() = runTest {
+        // Sans report, un nom de six lettres part en six requêtes dont les
+        // réponses reviennent dans le désordre : la liste finit par afficher le
+        // résultat de « Vas » sous la saisie « Vasse ».
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            hub.repertoire = { q, _ -> HubDirectory(colleagues = listOf(COLLEGUE.copy(label = q))) }
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+            viewModel.openDirectory()
+            advanceUntilIdle()
+            hub.demandes.clear()
+
+            "Vasse".forEachIndexed { index, _ -> viewModel.searchDirectory("Vasse".take(index + 1)) }
+            advanceUntilIdle()
+
+            assertEquals(listOf("Vasse" to 0), hub.demandes)
+            assertEquals("Vasse", viewModel.state.value.directory.colleagues.single().label)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `la page suivante ajoute, elle ne vide pas l ecran`() = runTest {
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            hub.repertoire = { _, offset ->
+                if (offset == 0) {
+                    HubDirectory(colleagues = listOf(COLLEGUE), hasMore = true)
+                } else {
+                    HubDirectory(colleagues = listOf(COLLEGUE.copy(userId = "u2", label = "Bruno Bertin")))
+                }
+            }
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            viewModel.loadMoreDirectory()
+            advanceUntilIdle()
+
+            val repertoire = viewModel.state.value.directory
+            assertEquals(listOf("Anne Aubry", "Bruno Bertin"), repertoire.colleagues.map { it.label })
+            assertEquals(listOf("" to 0, "" to 1), hub.demandes)
+            assertTrue(!repertoire.hasMore)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `un repertoire non charge ne dit pas qu il est vide`() = runTest {
+        // « Aucun collègue » est une affirmation. Une liste qui n'est jamais
+        // arrivée ne permet pas de la faire.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            hub.refusRepertoire = HubException(HubFailureKind.NOT_DEPLOYED)
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            assertEquals(HubFailureKind.NOT_DEPLOYED, viewModel.state.value.directory.failure)
+            assertTrue(viewModel.state.value.directory.colleagues.isEmpty())
+            assertTrue(!viewModel.state.value.directory.isLoading)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `ouvrir un tete-a-tete met le canal dans la liste avant de l ouvrir`() = runTest {
+        // L'écran lit la conversation courante dans `channels` : sans cette
+        // insertion, ouvrir un tête-à-tête neuf refermerait la messagerie sur
+        // la liste, et le message qu'on venait écrire n'aurait nulle part où
+        // aller.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            viewModel.openDirectWith("u1")
+            advanceUntilIdle()
+
+            assertEquals("u1", hub.directOuvert)
+            assertEquals("dm-u1", viewModel.state.value.openChannelId)
+            assertTrue(viewModel.state.value.openChannel != null)
+            assertTrue(!viewModel.state.value.directory.isOpen)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `un collegue qui n accepte pas laisse le repertoire ouvert, avec sa raison`() = runTest {
+        // Le refus se lit là où le doigt a cliqué. Refermer le répertoire sur
+        // une `Snackbar` ferait disparaître la liste que l'agent parcourait.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            hub.repertoire = { _, _ -> HubDirectory(colleagues = listOf(COLLEGUE)) }
+            hub.refusDirect = HubException(HubFailureKind.CONTACT_REFUSED)
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            viewModel.openDirectWith("u1")
+            advanceUntilIdle()
+
+            val repertoire = viewModel.state.value.directory
+            assertTrue(repertoire.isOpen, "le répertoire reste ouvert sous le refus")
+            assertEquals(HubFailureKind.CONTACT_REFUSED, repertoire.failure)
+            assertEquals(1, repertoire.colleagues.size, "la liste parcourue ne disparaît pas")
+            assertNull(viewModel.state.value.openChannelId)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
+
+    @Test
+    fun `sa propre porte suit le serveur, pas le doigt`() = runTest {
+        // Basculer l'écran avant d'écrire laisserait un interrupteur
+        // « joignable » sur un compte que personne ne peut joindre, et l'agent
+        // attendrait des messages qui ne peuvent pas venir.
+        val dispatcher = StandardTestDispatcher(testScheduler)
+        Dispatchers.setMain(dispatcher)
+        try {
+            val hub = FakeHub(canaux = listOf(CANAL))
+            val viewModel = viewModel(hub)
+            advanceUntilIdle()
+            viewModel.openDirectory()
+            advanceUntilIdle()
+
+            hub.refusRepertoire = HubException(HubFailureKind.NOT_DEPLOYED)
+            viewModel.setContactPreference(true)
+            advanceUntilIdle()
+
+            assertNull(hub.porte, "rien n'a été posé en base")
+            assertTrue(
+                !viewModel.state.value.directory.meAcceptsDirect,
+                "l'interrupteur ne bascule pas sur une écriture refusée",
+            )
+            assertEquals(HubFailureKind.NOT_DEPLOYED, viewModel.state.value.directory.failure)
+
+            hub.refusRepertoire = null
+            viewModel.setContactPreference(true)
+            advanceUntilIdle()
+
+            assertEquals(true, hub.porte)
+            assertTrue(viewModel.state.value.directory.meAcceptsDirect)
+        } finally {
+            Dispatchers.resetMain()
+        }
+    }
 
     private fun viewModel(
         hub: FakeHub,
@@ -357,12 +623,15 @@ class HubViewModelTest {
         private val canaux: List<HubChannel>,
         var echec: HubException? = null,
         private val amorcageEchoue: Boolean = false,
+        /** Un refus **nommé** de l'amorçage, quand le genre compte. */
+        private val amorcageRefus: HubException? = null,
     ) : HubRepository {
         val envoyes = mutableListOf<String>()
         var amorcages = 0
 
         override suspend fun bootstrap(session: AuthSession): HubBootstrap {
             amorcages += 1
+            amorcageRefus?.let { throw it }
             if (amorcageEchoue) throw HubException(HubFailureKind.NO_NETWORK)
             return HubBootstrap(networkChannelId = "reseau")
         }
@@ -477,12 +746,36 @@ class HubViewModelTest {
         override suspend fun members(session: AuthSession, channelId: String): List<HubMember> =
             emptyList()
 
-        override suspend fun openDirect(session: AuthSession, userId: String) = error("unused")
+        /** Ce que le répertoire a demandé, pour pouvoir l'affirmer. */
+        val demandes = mutableListOf<Pair<String, Int>>()
+        var repertoire: (String, Int) -> HubDirectory = { _, _ -> HubDirectory.VIDE }
+        var refusRepertoire: HubException? = null
+        var porte: Boolean? = null
+        var directOuvert: String? = null
+        var refusDirect: HubException? = null
 
-        override suspend fun searchColleagues(
+        override suspend fun openDirect(session: AuthSession, userId: String): HubChannel {
+            refusDirect?.let { throw it }
+            directOuvert = userId
+            return CANAL.copy(id = "dm-$userId", kind = HubChannelKind.DIRECT, name = "Anne Aubry")
+        }
+
+        override suspend fun directory(
             session: AuthSession,
             query: String,
-        ): List<HubColleague> = emptyList()
+            limit: Int,
+            offset: Int,
+        ): HubDirectory {
+            demandes += query to offset
+            refusRepertoire?.let { throw it }
+            return repertoire(query, offset)
+        }
+
+        override suspend fun setContactPreference(session: AuthSession, accepts: Boolean): Boolean {
+            refusRepertoire?.let { throw it }
+            porte = accepts
+            return accepts
+        }
 
         override suspend fun unread(session: AuthSession): HubUnread {
             echec?.let { throw it }
@@ -532,6 +825,14 @@ class HubViewModelTest {
             accessToken = "access-1",
             refreshToken = "refresh-1",
             expiresAtEpochSeconds = 2_000_000_000,
+        )
+
+        val COLLEGUE = HubColleague(
+            userId = "u1",
+            label = "Anne Aubry",
+            driverNumber = "70001",
+            hasAccount = true,
+            acceptsDirect = true,
         )
 
         val CANAL = HubChannel(

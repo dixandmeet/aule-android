@@ -50,6 +50,10 @@ class AuleEndpoints(base: String) {
     val hubChannels = "$root/api/hub/channels"
     val hubDirect = "$root/api/hub/channels/direct"
     val hubColleagues = "$root/api/hub/colleagues/search"
+
+    /** Sa propre porte : `PUT {acceptsDirect}`. Il n'y a pas de `GET` — le
+     * répertoire rend déjà `meAcceptsDirect`. */
+    val hubContactPreference = "$root/api/hub/contact-preference"
     val hubUnread = "$root/api/hub/unread"
     val hubPushToken = "$root/api/hub/push-token"
 

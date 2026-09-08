@@ -46,10 +46,68 @@ data class HubUiState(
     val isStale: Boolean = true,
     val isStaff: Boolean = false,
     val pending: List<HubPendingMessage> = emptyList(),
-    val colleagues: List<HubColleague> = emptyList(),
+    val directory: HubDirectoryState = HubDirectoryState(),
     val failure: HubFailureKind? = null,
+    /**
+     * Le sort du **dernier chargement de la liste**, distinct de [failure].
+     *
+     * ⚠️ Les deux ne se confondent pas : [failure] fait apparaître une
+     * `Snackbar`, et un chargement automatique n'a pas le droit de crier. Ce
+     * genre-ci ne crie pas — il sert à ne pas écrire « aucune discussion » sur
+     * une liste qui n'est **jamais arrivée**. Une liste vide et une liste
+     * inconnue s'affichent pareil et ne veulent pas dire la même chose.
+     */
+    val channelsFailure: HubFailureKind? = null,
+    /** Vrai tant que le premier chargement de la liste est en vol. */
+    val isLoadingChannels: Boolean = true,
+    /**
+     * Le BFF de cette instance n'a pas de messagerie.
+     *
+     * ⚠️ **Une lecture ne peut pas le dire** : sur une lecture, le 404 vaut
+     * « rien à montrer », par choix — une route absente ne doit pas devenir une
+     * panne. Seul l'amorçage, qui **écrit**, distingue les deux. Sans ce
+     * drapeau, un serveur sans messagerie affichait « aucune discussion », et
+     * un conducteur attendait des messages qui ne pouvaient pas venir.
+     */
+    val isNotDeployed: Boolean = false,
 ) {
     val openChannel: HubChannel? get() = channels.firstOrNull { it.id == openChannelId }
+}
+
+/**
+ * Le répertoire du réseau, et ce que l'agent en voit.
+ *
+ * ## Pourquoi un état à part
+ *
+ * Il a sa propre pagination, sa propre saisie et son propre échec. Fondu dans
+ * [HubUiState], le refus d'une page de répertoire se serait confondu avec celui
+ * de la liste des discussions — et un réseau qu'on n'a pas pu lire se serait
+ * affiché « aucun collègue trouvé », ce qui est une affirmation.
+ *
+ * ## Ce que [meAcceptsDirect] fait là
+ *
+ * C'est **sa propre** porte, et le répertoire est le seul écran où elle se voit :
+ * un agent y découvre qu'il peut écrire à tout le monde sans que personne ne
+ * puisse lui répondre. Le réglage voyage donc avec la liste, en un seul appel.
+ */
+data class HubDirectoryState(
+    val isOpen: Boolean = false,
+    val query: String = "",
+    val colleagues: List<HubColleague> = emptyList(),
+    val hasMore: Boolean = false,
+    val meAcceptsDirect: Boolean = false,
+    /** Vrai pendant le premier chargement ; une page suivante ne vide pas l'écran. */
+    val isLoading: Boolean = false,
+    /**
+     * ⚠️ Distinct de [HubUiState.failure] : un répertoire qu'on n'a pas pu lire
+     * se dit **dans** le répertoire, à la place de la liste. Une `Snackbar`
+     * au-dessus d'une page blanche laisserait « aucun collègue » comme seule
+     * lecture possible.
+     */
+    val failure: HubFailureKind? = null,
+) {
+    /** Une frappe en cours n'est pas une intention : la base rendrait vide. */
+    val isTypingTooShort: Boolean get() = query.trim().length == 1
 }
 
 /**
@@ -83,6 +141,9 @@ class HubViewModel(
     val state: StateFlow<HubUiState> = _state.asStateFlow()
 
     private var pollJob: Job? = null
+
+    /** Le chargement du répertoire en cours. Un seul : le suivant annule le précédent. */
+    private var directoryJob: Job? = null
     private var cursors = mutableMapOf<String, Instant>()
     private var bootstrappedAt: Instant? = null
     private var inBackground = false
@@ -215,7 +276,7 @@ class HubViewModel(
         try {
             val amorce = hub.bootstrap(session)
             bootstrappedAt = now()
-            _state.value = _state.value.copy(isStaff = amorce.isStaff)
+            _state.value = _state.value.copy(isStaff = amorce.isStaff, isNotDeployed = false)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Throwable) {
@@ -223,6 +284,13 @@ class HubViewModel(
             // peut-être déjà. Le montrer rendrait la messagerie inutilisable
             // hors réseau.
             logger.warn(LogDomain.NET, "Amorçage de la messagerie impossible.", failure)
+            // Une exception, et une seule : « pas déployée » n'est pas une
+            // panne passagère. Ça ne s'arrangera pas au prochain tour, et une
+            // liste vide n'a alors pas le droit de se faire passer pour un
+            // compte sans discussion.
+            if (kindOf(failure) == HubFailureKind.NOT_DEPLOYED) {
+                _state.value = _state.value.copy(isNotDeployed = true)
+            }
         }
     }
 
@@ -239,12 +307,26 @@ class HubViewModel(
     }
 
     private suspend fun refreshChannels(reporting: Boolean) {
-        val session = auth.currentSession() ?: return
+        val session = auth.currentSession()
+        if (session == null) {
+            _state.value = _state.value.copy(isLoadingChannels = false)
+            return
+        }
+        // ⚠️ **Le tourniquet couvre le premier chargement et les
+        // rafraîchissements demandés, jamais les tours de sondage.** Le champ
+        // part à `true` et retombe au premier verdict ; le relever à chaque
+        // tour faisait clignoter un rond toutes les quinze secondes sur une
+        // liste vide, sans jamais rien annoncer.
+        if (reporting && _state.value.channels.isEmpty()) {
+            _state.value = _state.value.copy(isLoadingChannels = true)
+        }
         try {
             _state.value = _state.value.copy(
                 channels = hub.channels(session),
                 unread = hub.unread(session),
                 isStale = false,
+                isLoadingChannels = false,
+                channelsFailure = null,
             )
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -252,6 +334,8 @@ class HubViewModel(
             logger.warn(LogDomain.NET, "Liste de discussions non rafraîchie.", failure)
             _state.value = _state.value.copy(
                 isStale = true,
+                isLoadingChannels = false,
+                channelsFailure = kindOf(failure),
                 failure = if (reporting) kindOf(failure) else _state.value.failure,
             )
         }
@@ -540,11 +624,167 @@ class HubViewModel(
         }
     }
 
-    fun searchColleagues(query: String) {
+    // ------------------------------------------------------------------
+    // Le répertoire
+    // ------------------------------------------------------------------
+
+    /**
+     * Ouvre le répertoire, et charge sa première page.
+     *
+     * Le réseau se parcourt sans rien taper : c'est la différence entre un
+     * répertoire et une recherche, et elle tient à ce seul appel — la base rend
+     * l'annuaire sur une requête vide, et rien sur une lettre seule.
+     */
+    fun openDirectory() {
+        _state.value = _state.value.copy(
+            directory = HubDirectoryState(isOpen = true, isLoading = true),
+        )
+        directoryJob?.cancel()
+        directoryJob = viewModelScope.launch { loadDirectory(query = "", offset = 0) }
+    }
+
+    fun closeDirectory() {
+        directoryJob?.cancel()
+        directoryJob = null
+        _state.value = _state.value.copy(directory = HubDirectoryState())
+    }
+
+    /**
+     * La saisie, reportée.
+     *
+     * ⚠️ **Un appel par touche interrogerait le réseau six fois pour un nom de
+     * six lettres**, et les réponses reviendraient dans le désordre : la liste
+     * afficherait le résultat de « Vas » après celui de « Vasse ». Le job
+     * précédent est donc annulé, et le suivant attend que la frappe s'arrête.
+     */
+    fun searchDirectory(query: String) {
+        _state.value = _state.value.copy(
+            directory = _state.value.directory.copy(query = query, failure = null),
+        )
+        directoryJob?.cancel()
+        directoryJob = viewModelScope.launch {
+            delay(DEBOUNCE_REPERTOIRE_MS)
+            loadDirectory(query, offset = 0)
+        }
+    }
+
+    /**
+     * La page suivante.
+     *
+     * Elle **ajoute** au lieu de remplacer, et ne relève pas le tourniquet : un
+     * écran qui se viderait pour charger sa suite ferait perdre la position de
+     * lecture à chaque fin de liste.
+     */
+    fun loadMoreDirectory() {
+        val repertoire = _state.value.directory
+        if (!repertoire.hasMore || repertoire.isLoading) return
+        directoryJob?.cancel()
+        directoryJob = viewModelScope.launch {
+            loadDirectory(repertoire.query, offset = repertoire.colleagues.size)
+        }
+    }
+
+    private suspend fun loadDirectory(query: String, offset: Int) {
+        val session = auth.currentSession() ?: return
+        if (offset == 0) {
+            _state.value = _state.value.copy(
+                directory = _state.value.directory.copy(isLoading = true, failure = null),
+            )
+        }
+        try {
+            val page = hub.directory(session, query, PAGE_REPERTOIRE, offset)
+            val courant = _state.value.directory
+            // ⚠️ La réponse d'une saisie abandonnée ne s'affiche pas. Le job est
+            // annulé à chaque touche, mais celui-ci a pu finir entre-temps :
+            // sans cette garde, un résultat périmé écraserait le bon.
+            if (courant.query.trim() != query.trim()) return
+            _state.value = _state.value.copy(
+                directory = courant.copy(
+                    colleagues = if (offset == 0) {
+                        page.colleagues
+                    } else {
+                        // Dédoublonné par clé : une fiche peut changer de page
+                        // si le réseau bouge entre deux appels.
+                        (courant.colleagues + page.colleagues).distinctBy { it.key }
+                    },
+                    hasMore = page.hasMore,
+                    meAcceptsDirect = page.meAcceptsDirect,
+                    isLoading = false,
+                    failure = null,
+                ),
+            )
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Throwable) {
+            logger.warn(LogDomain.NET, "Répertoire non chargé.", failure)
+            _state.value = _state.value.copy(
+                directory = _state.value.directory.copy(
+                    isLoading = false,
+                    failure = kindOf(failure),
+                ),
+            )
+        }
+    }
+
+    /**
+     * Ouvre — ou retrouve — le tête-à-tête avec un collègue.
+     *
+     * ⚠️ **Le canal entre dans la liste avant d'être ouvert.** L'écran lit la
+     * conversation courante dans `channels` ; sans cette insertion, ouvrir un
+     * tête-à-tête neuf refermerait la messagerie sur la liste, et le message
+     * qu'on venait écrire n'aurait nulle part où aller.
+     *
+     * Le refus, lui, reste affiché **dans le répertoire** : c'est là que
+     * l'agent a cliqué, et c'est là qu'il doit lire pourquoi rien ne s'ouvre.
+     */
+    fun openDirectWith(userId: String) {
         viewModelScope.launch {
             val session = auth.currentSession() ?: return@launch
-            val trouves = runCatching { hub.searchColleagues(session, query) }.getOrDefault(emptyList())
-            _state.value = _state.value.copy(colleagues = trouves)
+            try {
+                val canal = hub.openDirect(session, userId)
+                _state.value = _state.value.copy(
+                    channels = (_state.value.channels.filterNot { it.id == canal.id } + canal),
+                    directory = HubDirectoryState(),
+                )
+                open(canal.id)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.NET, "Tête-à-tête non ouvert.", failure)
+                _state.value = _state.value.copy(
+                    directory = _state.value.directory.copy(failure = kindOf(failure)),
+                )
+            }
+        }
+    }
+
+    /**
+     * Ouvre ou referme sa propre porte.
+     *
+     * ⚠️ **L'état affiché suit le serveur, pas le doigt.** Basculer l'écran puis
+     * appeler le réseau laisserait un interrupteur « joignable » sur un compte
+     * que personne ne peut joindre — et l'agent attendrait des messages qui ne
+     * peuvent pas venir. Ici l'écriture précède l'affichage ; un échec se dit.
+     */
+    fun setContactPreference(accepts: Boolean) {
+        viewModelScope.launch {
+            val session = auth.currentSession() ?: return@launch
+            try {
+                val pose = hub.setContactPreference(session, accepts)
+                _state.value = _state.value.copy(
+                    directory = _state.value.directory.copy(
+                        meAcceptsDirect = pose,
+                        failure = null,
+                    ),
+                )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                logger.warn(LogDomain.NET, "Joignabilité non posée.", failure)
+                _state.value = _state.value.copy(
+                    directory = _state.value.directory.copy(failure = kindOf(failure)),
+                )
+            }
         }
     }
 
@@ -616,6 +856,17 @@ class HubViewModel(
          * jamais.
          */
         const val MAX_ESSAIS = 5
+
+        /**
+         * Le report de la saisie du répertoire.
+         *
+         * 250 ms : au-dessous, une frappe normale part encore en trois requêtes ;
+         * au-dessus, la liste traîne derrière le doigt et l'agent tape à nouveau.
+         */
+        const val DEBOUNCE_REPERTOIRE_MS = 250L
+
+        /** Une page de répertoire. Le serveur plafonne à 50. */
+        const val PAGE_REPERTOIRE = 30
     }
 }
 

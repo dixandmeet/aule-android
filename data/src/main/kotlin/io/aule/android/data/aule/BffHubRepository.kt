@@ -7,6 +7,7 @@ import io.aule.android.core.model.HubChannelKind
 import io.aule.android.core.model.HubChannelMode
 import io.aule.android.core.model.HubChannelStatus
 import io.aule.android.core.model.HubColleague
+import io.aule.android.core.model.HubDirectory
 import io.aule.android.core.model.HubException
 import io.aule.android.core.model.HubFailureKind
 import io.aule.android.core.model.HubFile
@@ -105,6 +106,7 @@ class BffHubRepository(
         val entetes = headers(session)
         val response = when (method) {
             "PATCH" -> client.patchRaw(url, texte, entetes)
+            "PUT" -> client.putRaw(url, texte, entetes)
             "DELETE" -> client.deleteRaw(url, texte, entetes)
             else -> client.postRaw(url, texte, entetes)
         }
@@ -156,6 +158,10 @@ class BffHubRepository(
             "hub_channel_not_found", "hub_message_not_found",
             "hub_file_not_found", "hub_colleague_not_found" -> HubFailureKind.NOT_FOUND
             "hub_colleague_other_network", "hub_cannot_direct_self" -> HubFailureKind.OTHER_NETWORK
+            // Un refus de personne, pas de système. Le confondre avec le
+            // précédent ferait dire « il n'est pas de votre réseau » d'un
+            // collègue que l'agent croise tous les matins.
+            "hub_contact_refused" -> HubFailureKind.CONTACT_REFUSED
             "hub_no_network" -> HubFailureKind.NO_NETWORK
             "hub_cannot_leave_direct", "hub_cannot_leave_automatic" -> HubFailureKind.CANNOT_LEAVE
             "hub_file_not_uploaded" -> HubFailureKind.FILE_NOT_UPLOADED
@@ -385,26 +391,62 @@ class BffHubRepository(
     override suspend fun openDirect(session: AuthSession, userId: String): HubChannel =
         channelOf(write(session, endpoints.hubDirect, buildJsonObject { put("userId", userId) }))
 
-    override suspend fun searchColleagues(
+    override suspend fun directory(
         session: AuthSession,
         query: String,
-    ): List<HubColleague> {
-        // Moins de deux caractères : la base rend une liste vide plutôt que
-        // l'annuaire du réseau. On lui épargne l'aller-retour.
-        if (query.length < 2) return emptyList()
-        val row = read(session, endpoints.hubColleagues, mapOf("q" to query)) ?: return emptyList()
-        return row.rows("colleagues").mapNotNull { collegue ->
-            val label = collegue.text("label") ?: return@mapNotNull null
-            HubColleague(
-                userId = collegue.text("userId"),
-                label = label,
-                driverNumber = collegue.text("driverNumber"),
-                depotName = collegue.text("depotName"),
-                avatarUrl = collegue.text("avatarUrl"),
-                hasAccount = collegue.bool("hasAccount") ?: (collegue.text("userId") != null),
-                directChannelId = collegue.text("directChannelId"),
-            )
-        }
+        limit: Int,
+        offset: Int,
+    ): HubDirectory {
+        val saisie = query.trim()
+        // Une lettre seule : la base rendrait une liste vide, on lui épargne
+        // l'aller-retour. La chaîne vide, elle, part — c'est le répertoire, et
+        // ce n'est pas une recherche vide.
+        if (saisie.length == 1) return HubDirectory.VIDE
+        val row = read(
+            session,
+            endpoints.hubColleagues,
+            mapOf(
+                "q" to saisie.ifEmpty { null },
+                "limit" to limit.toString(),
+                "offset" to offset.toString(),
+            ),
+        ) ?: return HubDirectory.VIDE
+
+        return HubDirectory(
+            colleagues = row.rows("colleagues").mapNotNull { collegue ->
+                val label = collegue.text("label") ?: return@mapNotNull null
+                HubColleague(
+                    userId = collegue.text("userId"),
+                    label = label,
+                    driverNumber = collegue.text("driverNumber"),
+                    depotName = collegue.text("depotName"),
+                    avatarUrl = collegue.text("avatarUrl"),
+                    hasAccount = collegue.bool("hasAccount") ?: (collegue.text("userId") != null),
+                    // ⚠️ Faux quand le champ manque, jamais vrai : un BFF plus
+                    // ancien que ce binaire ne doit pas rendre tout le réseau
+                    // joignable d'un coup. La rangée sera grisée à tort, ce qui
+                    // se voit et se corrige — l'inverse produirait un refus que
+                    // rien n'explique.
+                    acceptsDirect = collegue.bool("acceptsDirect") ?: false,
+                    directChannelId = collegue.text("directChannelId"),
+                )
+            },
+            hasMore = row.bool("hasMore") ?: false,
+            meAcceptsDirect = row.bool("meAcceptsDirect") ?: false,
+        )
+    }
+
+    override suspend fun setContactPreference(session: AuthSession, accepts: Boolean): Boolean {
+        val row = write(
+            session,
+            endpoints.hubContactPreference,
+            buildJsonObject { put("acceptsDirect", accepts) },
+            method = "PUT",
+        )
+        // Ce que le serveur dit avoir posé, et non ce qu'on lui a demandé : les
+        // deux se ressemblent tant que rien ne va de travers, et ne se
+        // ressemblent plus le jour où quelque chose ne va pas.
+        return row.bool("acceptsDirect") ?: accepts
     }
 
     override suspend fun unread(session: AuthSession): HubUnread {

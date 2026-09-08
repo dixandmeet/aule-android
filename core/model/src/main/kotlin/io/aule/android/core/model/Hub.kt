@@ -308,6 +308,18 @@ data class HubColleague(
     val depotName: String? = null,
     val avatarUrl: String? = null,
     val hasAccount: Boolean = false,
+    /**
+     * ⚠️ **Le consentement à être contacté, et il ne se déduit pas non plus.**
+     *
+     * Un agent n'est joignable en tête-à-tête que s'il l'a accepté. La base
+     * refuse l'ouverture sinon ; l'écran doit le dire **avant**, sous peine de
+     * produire un refus que rien n'explique — le défaut même que [hasAccount]
+     * réparait.
+     *
+     * Faux par défaut, ici comme en base : un champ absent — un BFF plus ancien
+     * que ce binaire — doit valoir « non joignable », jamais l'inverse.
+     */
+    val acceptsDirect: Boolean = false,
     val directChannelId: String? = null,
 ) {
     /**
@@ -315,6 +327,39 @@ data class HubColleague(
      * rangée sans identité stable saute à chaque rafraîchissement.
      */
     val key: String get() = userId ?: "matricule:${driverNumber ?: label}"
+
+    /**
+     * Peut-on lui écrire ?
+     *
+     * ⚠️ **La joignabilité garde la porte, pas le fil.** Une discussion déjà
+     * ouverte se retrouve même si le collègue a refermé sa porte depuis : la
+     * base l'autorise, et l'écran doit l'autoriser aussi. Recopier ici la
+     * règle du serveur n'est pas la dédoubler — c'est la seule façon de ne pas
+     * griser une rangée que le geste aurait acceptée.
+     */
+    val isContactable: Boolean
+        get() = hasAccount && (acceptsDirect || directChannelId != null)
+}
+
+/**
+ * Une page du répertoire.
+ *
+ * [hasMore] plutôt qu'un total : la base le lit sur une ligne de trop, là où
+ * compter les conducteurs du réseau à chaque page coûterait un balayage complet
+ * pour afficher une flèche.
+ *
+ * [meAcceptsDirect] voyage avec la liste parce que c'est là qu'il se voit :
+ * l'écran du répertoire est le seul endroit où un agent constate qu'il n'est pas
+ * joignable lui-même — et où lui proposer d'ouvrir sa porte a un sens.
+ */
+data class HubDirectory(
+    val colleagues: List<HubColleague> = emptyList(),
+    val hasMore: Boolean = false,
+    val meAcceptsDirect: Boolean = false,
+) {
+    companion object {
+        val VIDE = HubDirectory()
+    }
 }
 
 /**
@@ -370,6 +415,16 @@ enum class HubFailureKind {
     NOT_FOUND,
     OTHER_NETWORK,
     NO_NETWORK,
+
+    /**
+     * Le collègue n'accepte pas les tête-à-tête.
+     *
+     * Un refus de **personne**, pas de système : il n'y a rien à réessayer, et
+     * rien à demander non plus — c'est à elle d'ouvrir sa porte. Le confondre
+     * avec [OTHER_NETWORK] ferait dire « il n'est pas de votre réseau » d'un
+     * collègue que l'agent croise tous les matins.
+     */
+    CONTACT_REFUSED,
     CANNOT_LEAVE,
     FILE_NOT_UPLOADED,
     BAD_REQUEST,

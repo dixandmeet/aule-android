@@ -1,10 +1,12 @@
 # La messagerie — ce que l'agent lit, écrit, et ne perd pas
 
-> **Statut** : lot 5 écrit et éprouvé le 05/09/2026.
+> **Statut** : lot 5 écrit et éprouvé le 05/09/2026. Répertoire et joignabilité le 06/09/2026.
 > **Cible** : ce dépôt. Le SQL, le BFF, le push et l'application iOS sont faits —
-> voir `../docs/PLAN-MESSAGERIE.md` et `../docs/CONTRAT-BFF.md` §12 pour les vingt routes.
+> voir `../docs/PLAN-MESSAGERIE.md` et `../docs/CONTRAT-BFF.md` §12 pour les vingt et une routes.
 > **Ce qui reste** : les pièces jointes côté écran, les membres et la création de groupe,
-> et le câblage de FCM — qui attend un projet Firebase.
+> le câblage de FCM — qui attend un projet Firebase —, et **le déploiement du BFF** :
+> `/api/hub/**` répond 404 sur `www.aule.fr` au 06/09/2026, si bien que rien de la messagerie
+> ne se vérifie encore sur l'appareil.
 
 ---
 
@@ -28,6 +30,32 @@ serveur prend sa place — apparié par `clientId`, jamais par identifiant.
 
 ⚠️ **L'identifiant client se tire à la saisie, pas à l'envoi.** Le tirer à l'envoi ferait deux
 messages d'un réessai : la base ne pourrait pas reconnaître le doublon.
+
+### On n'écrit qu'à qui a accepté d'être contacté
+
+Le répertoire montre les agents du **réseau courant**, et eux seuls — la base s'y arrête, un
+client ne peut pas en sortir. Mais paraître au répertoire n'est pas être joignable : un
+tête-à-tête ne s'ouvre qu'avec qui a coché « Être joignable ».
+
+⚠️ **Ce consentement ne peut pas vivre ici.** Une garde posée dans cet écran laisserait l'iOS
+ouvrir la conversation, et un appel direct au BFF avec un jeton porteur la contournerait sans
+effort. C'est `hub_open_direct` qui refuse, en base
+(`../supabase/migrations/20260913090000_hub_joignabilite.sql`) ; l'application ne fait que
+l'annoncer, par `HubColleague.acceptsDirect`, pour ne pas laisser essayer.
+
+⚠️ **La joignabilité garde la porte, pas le fil.** Une discussion déjà ouverte se retrouve même
+si le collègue a refermé sa porte depuis : `isContactable` recopie cette règle du serveur —
+non par dédoublement, mais pour ne pas griser une rangée que le geste aurait acceptée.
+
+⚠️ **Fermé par défaut.** Au lancement, le répertoire montre donc un réseau que personne ne peut
+contacter. C'est pour cela que l'interrupteur vit **dans le répertoire**, et non dans un écran
+de réglages : c'est le seul endroit où un agent constate qu'il peut écrire à tout le monde sans
+que personne ne puisse lui répondre. Un consentement qu'il faut aller chercher dans un menu est
+un consentement que personne ne donne.
+
+Et un collègue non joignable **reste affiché**, avec sa raison écrite. Le faire disparaître
+laisserait croire qu'il n'existe pas : l'agent conclurait qu'il s'est trompé de nom, puis
+appellerait la régulation.
 
 ### Ce qui attend le réseau se voit
 
@@ -138,7 +166,15 @@ pendant qu'il le lisait ne doit pas rester devant une conversation morte avec un
 - **Les pièces jointes côté écran.** Le dépôt sait téléverser en trois temps (URL signée, envoi
   direct, déclaration) et l'épreuve le vérifie ; l'écran n'a ni sélecteur ni visionneuse.
 - **Les membres et la création de groupe.** Le ViewModel porte les gestes et les épreuves les
-  couvrent ; les écrans manquent.
+  couvrent ; les écrans manquent. Le répertoire, lui, a le sien depuis le 06/09/2026 —
+  `HubDirectory.kt` — et c'est aujourd'hui le seul chemin vers une première conversation.
+- **Le répertoire contre un vrai serveur.** Tout est éprouvé sauf ce qui demande une base : la
+  liste peuplée, l'ouverture d'un tête-à-tête et le refus d'un collègue injoignable ne se
+  voient pas tant que `/api/hub/**` répond 404. Ce que l'appareil a montré, c'est l'écran de
+  refus — et le fait qu'il ne prétend pas que le réseau est désert.
+- **La joignabilité côté iOS.** `../Native` ignore encore `acceptsDirect` : un agent y verra
+  ses tête-à-tête refusés sans qu'aucune phrase ne l'explique, jusqu'à ce que `HubColleague` et
+  l'écran de recherche lisent le champ.
 - **Le push.** Le serveur est prêt (lot 3), et le jeton d'appareil a sa route. Côté Android il
   manque le projet Firebase, `google-services.json` par flavor, `AuleMessagingService`,
   `HubNotifier` et l'ouverture du canal au tap. Voir `adr/ADR-016-notifications-poussees.md`.

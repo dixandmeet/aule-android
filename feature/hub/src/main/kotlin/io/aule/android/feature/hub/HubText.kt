@@ -105,6 +105,7 @@ fun HubFailureKind.label(): String = stringResource(
         HubFailureKind.CHANNEL_CLOSED -> R.string.hub_error_channel_closed
         HubFailureKind.NOT_FOUND -> R.string.hub_error_not_found
         HubFailureKind.OTHER_NETWORK -> R.string.hub_error_other_network
+        HubFailureKind.CONTACT_REFUSED -> R.string.hub_error_contact_refused
         HubFailureKind.NO_NETWORK -> R.string.hub_error_no_network
         HubFailureKind.CANNOT_LEAVE -> R.string.hub_error_cannot_leave
         HubFailureKind.FILE_NOT_UPLOADED -> R.string.hub_error_file
@@ -115,11 +116,21 @@ fun HubFailureKind.label(): String = stringResource(
 )
 
 /**
- * Pourquoi ce collègue n'est pas invitable. `null` quand il l'est.
+ * Pourquoi on ne peut pas écrire à ce collègue. `null` quand on peut.
  *
  * Le faire disparaître de la liste laisserait croire qu'il n'existe pas ; le
  * laisser choisir produirait un refus que rien n'explique.
+ *
+ * ⚠️ **Deux raisons, et elles ne disent pas la même chose.** « Pas encore de
+ * compte » est un fait administratif que le temps réglera ; « n'accepte pas les
+ * messages directs » est une décision, celle du collègue. Les confondre sous une
+ * seule phrase ferait attendre à l'agent une inscription qui a déjà eu lieu.
+ *
+ * L'ordre compte : sans compte, la porte ne veut rien dire.
  */
 @Composable
-fun HubColleague.unavailable(): String? =
-    if (hasAccount) null else stringResource(R.string.hub_no_account)
+fun HubColleague.unavailable(): String? = when {
+    !hasAccount -> stringResource(R.string.hub_no_account)
+    !isContactable -> stringResource(R.string.hub_no_contact)
+    else -> null
+}

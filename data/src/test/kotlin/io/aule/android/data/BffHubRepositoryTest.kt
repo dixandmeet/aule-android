@@ -172,7 +172,7 @@ class BffHubRepositoryTest {
             """.trimIndent(),
         )
 
-        val collegue = repository.searchColleagues(SESSION, "loin").single()
+        val collegue = repository.directory(SESSION, "loin").colleagues.single()
 
         assertNull(collegue.userId)
         assertEquals(false, collegue.hasAccount)
@@ -180,11 +180,72 @@ class BffHubRepositoryTest {
     }
 
     @Test
+    fun `une joignabilite absente vaut non joignable, jamais l inverse`() = runTest {
+        // Un BFF plus ancien que ce binaire ne rend pas ce champ. Le lire comme
+        // « vrai » ouvrirait tout le réseau d'un coup et produirait, à chaque
+        // rangée, un refus que rien n'explique. Grisé à tort se voit et se
+        // corrige ; l'inverse, non.
+        respond("""{"colleagues":[{"userId":"u1","label":"Anne Aubry","hasAccount":true}]}""")
+
+        val collegue = repository.directory(SESSION, "aubry").colleagues.single()
+
+        assertEquals(false, collegue.acceptsDirect)
+        assertEquals(false, collegue.isContactable)
+    }
+
+    @Test
+    fun `une porte refermee laisse ouvrable une discussion deja nouee`() = runTest {
+        // La joignabilité garde la porte, pas le fil : la base autorise encore
+        // ce canal, et griser la rangée le rendrait inaccessible depuis le
+        // répertoire.
+        respond(
+            """
+            {"colleagues":[{"userId":"u1","label":"Anne Aubry","hasAccount":true,
+              "acceptsDirect":false,"directChannelId":"dm-1"}]}
+            """.trimIndent(),
+        )
+
+        val collegue = repository.directory(SESSION, "aubry").colleagues.single()
+
+        assertEquals(false, collegue.acceptsDirect)
+        assertTrue(collegue.isContactable)
+    }
+
+    @Test
     fun `une recherche d une lettre n interroge pas le serveur`() = runTest {
-        // On ne demande pas l'annuaire du réseau — la base le refuserait de
-        // toute façon, mais l'aller-retour serait perdu.
-        assertEquals(emptyList(), repository.searchColleagues(SESSION, "a"))
+        // Une frappe en cours n'est pas une intention — la base rendrait vide,
+        // et l'aller-retour serait perdu.
+        assertEquals(emptyList(), repository.directory(SESSION, "a").colleagues)
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun `le repertoire part sans requete, et ce n est pas une recherche vide`() = runTest {
+        // ⚠️ La chaîne vide **part** : c'est ce qui distingue le répertoire de
+        // la recherche. La court-circuiter ici, comme la lettre seule, rendrait
+        // l'annuaire du réseau inatteignable.
+        respond("""{"colleagues":[],"hasMore":true,"meAcceptsDirect":true}""")
+
+        val page = repository.directory(SESSION, "", limit = 30, offset = 60)
+
+        val demande = server.takeRequest()
+        val cible = demande.target
+        assertTrue(cible.contains("limit=30"), "limite transmise : $cible")
+        assertTrue(cible.contains("offset=60"), "décalage transmis : $cible")
+        assertTrue(!cible.contains("q="), "aucune requête, pas une requête vide : $cible")
+        assertTrue(page.hasMore)
+        assertTrue(page.meAcceptsDirect)
+    }
+
+    @Test
+    fun `poser sa porte lit ce que le serveur a posé`() = runTest {
+        respond("""{"acceptsDirect":true}""")
+
+        assertTrue(repository.setContactPreference(SESSION, true))
+
+        val demande = server.takeRequest()
+        assertEquals("PUT", demande.method)
+        assertTrue(demande.body?.utf8()?.contains("\"acceptsDirect\":true") == true)
     }
 
     // ------------------------------------------------------------------

@@ -3,6 +3,7 @@ package io.aule.android.feature.hub
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -11,12 +12,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,6 +30,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.asImageVector
@@ -44,6 +50,7 @@ import io.aule.android.core.model.HubMessage
  * régulateur : décider sur le type cacherait la barre de saisie au second, ou la
  * montrerait au premier — qui serait refusé après avoir tapé son message.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HubConversation(
     channel: HubChannel,
@@ -65,25 +72,37 @@ fun HubConversation(
         if (messages.isNotEmpty()) defilement.animateScrollToItem(messages.lastIndex)
     }
 
+    val colors = MaterialTheme.colorScheme
+
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = AuleSpacing.sm),
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(
-                    imageVector = AuleGlyph.BACK.asImageVector(),
-                    contentDescription = stringResource(R.string.hub_back),
+        // Même barre que la liste, donc même hauteur et même flèche : passer
+        // d'un écran à l'autre ne doit pas déplacer le titre de trois points.
+        // `windowInsets` à zéro — [HubScreen] a déjà écarté les barres.
+        TopAppBar(
+            title = {
+                Text(
+                    text = channel.name,
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.semantics { heading() },
                 )
-            }
-            Text(
-                text = channel.name,
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-        }
+            },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = AuleGlyph.BACK.asImageVector(),
+                        contentDescription = stringResource(R.string.hub_back),
+                    )
+                }
+            },
+            windowInsets = WindowInsets(0, 0, 0, 0),
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = colors.surface,
+                titleContentColor = colors.onSurface,
+                navigationIconContentColor = colors.onSurface,
+            ),
+        )
 
         if (isLoading && messages.isEmpty()) {
             HubLoading(modifier = Modifier.weight(1f))

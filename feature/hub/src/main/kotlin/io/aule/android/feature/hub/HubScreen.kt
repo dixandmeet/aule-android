@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -16,16 +17,21 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.component.AuleEmptyState
@@ -54,39 +60,67 @@ private val AVATAR = 40.dp
  * Un conducteur dont le dépôt n'a rien publié verrait sinon deux lignes muettes
  * en permanence, et apprendrait à ne plus regarder cette partie de la liste.
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HubChannelList(
     state: HubUiState,
     onOpen: (HubChannel) -> Unit,
-    onCreateGroup: () -> Unit,
+    onClose: () -> Unit,
     onRefresh: () -> Unit,
+    onDirectory: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val visibles = state.channels.filter { !it.isArchived && it.isVisible(state.isStaff) }
+    val colors = MaterialTheme.colorScheme
 
     Column(modifier = modifier.fillMaxSize()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = AuleSpacing.lg),
-        ) {
-            Text(
-                text = stringResource(R.string.hub_title),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onRefresh) {
-                Icon(
-                    imageVector = AuleGlyph.SWAP.asImageVector(),
-                    contentDescription = stringResource(R.string.hub_refresh),
+        // La barre du kit, comme le profil et le mode Guet, et non une `Row`
+        // nue : elle porte la hauteur, l'alignement de la flèche et le titre au
+        // même endroit que les autres écrans. `windowInsets` à zéro parce que
+        // l'écran a déjà écarté les barres système une fois, dans [HubScreen].
+        TopAppBar(
+            title = {
+                Text(
+                    text = stringResource(R.string.hub_title),
+                    style = MaterialTheme.typography.titleMediumEmphasized,
+                    modifier = Modifier.semantics { heading() },
                 )
-            }
-            IconButton(onClick = onCreateGroup) {
-                Icon(
-                    imageVector = AuleGlyph.EDIT.asImageVector(),
-                    contentDescription = stringResource(R.string.hub_new_group),
-                )
-            }
-        }
+            },
+            navigationIcon = {
+                IconButton(onClick = onClose) {
+                    Icon(
+                        imageVector = AuleGlyph.BACK.asImageVector(),
+                        contentDescription = stringResource(R.string.hub_close),
+                    )
+                }
+            },
+            actions = {
+                IconButton(onClick = onRefresh) {
+                    Icon(
+                        imageVector = AuleGlyph.SWAP.asImageVector(),
+                        contentDescription = stringResource(R.string.hub_refresh),
+                    )
+                }
+                // Le répertoire, et non la création de groupe — qui n'existe
+                // toujours pas ici (voir `Docs/PLAN-MESSAGERIE.md`). C'est le
+                // seul chemin vers une première conversation : sans lui, un
+                // agent dont personne ne s'est encore approché n'a aucun moyen
+                // d'écrire à qui que ce soit.
+                IconButton(onClick = onDirectory) {
+                    Icon(
+                        imageVector = AuleGlyph.PERSON.asImageVector(),
+                        contentDescription = stringResource(R.string.hub_directory_open),
+                    )
+                }
+            },
+            windowInsets = WindowInsets(0, 0, 0, 0),
+            colors = TopAppBarDefaults.topAppBarColors(
+                containerColor = colors.surface,
+                titleContentColor = colors.onSurface,
+                navigationIconContentColor = colors.onSurface,
+                actionIconContentColor = colors.onSurface,
+            ),
+        )
 
         // ⚠️ **Une liste périmée le dit.** Sans ce bandeau, un agent sorti d'un
         // tunnel lirait un écran d'il y a une heure en le croyant à jour.
@@ -102,11 +136,48 @@ fun HubChannelList(
         }
 
         if (visibles.isEmpty()) {
-            AuleEmptyState(
-                title = stringResource(R.string.hub_empty_title),
-                detail = stringResource(R.string.hub_empty_detail),
-                modifier = Modifier.fillMaxWidth().padding(AuleSpacing.lg),
-            )
+            // Le médaillon et le centrage, parce que c'est une **page** et non
+            // une section de volet : la variante calée en haut à gauche —
+            // celle des volets de la carte — laissait deux lignes suspendues
+            // au-dessus d'une page blanche, qui se lit comme un chargement
+            // inachevé plutôt que comme une réponse.
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+            ) {
+                val refus = state.channelsFailure
+                when {
+                    state.isLoadingChannels -> HubLoading()
+                    // ⚠️ **« Aucune discussion » est une affirmation.** Quand
+                    // le chargement a échoué, l'écran ne sait rien : la liste
+                    // est vide parce qu'elle n'est jamais arrivée. L'écrire
+                    // « aucune discussion » ferait passer un serveur muet — ou
+                    // une messagerie pas encore ouverte — pour un compte neuf,
+                    // et le conducteur attendrait des messages qui ne peuvent
+                    // pas venir. Le refus se dit, avec ses mots à lui.
+                    refus != null -> AuleEmptyState(
+                        title = stringResource(R.string.hub_unreachable_title),
+                        detail = refus.label(),
+                        icon = AuleGlyph.FLAG.asImageVector(),
+                        modifier = Modifier.padding(horizontal = AuleSpacing.lg),
+                    )
+                    // La messagerie absente du serveur se dit aussi : la
+                    // lecture, elle, a répondu « rien » sans pouvoir faire la
+                    // différence — c'est l'amorçage qui l'a apprise.
+                    state.isNotDeployed -> AuleEmptyState(
+                        title = stringResource(R.string.hub_unavailable_title),
+                        detail = stringResource(R.string.hub_error_not_deployed),
+                        icon = AuleGlyph.FLAG.asImageVector(),
+                        modifier = Modifier.padding(horizontal = AuleSpacing.lg),
+                    )
+                    else -> AuleEmptyState(
+                        title = stringResource(R.string.hub_empty_title),
+                        detail = stringResource(R.string.hub_empty_detail),
+                        icon = AuleGlyph.MAIL.asImageVector(),
+                        modifier = Modifier.padding(horizontal = AuleSpacing.lg),
+                    )
+                }
+            }
             return@Column
         }
 

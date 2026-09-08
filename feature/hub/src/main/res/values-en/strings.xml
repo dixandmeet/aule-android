@@ -7,7 +7,9 @@
 <resources>
     <string name="hub_title">Messages</string>
     <string name="hub_empty_title">No conversations</string>
-    <string name="hub_empty_detail">Create a group to write to your colleagues.</string>
+    <string name="hub_empty_detail">Open the directory to write to a colleague.</string>
+    <string name="hub_unreachable_title">Conversations not loaded</string>
+    <string name="hub_unavailable_title">Messaging unavailable</string>
     <string name="hub_new_group">New group</string>
     <string name="hub_group_name">Group name</string>
     <string name="hub_create">Create</string>
@@ -15,12 +17,29 @@
     <string name="hub_search_colleagues">Name or badge number</string>
     <string name="hub_no_colleague">No colleague found</string>
     <string name="hub_no_account">No Aule Pro account yet</string>
+
+    <!-- Network directory -->
+    <string name="hub_directory">Directory</string>
+    <string name="hub_directory_open">Open directory</string>
+    <string name="hub_directory_empty_title">Empty directory</string>
+    <string name="hub_directory_empty_detail">No agent from your network appears here.</string>
+    <string name="hub_directory_unreachable">Directory not loaded</string>
+    <string name="hub_directory_more">Show more</string>
+    <string name="hub_directory_typing">Keep typing to search.</string>
+    <string name="hub_no_contact">Does not accept direct messages</string>
+    <string name="hub_write_to">Write to %1$s</string>
+
+    <!-- Your own door -->
+    <string name="hub_reachable_title">Be reachable</string>
+    <string name="hub_reachable_detail">Colleagues from your network can write to you.</string>
+    <string name="hub_unreachable_detail">Nobody can write to you until you accept.</string>
     <string name="hub_members">Members</string>
     <string name="hub_leave_group">Leave group</string>
     <string name="hub_close_group">Close group</string>
     <string name="hub_message_hint">Message</string>
     <string name="hub_send">Send</string>
     <string name="hub_back">Back to conversations</string>
+    <string name="hub_close">Close messages</string>
     <string name="hub_retry">Try again</string>
     <string name="hub_discard">Delete</string>
     <string name="hub_refresh">Refresh</string>
@@ -55,6 +74,7 @@
     <string name="hub_error_channel_closed">This group is closed.</string>
     <string name="hub_error_not_found">This conversation no longer exists.</string>
     <string name="hub_error_other_network">This colleague belongs to another network.</string>
+    <string name="hub_error_contact_refused">This colleague does not accept direct messages.</string>
     <string name="hub_error_no_network">This account is not attached to any network.</string>
     <string name="hub_error_cannot_leave">This conversation cannot be left.</string>
     <string name="hub_error_file">The attachment did not arrive. Send it again.</string>
