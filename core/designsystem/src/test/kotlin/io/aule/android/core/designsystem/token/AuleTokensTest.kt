@@ -6,6 +6,7 @@ import io.aule.android.core.designsystem.auleDarkColorScheme
 import io.aule.android.core.designsystem.auleLightColorScheme
 import io.aule.android.core.model.TransportMode
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
@@ -316,6 +317,36 @@ class LineColorTest {
 
         assertEquals(AuleRgba(0x2B3536), badgeInk(parseLineColor("#FFFFFF")))
         assertEquals(AuleRgba(0xFFFFFF), badgeInk(parseLineColor("#00a754")))
+    }
+
+    /**
+     * ⚠️ **La bascule d'encre sauve le texte, pas la plaque.** « NC » s'écrivait bien en
+     * sombre, sur un rectangle blanc posé sur un volet blanc : le numéro flottait dans la
+     * rangée sans la couleur qui fait reconnaître une ligne avant de la lire.
+     *
+     * Les couleurs citées sont celles de l'index embarqué, pas des exemples inventés.
+     */
+    @Test
+    fun `un badge qui se confond avec la surface recoit un bord`() {
+        val jour = AuleTokens.day.surfaceSolid
+        assertTrue(lineBadgeNeedsOutline(parseLineColor("#ffffff"), jour), "le blanc du NC")
+        assertTrue(lineBadgeNeedsOutline(parseLineColor("#fffa3e"), jour), "le jaune pâle du NO")
+        assertTrue(lineBadgeNeedsOutline(parseLineColor("#ffed00"), jour), "le jaune de sept lignes")
+        assertFalse(lineBadgeNeedsOutline(parseLineColor("#a1daf8"), jour), "le bleu clair du 12")
+        assertFalse(lineBadgeNeedsOutline(parseLineColor("#00a754"), jour), "le vert de la ligne 1")
+        assertFalse(lineBadgeNeedsOutline(LINE_FALLBACK_COLOR, jour), "le gris de repli")
+    }
+
+    /**
+     * De nuit, ce sont ces couleurs-là qui éclatent : le liseré n'a plus lieu d'être, et
+     * aucune ligne du réseau ne descend sous 1,65 contre la surface sombre.
+     */
+    @Test
+    fun `de nuit aucun badge n a besoin de bord`() {
+        val nuit = AuleTokens.night.surfaceSolid
+        for (hex in listOf("#ffffff", "#fffa3e", "#ffed00", "#00ffc2", "#4F304E", "#164194")) {
+            assertFalse(lineBadgeNeedsOutline(parseLineColor(hex), nuit), "$hex de nuit")
+        }
     }
 }
 

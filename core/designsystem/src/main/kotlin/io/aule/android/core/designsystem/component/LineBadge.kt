@@ -15,11 +15,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
+import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleRadius
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.designsystem.token.badgeInk
+import io.aule.android.core.designsystem.token.lineBadgeNeedsOutline
 import io.aule.android.core.designsystem.token.parseLineColor
 import io.aule.android.core.model.TransportMode
 
@@ -81,6 +83,18 @@ fun LineBadge(
         shape = MaterialTheme.shapes.extraSmall,
         color = background.color,
         contentColor = ink.color,
+        // Le liseré des couleurs claires — voir [lineBadgeNeedsOutline]. Il prend **l'encre
+        // du badge**, celle que [badgeInk] a déjà mesurée contre ce fond-là : garantie
+        // lisible sur la plaque, et — puisque la plaque se confond avec la surface — lisible
+        // sur la surface aussi. Un gris choisi à part aurait fallu être vérifié deux fois.
+        //
+        // La surface est approximée par le jeton opaque : un badge qui disparaît sur le blanc
+        // franc disparaît aussi sur les crans de conteneur qui s'en approchent.
+        border = if (lineBadgeNeedsOutline(background, AuleTheme.tokens.surfaceSolid)) {
+            BorderStroke(AuleStroke.hairline, ink.color)
+        } else {
+            null
+        },
     ) {
         Box(
             modifier = Modifier
