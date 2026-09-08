@@ -323,6 +323,15 @@ class DepartureWatchModelTest {
      * vérifier au passage qu'aucune alerte ne part d'un tableau périmé.
      */
     private class FakeStops(var minutesUntilNext: Long) : StopRepository {
+        /** La grille théorique ne sert à aucun de ces tests : on ne sait rien de cette desserte. */
+        override suspend fun daySchedule(
+            atStopNamed: String,
+            alsoNamed: List<String>,
+            line: String,
+            direction: String,
+            on: java.time.LocalDate,
+        ) = io.aule.android.core.model.StopDaySchedule.unknown(line, direction, on)
+
         var calls = 0
         var failing = false
         var now: Instant = Instant.ofEpochSecond(100_000)

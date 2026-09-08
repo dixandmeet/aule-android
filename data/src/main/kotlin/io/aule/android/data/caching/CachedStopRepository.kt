@@ -3,12 +3,14 @@ package io.aule.android.data.caching
 import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.ServingLine
+import io.aule.android.core.model.StopDaySchedule
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.decodeStopCatalog
 import io.aule.android.core.model.encodeCatalog
 import io.aule.android.core.model.repository.CacheStore
 import io.aule.android.core.model.repository.StopRepository
+import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -72,6 +74,22 @@ class CachedStopRepository(
 
     override suspend fun servingLines(atStopNamed: String): List<ServingLine> =
         upstream.servingLines(atStopNamed)
+
+    /**
+     * La grille théorique ne passe pas par le disque, et pour la raison inverse
+     * du catalogue : elle est déjà cachée là où il faut. Le BFF la sert
+     * `s-maxage=300` depuis un cache **partagé**, où deux voyageurs du même quai
+     * paient une seule lecture ; et la garder ici la ferait survivre à un
+     * changement de grille — deux fois l'an, sans que rien à l'écran ne dise que
+     * l'horaire affiché est celui de l'ancienne.
+     */
+    override suspend fun daySchedule(
+        atStopNamed: String,
+        alsoNamed: List<String>,
+        line: String,
+        direction: String,
+        on: LocalDate,
+    ): StopDaySchedule = upstream.daySchedule(atStopNamed, alsoNamed, line, direction, on)
 
     private suspend fun fetchAndStore(): List<TransitStop> {
         val fresh = upstream.allStops()

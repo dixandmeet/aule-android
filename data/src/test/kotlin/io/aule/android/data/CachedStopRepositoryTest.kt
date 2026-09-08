@@ -217,6 +217,15 @@ class CachedStopRepositoryTest {
         private val catalog: List<TransitStop>,
         private val failWith: String? = null,
     ) : StopRepository {
+        /** La grille théorique ne sert à aucun de ces tests : on ne sait rien de cette desserte. */
+        override suspend fun daySchedule(
+            atStopNamed: String,
+            alsoNamed: List<String>,
+            line: String,
+            direction: String,
+            on: java.time.LocalDate,
+        ) = io.aule.android.core.model.StopDaySchedule.unknown(line, direction, on)
+
         var calls = 0
         var departureCalls = 0
         var servingCalls = 0

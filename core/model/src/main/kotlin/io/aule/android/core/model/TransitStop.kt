@@ -50,6 +50,17 @@ data class StopDeparture(
     /** Vrai quand l'heure vient d'une mesure, faux quand elle vient de l'horaire. */
     val isRealtime: Boolean,
     val mode: TransportMode? = null,
+    /**
+     * Le libellé de **sens**, quand le fournisseur l'annonce à côté de la girouette.
+     *
+     * ⚠️ **Ce n'est pas un doublon de [destination].** Mesuré le 18/08/2026, la
+     * ligne 1 annonce `direction: "Beaujoire / Babinière"` et
+     * `destination: "Babinière"` : le GTFS ne connaît que le premier, le poteau
+     * n'affiche que le second. Rapprocher un passage d'une desserte du
+     * référentiel demande donc les deux — voir [ServingLine.serves], qui les
+     * essaie l'un après l'autre.
+     */
+    val directionLabel: String? = null,
 ) {
     /**
      * Minutes d'attente à partir de maintenant, **jamais négatives** : un passage

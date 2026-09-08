@@ -280,6 +280,23 @@ class MapSearchViewModelTest {
     }
 
     private class FakeStops(private val catalog: List<TransitStop>) : StopRepository {
+
+        /** La grille théorique ne sert à aucun de ces tests : on ne sait rien de cette desserte. */
+
+        override suspend fun daySchedule(
+
+            atStopNamed: String,
+
+            alsoNamed: List<String>,
+
+            line: String,
+
+            direction: String,
+
+            on: java.time.LocalDate,
+
+        ) = io.aule.android.core.model.StopDaySchedule.unknown(line, direction, on)
+
         override suspend fun allStops() = catalog
         override suspend fun departures(atStopNamed: String) = StopDepartures(
             stopName = atStopNamed,

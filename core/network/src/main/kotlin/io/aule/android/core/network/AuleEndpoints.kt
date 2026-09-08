@@ -15,6 +15,17 @@ class AuleEndpoints(base: String) {
     val stops = "$root/api/carte-immersive/stops"
     val stopDepartures = "$root/api/carte-immersive/stop-departures"
     val stopServingLines = "$root/api/carte-immersive/stop-serving-lines"
+
+    /**
+     * La grille théorique d'une desserte, un jour donné.
+     *
+     * Servie `s-maxage=300` depuis un cache **partagé** : deux voyageurs du même
+     * quai n'y paient qu'une lecture. C'est aussi pourquoi elle ne passe pas par
+     * le cache disque du client — l'y garder la ferait survivre à un changement de
+     * grille, deux fois l'an, sans que rien à l'écran ne dise que l'horaire
+     * affiché est celui de l'ancienne.
+     */
+    val stopDaySchedule = "$root/api/carte-immersive/stop-day-schedule"
     val geocode = "$root/api/geocode"
 
     /**

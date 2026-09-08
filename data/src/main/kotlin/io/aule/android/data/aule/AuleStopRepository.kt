@@ -1,18 +1,23 @@
 package io.aule.android.data.aule
 
+import io.aule.android.core.model.DayScheduleOutcome
 import io.aule.android.core.model.DeparturesOutcome
 import io.aule.android.core.model.ServingLine
+import io.aule.android.core.model.StopDaySchedule
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.TransitStop
+import io.aule.android.core.model.normalizeStopName
 import io.aule.android.core.model.repository.StopRepository
 import io.aule.android.core.network.ApiException
 import io.aule.android.core.network.AuleEndpoints
 import io.aule.android.core.network.AuleHttpClient
+import io.aule.android.data.dto.DaySchedulePayloadDto
 import io.aule.android.data.dto.DeparturesPayloadDto
 import io.aule.android.data.dto.ServingLinesPayloadDto
 import io.aule.android.data.dto.StopsPayloadDto
 import java.time.Clock
 import java.time.Instant
+import java.time.LocalDate
 
 class AuleStopRepository(
     private val endpoints: AuleEndpoints,
@@ -82,4 +87,73 @@ class AuleStopRepository(
             query = mapOf("name" to atStopNamed),
             deserializer = ServingLinesPayloadDto.serializer(),
         ).lines.mapNotNull { it.toDomain() }
+
+    /**
+     * La grille théorique d'un jour.
+     *
+     * **Un 404 est un résultat, pas une panne** — et ce n'est pas le même
+     * résultat qu'une journée vide. Il dit que le référentiel ne connaît ni cet
+     * arrêt sous ce nom, ni ce sens sur cette ligne : on ne sait alors rien de
+     * ses horaires, ce qui n'est pas la même chose que de savoir qu'il n'y en a
+     * pas. Toutes les autres pannes lèvent.
+     *
+     * ⚠️ **`names=` part avec `name=`, jamais à sa place.** Le serveur cherche
+     * `gtfs_stops` sur l'union des deux, et intitule sa réponse avec `name` : le
+     * retirer changerait l'entête sans rien gagner.
+     */
+    override suspend fun daySchedule(
+        atStopNamed: String,
+        alsoNamed: List<String>,
+        line: String,
+        direction: String,
+        on: LocalDate,
+    ): StopDaySchedule {
+        // Le nom principal n'a rien à faire dans `names` : le serveur l'y ajoute
+        // lui-même, et l'envoyer deux fois allongerait l'URL — donc la clé de
+        // cache — sans changer la réponse.
+        val cible = normalizeStopName(atStopNamed)
+        val autres = alsoNamed
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != atStopNamed && normalizeStopName(it) == cible }
+            .distinct()
+            .take(SPELLINGS_LIMIT)
+
+        return try {
+            val payload = client.get(
+                url = endpoints.stopDaySchedule,
+                query = mapOf(
+                    "name" to atStopNamed,
+                    "names" to autres.takeIf { it.isNotEmpty() }?.joinToString("|"),
+                    "line" to line,
+                    "direction" to direction,
+                    "date" to on.toString(),
+                ),
+                deserializer = DaySchedulePayloadDto.serializer(),
+            )
+            StopDaySchedule(
+                // La date de la **réponse**, pas celle de la demande : c'est elle
+                // qui dit à quelle question ce tableau répond, et un jour affiché
+                // sous une autre date serait le seul mensonge que cet écran ne
+                // peut pas se permettre. Une date illisible retombe sur celle
+                // qu'on a demandée plutôt que de perdre la grille entière.
+                serviceDate = payload.date?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: on,
+                line = payload.line?.takeIf { it.isNotBlank() } ?: line,
+                direction = payload.direction?.takeIf { it.isNotBlank() } ?: direction,
+                lineColor = payload.lineColor,
+                times = payload.times.mapNotNull { it.toDomain() }.sortedBy { it.seconds },
+                outcome = DayScheduleOutcome.PUBLISHED,
+            )
+        } catch (_: ApiException.NotFound) {
+            StopDaySchedule.unknown(line = line, direction = direction, serviceDate = on)
+        }
+    }
+
+    private companion object {
+        /**
+         * Le plafond des graphies. Le serveur borne chaque nom à 160 signes sans
+         * borner leur nombre : deux suffisent au réseau nantais, quatre laissent
+         * de la marge, et l'URL reste une clé de cache partageable.
+         */
+        const val SPELLINGS_LIMIT = 4
+    }
 }

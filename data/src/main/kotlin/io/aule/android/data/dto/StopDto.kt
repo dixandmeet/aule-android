@@ -1,6 +1,7 @@
 package io.aule.android.data.dto
 
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.ScheduledPassage
 import io.aule.android.core.model.ServingLine
 import io.aule.android.core.model.StopDeparture
 import io.aule.android.core.model.TransitStop
@@ -77,6 +78,49 @@ internal data class PassageDto(
             destination = target,
             expectedAt = expected,
             isRealtime = realtime == true,
+            mode = TransportMode.fromApiValue(vehicleType),
+            // Les **deux** libellés, et non celui qu'on a retenu pour l'affichage :
+            // le GTFS ne connaît que le sens, le poteau n'affiche que la girouette,
+            // et rapprocher un passage d'une desserte demande d'essayer les deux.
+            directionLabel = direction?.takeIf { it.isNotBlank() },
+        )
+    }
+}
+
+/**
+ * La grille théorique d'un jour.
+ *
+ * Capture de production du 08/09/2026, `name=Commerce&line=1&direction=Beaujoire` :
+ * `{"date":"2026-09-08","line":"1","direction":"Beaujoire","lineColor":"#00a754",
+ *   "times":[{"seconds":16980,"departureId":"D003958","profileId":"P00055",
+ *             "routeId":"1","vehicleType":"tram","time":"04:43","dayOffset":0}]}`
+ */
+@Serializable
+internal data class DaySchedulePayloadDto(
+    val date: String? = null,
+    val line: String? = null,
+    val direction: String? = null,
+    val lineColor: String? = null,
+    val times: List<ScheduledTimeDto> = emptyList(),
+)
+
+@Serializable
+internal data class ScheduledTimeDto(
+    val seconds: Int? = null,
+    val departureId: String? = null,
+    val vehicleType: String? = null,
+) {
+    /**
+     * ⚠️ **`time` et `dayOffset` ne sont pas décodés.** Le serveur les dérive de
+     * `seconds` — `serviceTime()` dans `stop-day-schedule/route.ts` — et les relire
+     * reviendrait à tenir deux vérités pour un seul fait. Le modèle les recalcule,
+     * et un test les tient.
+     */
+    fun toDomain(): ScheduledPassage? {
+        val offset = seconds ?: return null
+        return ScheduledPassage(
+            seconds = offset,
+            departureId = departureId?.takeIf { it.isNotBlank() },
             mode = TransportMode.fromApiValue(vehicleType),
         )
     }

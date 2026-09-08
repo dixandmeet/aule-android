@@ -41,6 +41,8 @@ import io.aule.android.core.model.ServiceStartRequest
 import io.aule.android.core.model.TransportNetwork
 import io.aule.android.core.model.Place
 import io.aule.android.core.model.ServingLine
+import io.aule.android.core.model.DayScheduleOutcome
+import io.aule.android.core.model.StopDaySchedule
 import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.Timetable
 import io.aule.android.core.model.TransitLine
@@ -83,6 +85,34 @@ interface StopRepository {
     suspend fun departures(atStopNamed: String): StopDepartures
 
     suspend fun servingLines(atStopNamed: String): List<ServingLine>
+
+    /**
+     * La grille **théorique** d'une desserte, pour un jour de service.
+     *
+     * Elle existe parce que les passages en temps réel ne voient pas au-delà de
+     * trois heures et se taisent la nuit : un arrêt refermait donc sa fiche sur
+     * « aucun passage annoncé » dès 22 h, sans dire à quelle heure part le
+     * premier bus du matin — la question même qu'on lui pose à cette heure-là.
+     *
+     * @param atStopNamed le nom de **lieu**, celui qu'affiche la fiche.
+     * @param alsoNamed les autres graphies du même lieu. Le référentiel en porte
+     *   deux pour deux pôles majeurs — `Haluchère-Batignolles` et
+     *   `Foch-Cathédrale` —, et n'en interroger qu'une perd la moitié des quais
+     *   sans rien dire.
+     * @param direction le libellé de sens ou de girouette. Le serveur les
+     *   rapproche lui-même du `headsign` GTFS ; il n'y a rien à normaliser ici.
+     * @return la grille, **et pourquoi elle est vide** quand elle l'est. Une
+     *   journée sans service et une desserte absente du référentiel mènent au
+     *   même écran et n'appellent pas la même phrase — voir [DayScheduleOutcome].
+     *   **Lève** si le serveur n'a pas répondu, ce qui n'est ni l'un ni l'autre.
+     */
+    suspend fun daySchedule(
+        atStopNamed: String,
+        alsoNamed: List<String> = emptyList(),
+        line: String,
+        direction: String,
+        on: LocalDate,
+    ): StopDaySchedule
 }
 
 /**
