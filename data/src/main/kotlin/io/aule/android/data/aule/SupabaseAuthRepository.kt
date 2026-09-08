@@ -11,6 +11,7 @@ import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.repository.AuthPkceStore
 import io.aule.android.core.model.repository.AuthRepository
 import io.aule.android.core.model.repository.AuthSessionStore
+import io.aule.android.core.model.repository.PassengerSignUp
 import io.aule.android.core.model.repository.RegistrationDraftStore
 import io.aule.android.core.network.ApiException
 import io.aule.android.core.network.AuleHttpClient
@@ -78,7 +79,23 @@ class SupabaseAuthRepository(
     private val createVerifier: () -> String = { Pkce.generateVerifier() },
     private val json: Json = AuleHttpClient.defaultJson,
     private val nowEpochSeconds: () -> Long = { System.currentTimeMillis() / 1_000 },
-) : AuthRepository {
+    /**
+     * Où GoTrue renvoie les liens e-mail — confirmation d'inscription, mot de
+     * passe oublié, retour d'un fournisseur externe.
+     *
+     * **Un réglage, et non plus une constante.** Cinq binaires Aule cohabitent
+     * sur un appareil, chacun avec son propre schéma d'URL : une valeur écrite
+     * en dur envoie les liens de l'un dans l'autre, quand cet autre est
+     * installé — et nulle part quand il ne l'est pas. Le défaut est celui
+     * d'Aule Pro, si bien qu'aucun appelant existant ne change.
+     *
+     * ⚠️ Toute valeur passée ici doit figurer dans les *Redirect URLs* du
+     * projet Supabase (`supabase/config.toml`). GoTrue ne refuse pas une
+     * adresse inconnue : il lui substitue le `site_url`, et le lien meurt sur
+     * une page web qui n'attendait personne.
+     */
+    private val emailRedirect: String = EMAIL_CONFIRMATION_REDIRECT,
+) : AuthRepository, PassengerSignUp {
 
     private val mutex = Mutex()
     @Volatile private var session: AuthSession? = null
@@ -265,9 +282,53 @@ class SupabaseAuthRepository(
         postAuth(
             path = "/signup",
             jsonBody = body,
-            query = mapOf("redirect_to" to EMAIL_CONFIRMATION_REDIRECT),
+            query = mapOf("redirect_to" to emailRedirect),
         )
         logger.info(LogDomain.AUTH, "Inscription professionnelle envoyée.")
+    }
+
+    /**
+     * `POST /signup` sans métier : une adresse, un mot de passe, un prénom si
+     * l'on veut.
+     *
+     * Elle double [signUpProfessional] plutôt que de la paramétrer, et c'est
+     * délibéré : celle-là pose `requested_access: pro` et le brouillon
+     * d'onboarding, que `handle_new_auth_user` lit pour appeler
+     * `provision_network_for_user`. Un voyageur qui passerait par là
+     * demanderait un réseau à provisionner.
+     *
+     * **Aucun `role` n'est envoyé.** Le déclencheur pose `passenger` en dur
+     * (migration 068) ; un rôle parti du client serait à lire comme une
+     * tentative d'élévation le jour où ce déclencheur redeviendrait permissif.
+     */
+    override suspend fun signUpPassenger(email: String, password: String, displayName: String?) {
+        if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
+        val trimmed = email.trim().lowercase()
+        if (trimmed.isEmpty() || '@' !in trimmed) {
+            throw AuthException(AuthFailureKind.INVALID_EMAIL)
+        }
+        if (password.length < MIN_PASSWORD_LENGTH) {
+            throw AuthException(AuthFailureKind.WEAK_PASSWORD)
+        }
+        val verifier = createVerifier()
+        val challenge = Pkce.challenge(verifier)
+        pkce.writeVerifier(verifier, AuthPkceFlow.SIGN_UP)
+        val name = displayName?.trim().orEmpty()
+        val body = buildJsonObject {
+            put("email", trimmed)
+            put("password", password)
+            put("code_challenge", challenge)
+            put("code_challenge_method", "s256")
+            if (name.isNotEmpty()) {
+                put("data", buildJsonObject { put("display_name", name) })
+            }
+        }.toString()
+        postAuth(
+            path = "/signup",
+            jsonBody = body,
+            query = mapOf("redirect_to" to emailRedirect),
+        )
+        logger.info(LogDomain.AUTH, "Inscription voyageur envoyée.")
     }
 
     override suspend fun resendSignupConfirmation(email: String) {
@@ -288,7 +349,7 @@ class SupabaseAuthRepository(
         postAuth(
             path = "/resend",
             jsonBody = body,
-            query = mapOf("redirect_to" to EMAIL_CONFIRMATION_REDIRECT),
+            query = mapOf("redirect_to" to emailRedirect),
         )
         logger.info(LogDomain.AUTH, "E-mail de confirmation renvoyé.")
     }
@@ -311,7 +372,7 @@ class SupabaseAuthRepository(
         pkce.writeVerifier(verifier, AuthPkceFlow.OAUTH_SIGN_UP)
         val url = ("$authBase/authorize").toHttpUrl().newBuilder()
             .addQueryParameter("provider", provider.key)
-            .addQueryParameter("redirect_to", EMAIL_CONFIRMATION_REDIRECT)
+            .addQueryParameter("redirect_to", emailRedirect)
             .addQueryParameter("code_challenge", Pkce.challenge(verifier))
             .addQueryParameter("code_challenge_method", "s256")
             .build()
@@ -350,7 +411,7 @@ class SupabaseAuthRepository(
         postAuth(
             path = "/recover",
             jsonBody = body,
-            query = mapOf("redirect_to" to EMAIL_CONFIRMATION_REDIRECT),
+            query = mapOf("redirect_to" to emailRedirect),
         )
         logger.info(LogDomain.AUTH, "Lien de récupération envoyé.")
     }

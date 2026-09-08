@@ -284,6 +284,32 @@ interface AuthRepository {
 }
 
 /**
+ * L'inscription grand public : une adresse, un mot de passe, un prénom si l'on
+ * veut.
+ *
+ * ## Pourquoi elle n'est pas dans [AuthRepository]
+ *
+ * Sept implémentations portent ce contrat-là, dont six sont des doublures de
+ * test qui n'ont rien à dire d'une inscription voyageur. Une méthode de plus
+ * les obligerait toutes à répondre à une question qui ne les concerne pas —
+ * pour un besoin qui n'a qu'un seul appelant, l'application grand public.
+ *
+ * [io.aule.android.data.aule.SupabaseAuthRepository] porte les deux : c'est le
+ * même GoTrue, le même PKCE et la même adresse de retour. Ce qui change tient
+ * dans les métadonnées, et c'est tout ce que cette interface expose.
+ */
+interface PassengerSignUp {
+    /**
+     * Crée le compte, sans ouvrir de session : la confirmation d'e-mail (PKCE)
+     * l'ouvrira plus tard, comme pour l'inscription professionnelle.
+     *
+     * [displayName] est facultatif — `handle_new_auth_user` recopie l'adresse
+     * quand il est absent. Lève un [io.aule.android.core.model.AuthException].
+     */
+    suspend fun signUpPassenger(email: String, password: String, displayName: String?)
+}
+
+/**
  * Le vérifieur PKCE de l'inscription, distinct de la session.
  *
  * Il doit survivre à la mort du processus : le lien de confirmation arrive
