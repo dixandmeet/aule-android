@@ -139,6 +139,13 @@ class MapController(
 
     /** La hauteur de volet avec laquelle [framedCoordinates] a été cadré. */
     private var framedSheetPx: Float = 0f
+
+    /**
+     * Le plancher de zoom du cadre en cours. Gardé avec lui : le volet qui glisse
+     * réécrit le cadre des dizaines de fois, et un plancher oublié en route
+     * laisserait la caméra redescendre sous le palier au premier de ces réécrits.
+     */
+    private var framedMinimumZoom: Double? = null
     private var isCameraCallInFlight = false
     private var lastRegionEmitElapsed = 0L
 
@@ -581,8 +588,18 @@ class MapController(
      * Une seule coordonnée non finie étirerait la boîte jusqu'à l'infini, et
      * le cadrage montrerait la planète entière — une panne spectaculaire pour
      * une donnée manquante.
+     *
+     * @param minimumZoom le zoom en deçà duquel on refuse de descendre, même si
+     *   la boîte ne tient plus. Il existe pour une raison qui n'est pas
+     *   graphique : une source de tuiles ne porte pas la même chose à tous les
+     *   paliers, et un cadrage juste sur une couche vide donne une carte nue sans
+     *   que rien ne le dise — voir
+     *   [io.aule.android.core.map.layer.TransitLinesLayer.NETWORK_LEGIBLE_ZOOM].
+     *   `null` — le défaut — laisse la boîte décider seule, ce que fait le
+     *   cadrage d'un trajet : celui-là est peint par nos soins et ne dépend
+     *   d'aucune tuile.
      */
-    fun frame(coordinates: List<Coordinate>) {
+    fun frame(coordinates: List<Coordinate>, minimumZoom: Double? = null) {
         val usable = coordinates.filter { it.latitude.isFinite() && it.longitude.isFinite() }
         if (usable.isEmpty()) return
         if (usable.size < 2) {
@@ -593,6 +610,7 @@ class MapController(
         forgetOwedPitch()
         // Après [setCameraMode], qui oublie le cadre précédent.
         framedCoordinates = usable
+        framedMinimumZoom = minimumZoom
         applyFrame(usable, animated = true)
     }
 
@@ -642,6 +660,12 @@ class MapController(
             0.0,
             0.0,
         ) ?: return
+        // Le plancher passe **après** le calcul : MapLibre cadre la boîte, on
+        // refuse ensuite de descendre plus bas. Remonter le zoom fait déborder la
+        // boîte — c'est le prix assumé, et il vaut mieux qu'une carte nue.
+        val floored = framedMinimumZoom?.takeIf { it > position.zoom }?.let {
+            CameraPosition.Builder(position).zoom(it).build()
+        } ?: position
         framedSheetPx = sheetHeightPx
         lastAppliedTarget = null
         // À l'entrée seulement : le suivi du volet réécrit le cadre des dizaines
@@ -650,14 +674,14 @@ class MapController(
             logger.debug(
                 LogDomain.MAP,
                 "Cadrage : vue ${view.width}×${view.height}, marges $pad/$bottom, " +
-                    "zoom ${position.zoom}, cible ${position.target}.",
+                    "zoom ${floored.zoom}, cible ${floored.target}.",
             )
         }
         suppressGestureDetection = true
         if (animated) {
             isCameraCallInFlight = true
             map.animateCamera(
-                CameraUpdateFactory.newCameraPosition(position),
+                CameraUpdateFactory.newCameraPosition(floored),
                 AuleMotion.CAMERA_FLY_MS,
                 object : MapLibreMap.CancelableCallback {
                     override fun onFinish() = finishFrame()
@@ -665,7 +689,7 @@ class MapController(
                 },
             )
         } else {
-            map.moveCamera(CameraUpdateFactory.newCameraPosition(position))
+            map.moveCamera(CameraUpdateFactory.newCameraPosition(floored))
             suppressGestureDetection = false
         }
     }
@@ -1012,6 +1036,7 @@ class MapController(
      */
     private fun forgetFrame() {
         framedCoordinates = null
+        framedMinimumZoom = null
     }
 
     /**

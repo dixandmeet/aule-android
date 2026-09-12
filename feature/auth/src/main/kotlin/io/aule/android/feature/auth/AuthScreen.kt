@@ -172,7 +172,7 @@ fun AuthScreen(
         val required = stringResource(R.string.auth_required)
 
         AuleNetworkBackdrop(
-            modifier = modifier,
+            modifier = modifier.fillMaxSize(),
             contentAlignment = if (imeVisible) Alignment.TopCenter else Alignment.Center,
         ) {
             Box(

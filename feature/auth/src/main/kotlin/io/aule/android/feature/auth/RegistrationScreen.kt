@@ -207,7 +207,7 @@ fun RegistrationScreen(
         // Le tracé passe au régime discret : derrière quatre cartes de choix
         // et deux champs, le motif qui pose la connexion ne pose plus rien, il
         // encombre.
-        AuleNetworkBackdrop(modifier = modifier, quiet = true) {
+        AuleNetworkBackdrop(modifier = modifier.fillMaxSize(), quiet = true) {
             if (!state.isHydrated) {
                 Box(
                     modifier = Modifier

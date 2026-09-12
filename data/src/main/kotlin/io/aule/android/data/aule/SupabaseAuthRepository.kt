@@ -367,18 +367,37 @@ class SupabaseAuthRepository(
      * la couleur — il redirige vers Supabase, qui redirige vers nous.
      */
     override suspend fun beginOAuthSignUp(provider: OAuthProvider): String {
+        val url = authorizeUrl(provider, AuthPkceFlow.OAUTH_SIGN_UP)
+        logger.info(LogDomain.AUTH, "Inscription déléguée à ${provider.key}.")
+        return url
+    }
+
+    /**
+     * La même adresse que [beginOAuthSignUp], pour **entrer** : le vérifieur
+     * est marqué [AuthPkceFlow.OAUTH_SIGN_IN], et le retour n'aura rien à poser.
+     */
+    override suspend fun beginOAuthSignIn(provider: OAuthProvider): String {
+        val url = authorizeUrl(provider, AuthPkceFlow.OAUTH_SIGN_IN)
+        logger.info(LogDomain.AUTH, "Connexion déléguée à ${provider.key}.")
+        return url
+    }
+
+    /**
+     * Écrit le vérifieur PKCE sous le genre demandé, et rend `GET /authorize`
+     * avec le défi qui lui correspond — les deux au même endroit, pour qu'ils
+     * ne puissent pas diverger.
+     */
+    private suspend fun authorizeUrl(provider: OAuthProvider, flow: AuthPkceFlow): String {
         if (!configured) throw AuthException(AuthFailureKind.NOT_CONFIGURED)
         val verifier = createVerifier()
-        pkce.writeVerifier(verifier, AuthPkceFlow.OAUTH_SIGN_UP)
-        val url = ("$authBase/authorize").toHttpUrl().newBuilder()
+        pkce.writeVerifier(verifier, flow)
+        return ("$authBase/authorize").toHttpUrl().newBuilder()
             .addQueryParameter("provider", provider.key)
             .addQueryParameter("redirect_to", emailRedirect)
             .addQueryParameter("code_challenge", Pkce.challenge(verifier))
             .addQueryParameter("code_challenge_method", "s256")
             .build()
             .toString()
-        logger.info(LogDomain.AUTH, "Inscription déléguée à ${provider.key}.")
-        return url
     }
 
     /**
@@ -484,11 +503,18 @@ class SupabaseAuthRepository(
         pkce.clearVerifier()
         store.write(opened)
         session = opened
-        if (flow == AuthPkceFlow.OAUTH_SIGN_UP) {
-            logger.info(LogDomain.AUTH, "Session ouverte par fournisseur externe.")
-            attachOnboarding(opened)
-        } else {
-            logger.info(LogDomain.AUTH, "Session ouverte par confirmation d'e-mail.")
+        when (flow) {
+            AuthPkceFlow.OAUTH_SIGN_UP -> {
+                logger.info(LogDomain.AUTH, "Session ouverte par fournisseur externe.")
+                attachOnboarding(opened)
+            }
+            // Rien à poser : un compte voyageur n'a pas d'onboarding, et chercher
+            // un brouillon ici ne ferait que journaliser une absence normale.
+            AuthPkceFlow.OAUTH_SIGN_IN -> logger.info(
+                LogDomain.AUTH,
+                "Session ouverte par fournisseur externe, sans inscription à compléter.",
+            )
+            else -> logger.info(LogDomain.AUTH, "Session ouverte par confirmation d'e-mail.")
         }
         opened
     }

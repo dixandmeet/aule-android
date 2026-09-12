@@ -337,6 +337,22 @@ interface PassengerSignUp {
      * quand il est absent. Lève un [io.aule.android.core.model.AuthException].
      */
     suspend fun signUpPassenger(email: String, password: String, displayName: String?)
+
+    /**
+     * Prépare l'entrée par un fournisseur externe et rend l'URL à ouvrir dans
+     * le navigateur — connexion ou inscription, c'est GoTrue qui tranche.
+     *
+     * Même mécanique que [AuthRepository.beginOAuthSignUp] : rien ne part sur
+     * le réseau, le vérifieur PKCE est écrit ici, marqué
+     * [io.aule.android.core.model.AuthPkceFlow.OAUTH_SIGN_IN], et c'est
+     * [AuthRepository.exchangeAuthCode] qui ouvrira la session au retour. La
+     * différence est ce qu'il n'y a **pas** à faire ensuite : aucune métadonnée
+     * d'onboarding, un compte voyageur n'en a pas.
+     *
+     * L'écran ouvre l'URL dans un onglet du navigateur, jamais dans une
+     * WebView — voir [AuthRepository.beginOAuthSignUp].
+     */
+    suspend fun beginOAuthSignIn(provider: OAuthProvider): String
 }
 
 /**

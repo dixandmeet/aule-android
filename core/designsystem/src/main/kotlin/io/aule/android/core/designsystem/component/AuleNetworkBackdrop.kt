@@ -8,7 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.fillMaxSize
+
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -70,6 +70,11 @@ import io.aule.android.core.designsystem.reduceMotionEnabled
  * 3. la **vignette**, un voile de surface qui se referme sur les bords, pour que
  *    le texte du formulaire ne se pose jamais sur le motif à pleine intensité.
  *
+ * @param modifier la taille du fond, qui **ne se décide pas ici** : plein
+ *   écran chez Aule Pro (`fillMaxSize()`), la hauteur du seul formulaire dans
+ *   le volet de compte du voyageur, qui laisse la carte visible au-dessus. Le
+ *   dessin suit la taille reçue, quelle qu'elle soit — ses points sont posés
+ *   en proportion.
  * @param quiet vrai quand le fond passe sous un contenu dense — l'inscription
  *   et ses cartes de choix. Le tracé s'éteint alors d'un tiers : le même motif
  *   qui pose la connexion devient un bruit derrière six lignes de formulaire.
@@ -108,7 +113,6 @@ fun AuleNetworkBackdrop(
 
     Box(
         modifier = modifier
-            .fillMaxSize()
             .drawBehind {
                 drawRect(
                     brush = Brush.linearGradient(

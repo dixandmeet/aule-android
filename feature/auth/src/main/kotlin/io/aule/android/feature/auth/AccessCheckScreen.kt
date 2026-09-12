@@ -68,7 +68,7 @@ fun AccessCheckScreen(modifier: Modifier = Modifier) {
     // saut d'application.
     AuleTheme(night = true, typeface = AuleTypeface.BRAND) {
         val colors = MaterialTheme.colorScheme
-        AuleNetworkBackdrop(modifier = modifier, quiet = true) {
+        AuleNetworkBackdrop(modifier = modifier.fillMaxSize(), quiet = true) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()

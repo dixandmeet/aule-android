@@ -608,6 +608,68 @@ class SupabaseAuthRepositoryTest {
     }
 
     @Test
+    fun `entrer par Google ecrit le verifieur sous un genre qui ne pose rien`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        val verifier = "verifier-voyageur-0123456789012345678901234567890"
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            createVerifier = { verifier },
+            emailRedirect = "io.aule.app://login-callback/",
+        )
+
+        val url = signing.beginOAuthSignIn(OAuthProvider.GOOGLE).toHttpUrl()
+
+        // Même adresse que l'inscription, même défi PKCE, et rien sur le réseau.
+        assertEquals(0, server.requestCount)
+        assertTrue(url.encodedPath.endsWith("/auth/v1/authorize"))
+        assertEquals("google", url.queryParameter("provider"))
+        // Le retour vise le binaire qui demande, pas Aule Pro.
+        assertEquals("io.aule.app://login-callback/", url.queryParameter("redirect_to"))
+        assertEquals(Pkce.challenge(verifier), url.queryParameter("code_challenge"))
+        assertEquals("s256", url.queryParameter("code_challenge_method"))
+        assertEquals(verifier, pkce.readVerifier())
+        // Ce genre-là sépare l'entrée d'un voyageur de l'inscription d'un agent :
+        // au retour, il n'y aura aucun brouillon à poser.
+        assertEquals(AuthPkceFlow.OAUTH_SIGN_IN, pkce.readFlow())
+    }
+
+    @Test
+    fun `le retour d une entree Google ouvre la session et ne pose aucune metadonnee`() = runTest {
+        val pkce = MemoryAuthPkceStore()
+        pkce.writeVerifier("stored-verifier", AuthPkceFlow.OAUTH_SIGN_IN)
+        val drafts = MemoryRegistrationDraftStore()
+        // Un brouillon laissé là par une inscription professionnelle abandonnée
+        // ne doit pas être posé sur un compte voyageur qui n'a rien demandé.
+        drafts.write(SIGNUP_DRAFT.encode(), "account")
+        val signing = SupabaseAuthRepository(
+            client = AuleHttpClient(OkHttpClient(), NoopLogger),
+            store = store,
+            supabaseUrl = server.url("/").toString().trimEnd('/'),
+            publishableKey = "sb_publishable_test",
+            logger = NoopLogger,
+            pkce = pkce,
+            drafts = drafts,
+            nowEpochSeconds = { 1_700_000_000L },
+        )
+        respond(TOKEN_BODY)
+
+        val session = signing.exchangeAuthCode("auth-code-1")
+
+        assertEquals("agent@aule.fr", session.user.email)
+        assertEquals(session, signing.currentSession())
+        assertEquals(session, store.read())
+        // Un seul appel — l'échange — et pas de `PUT /user` derrière.
+        assertEquals(1, server.requestCount)
+        assertEquals(SIGNUP_DRAFT.encode(), drafts.readDraft())
+        assertNull(pkce.readVerifier())
+    }
+
+    @Test
     fun `le retour Google pose les metadonnees d onboarding et vide le brouillon`() = runTest {
         val pkce = MemoryAuthPkceStore()
         pkce.writeVerifier("stored-verifier", AuthPkceFlow.OAUTH_SIGN_UP)

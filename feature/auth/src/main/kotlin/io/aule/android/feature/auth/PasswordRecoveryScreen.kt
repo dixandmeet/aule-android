@@ -485,7 +485,7 @@ private fun RecoveryScaffold(
     AuleTheme(night = true, typeface = AuleTypeface.BRAND) {
         val imeVisible = WindowInsets.isImeVisible
         AuleNetworkBackdrop(
-            modifier = modifier,
+            modifier = modifier.fillMaxSize(),
             contentAlignment = if (imeVisible) Alignment.TopCenter else Alignment.Center,
         ) {
             Box(

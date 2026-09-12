@@ -95,6 +95,20 @@ enum class AuthPkceFlow {
      * personne ne peut valider parce que rien ne dit ce qu'il a demandé.
      */
     OAUTH_SIGN_UP,
+
+    /**
+     * Retour d'un fournisseur externe pour **entrer**, que le compte existe
+     * déjà ou non : ouvre l'application comme [SIGN_UP], et ne pose rien.
+     *
+     * C'est le chemin de l'application grand public — « Continuer avec
+     * Google » y vaut connexion et inscription à la fois, GoTrue créant le
+     * compte à la première venue et `handle_new_auth_user` lui posant le rôle
+     * passager. Un genre distinct d'[OAUTH_SIGN_UP], parce que ce retour-là
+     * n'a aucune métadonnée d'onboarding à poser : le confondre avec
+     * l'inscription professionnelle ferait chercher un brouillon qui n'existe
+     * pas, et le journal s'en plaindrait à chaque connexion.
+     */
+    OAUTH_SIGN_IN,
 }
 
 /**
