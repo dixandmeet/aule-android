@@ -32,6 +32,14 @@ internal class GlbPrimitive(
     val indices: IntArray,
     /** Le nom du matériau, vide s'il n'en porte pas. */
     val materialName: String,
+    /**
+     * Le nom du maillage qui porte la primitive, vide s'il n'en a pas.
+     *
+     * Il compte autant que le matériau : les roues du bus portent le matériau
+     * générique `Material`, et seul le nom `FrontWheels` / `BackWheels` dit
+     * ce qu'elles sont. Sans lui, elles se peignaient aux couleurs de la ligne.
+     */
+    val meshName: String = "",
 ) {
     val triangleCount: Int get() = indices.size / 3
 }
@@ -109,6 +117,7 @@ internal object GlbReader {
 
         val out = ArrayList<GlbPrimitive>()
         for (mesh in root.array("meshes")) {
+            val meshName = (mesh as? JsonObject)?.string("name").orEmpty()
             for (primitive in (mesh as? JsonObject)?.array("primitives").orEmpty()) {
                 val node = primitive as? JsonObject ?: continue
                 // Bandes, éventails et lignes n'ont rien à faire dans ce pack ; les
@@ -129,7 +138,7 @@ internal object GlbReader {
                     ?.let { (materials.getOrNull(it) as? JsonObject)?.string("name") }
                     .orEmpty()
 
-                out += GlbPrimitive(positions, indices, materialName)
+                out += GlbPrimitive(positions, indices, materialName, meshName)
             }
         }
         return out

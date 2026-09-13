@@ -62,6 +62,18 @@ class VehicleScene private constructor(private val handle: Long) {
     }
 
     /**
+     * Change la lumière de la scène — à chaque bascule d'ambiance.
+     *
+     * Elle part avec la prochaine trame publiée ; il n'y a rien à redessiner
+     * ici, la prochaine image suffit. La nuit ne passe plus par la teinte de
+     * carrosserie : c'est la lumière qui baisse, comme sur les façades.
+     */
+    fun setLighting(lighting: VehicleLighting) {
+        if (released) return
+        nativeSetLighting(handle, lighting.toFloatArray())
+    }
+
+    /**
      * Une couche MapLibre portant un hôte natif **neuf**.
      *
      * À rappeler à chaque montage — voir la note sur les durées de vie.
@@ -122,9 +134,6 @@ class VehicleScene private constructor(private val handle: Long) {
             else -> VehicleMeshCatalog.BUS.bodyColor
         }
 
-        /** Le multiplicateur de nuit, appliqué à la teinte de carrosserie. */
-        const val NIGHT_TINT = VehicleMeshCatalog.NIGHT_TINT
-
         init {
             // `libmaplibre.so` est déjà en mémoire dès qu'une carte existe ; la
             // nôtre n'en dépend pas, mais l'ordre reste sans surprise.
@@ -167,6 +176,8 @@ class VehicleScene private constructor(private val handle: Long) {
         @JvmStatic private external fun nativeDestroyState(handle: Long)
 
         @JvmStatic private external fun nativeInstallMesh(handle: Long, index: Int, data: FloatArray)
+
+        @JvmStatic private external fun nativeSetLighting(handle: Long, data: FloatArray)
 
         @JvmStatic private external fun nativeStagingBuffer(handle: Long): ByteBuffer?
 

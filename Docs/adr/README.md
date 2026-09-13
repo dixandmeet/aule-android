@@ -21,6 +21,8 @@ effort, elle n'a pas besoin d'ADR.
 | [013](ADR-013-biometrie-locale.md) | La biométrie est un verrou local | Elle restaure une session, elle n'authentifie pas |
 | [014](ADR-014-inscription-par-fournisseur.md) | Google inscrit, il n'habilite pas | OAuth PKCE, métadonnées posées après coup |
 | [015](ADR-015-couche-native-vehicules.md) | Une couche native pour les véhicules | Du C++ dans un projet Kotlin, et le repère qu'attend MapLibre |
+| [016](ADR-016-notifications-poussees.md) | Les notifications poussées de la messagerie | FCM, APNs, une file en base, l'envoi côté serveur |
+| [017](ADR-017-eclairage-des-vehicules.md) | Le nuancier des véhicules éclaire | La lumière du style, une ombre au sol, et pourquoi on revient sur « aucune lumière » |
 | [018](ADR-018-conseil-deterministe.md) | Le conseil est déterministe ; Claude ne fait que le dire | Qui décide d'un itinéraire, et ce qu'un modèle de langage a le droit d'y faire |
 | [019](ADR-019-contribution-affluence.md) | Quatre gardes, et pas une de moins | À quelles conditions on a le droit de collecter la position d'un voyageur |
 

@@ -109,9 +109,8 @@ class MeshStandardizerTest {
         var glassBack = Float.MAX_VALUE
         for (v in 0 until mesh.vertexCount) {
             val at = v * StandardMesh.FLOATS_PER_VERTEX
-            // Le masque distingue la carrosserie du reste ; les vitres sont la
-            // pièce sombre non masquée la plus basse en rouge.
-            if (mesh.vertices[at + 6] != 0f) continue
+            // Le code de pièce dit ce qu'est chaque sommet : on ne garde que le vitrage.
+            if (mesh.vertices[at + StandardMesh.PART_OFFSET] != MeshPart.GLASS.code) continue
             val y = mesh.vertices[at + 1]
             if (y > glassFront) glassFront = y
             if (y < glassBack) glassBack = y
@@ -142,11 +141,13 @@ class MeshStandardizerTest {
     }
 
     /**
-     * Le contrat avec le nuancier : sept flottants par sommet, un masque binaire,
-     * des couleurs dans l'intervalle. Le shader ne vérifie rien de tout cela.
+     * Le contrat avec le nuancier : dix flottants par sommet, une normale
+     * unitaire, des couleurs dans l'intervalle, un code de pièce connu. Le
+     * shader ne vérifie rien de tout cela.
      */
     @Test
     fun `la disposition des sommets respecte le contrat du nuancier`() {
+        val codes = MeshPart.entries.map { it.code }.toSet()
         for (model in VehicleMeshCatalog.ALL) {
             val mesh = load(model)
             assertEquals(
@@ -159,17 +160,205 @@ class MeshStandardizerTest {
 
             for (v in 0 until mesh.vertexCount) {
                 val at = v * StandardMesh.FLOATS_PER_VERTEX
-                for (channel in 3..5) {
+                val nx = mesh.vertices[at + StandardMesh.NORMAL_OFFSET]
+                val ny = mesh.vertices[at + StandardMesh.NORMAL_OFFSET + 1]
+                val nz = mesh.vertices[at + StandardMesh.NORMAL_OFFSET + 2]
+                assertEquals(
+                    1.0,
+                    kotlin.math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()),
+                    1e-3,
+                    "${model.asset} : normale non unitaire",
+                )
+                for (channel in StandardMesh.COLOR_OFFSET until StandardMesh.PART_OFFSET) {
                     val value = mesh.vertices[at + channel]
                     assertTrue(
                         value in 0f..1f,
                         "${model.asset} : couleur hors bornes ($value)",
                     )
                 }
-                val mask = mesh.vertices[at + 6]
-                assertTrue(mask == 0f || mask == 1f, "${model.asset} : masque non binaire ($mask)")
+                val part = mesh.vertices[at + StandardMesh.PART_OFFSET]
+                assertTrue(part in codes, "${model.asset} : pièce inconnue ($part)")
             }
         }
+    }
+
+    /**
+     * Les roues du bus sont du châssis, pas de la carrosserie.
+     *
+     * Elles portent le matériau générique `Material` : seul le nom du maillage
+     * les distingue. Un bus aux jantes vert de ligne, c'est ce que le web
+     * affiche — et ce que la première version d'ici affichait aussi.
+     */
+    @Test
+    fun `les roues du bus sont du chassis`() {
+        val primitives = GlbReader.read(
+            File("src/main/assets/${VehicleMeshCatalog.ASSET_DIR}/${VehicleMeshCatalog.BUS.asset}").readBytes(),
+        )
+        val wheels = primitives.filter { "wheel" in it.meshName.lowercase() }
+        assertEquals(2, wheels.size, "deux trains de roues attendus, nommés dans le fichier")
+        for (wheel in wheels) {
+            assertEquals(MeshPart.CHASSIS, MeshPalette.part(wheel.materialName, wheel.meshName))
+        }
+    }
+
+    /**
+     * Les normales regardent vers l'**extérieur**.
+     *
+     * Une normale retournée n'empêche rien de compiler ni de s'afficher : elle
+     * rend noire la face qui devrait être en plein jour. On ne peut pas compter
+     * les faces « vers le haut » — le toit du bus porte des blocs dont le
+     * dessous, caché, regarde le sol. Le volume signé, lui, ne se trompe pas :
+     * positif si les triangles tournent dans le sens direct vus de dehors, ce
+     * qui est exactement la convention sur laquelle la normale est calculée.
+     * Les rotations de la mise aux normes le conservent, et les échelles sont
+     * positives : le signe du fichier est celui de la scène.
+     */
+    @Test
+    fun `les normales regardent vers l exterieur`() {
+        for (model in VehicleMeshCatalog.ALL) {
+            val mesh = load(model)
+            var volume = 0.0
+            for (t in 0 until mesh.triangleCount) {
+                val at = t * 3 * StandardMesh.FLOATS_PER_VERTEX
+                val ax = mesh.vertices[at].toDouble()
+                val ay = mesh.vertices[at + 1].toDouble()
+                val az = mesh.vertices[at + 2].toDouble()
+                val bx = mesh.vertices[at + StandardMesh.FLOATS_PER_VERTEX].toDouble()
+                val by = mesh.vertices[at + StandardMesh.FLOATS_PER_VERTEX + 1].toDouble()
+                val bz = mesh.vertices[at + StandardMesh.FLOATS_PER_VERTEX + 2].toDouble()
+                val cx = mesh.vertices[at + 2 * StandardMesh.FLOATS_PER_VERTEX].toDouble()
+                val cy = mesh.vertices[at + 2 * StandardMesh.FLOATS_PER_VERTEX + 1].toDouble()
+                val cz = mesh.vertices[at + 2 * StandardMesh.FLOATS_PER_VERTEX + 2].toDouble()
+                volume += ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx)
+            }
+            volume /= 6.0
+            val box = model.dimensions.widthMeters * model.dimensions.lengthMeters * model.dimensions.heightMeters
+            assertTrue(
+                volume > box * 0.2,
+                "${model.asset} : volume signé $volume pour une boîte de $box — triangles retournés ?",
+            )
+        }
+    }
+
+    /**
+     * **La carrosserie doit dominer la surface du modèle.**
+     *
+     * C'est le test que l'absence a coûté cher. Les noms de matériaux du pack
+     * mentent : sur le bus, `Bottom` est le panneau latéral inférieur sur toute
+     * la longueur et `Bumper` la deuxième plus grande surface du modèle. Les
+     * ranger au châssis — ce que fait l'heuristique du web — peignait **la
+     * moitié du bus en presque noir**, une coque sombre surmontée d'une
+     * verrière. Vu à l'écran le 12/09, pas en lisant le code.
+     *
+     * Le seuil vaut pour ce que le regard attend d'un véhicule : une livrée,
+     * avec des vitres et des roues dessus — pas l'inverse.
+     */
+    @Test
+    fun `la carrosserie couvre la majorite de la surface`() {
+        for (model in VehicleMeshCatalog.ALL) {
+            val mesh = load(model)
+            val aire = DoubleArray(MeshPart.entries.size)
+            for (t in 0 until mesh.triangleCount) {
+                val at = t * 3 * StandardMesh.FLOATS_PER_VERTEX
+                fun coord(corner: Int, axis: Int) =
+                    mesh.vertices[at + corner * StandardMesh.FLOATS_PER_VERTEX + axis].toDouble()
+                val ux = coord(1, 0) - coord(0, 0)
+                val uy = coord(1, 1) - coord(0, 1)
+                val uz = coord(1, 2) - coord(0, 2)
+                val vx = coord(2, 0) - coord(0, 0)
+                val vy = coord(2, 1) - coord(0, 1)
+                val vz = coord(2, 2) - coord(0, 2)
+                val nx = uy * vz - uz * vy
+                val ny = uz * vx - ux * vz
+                val nz = ux * vy - uy * vx
+                val code = mesh.vertices[at + StandardMesh.PART_OFFSET]
+                val piece = MeshPart.entries.first { it.code == code }
+                aire[piece.ordinal] += 0.5 * kotlin.math.sqrt(nx * nx + ny * ny + nz * nz)
+            }
+            val total = aire.sum()
+            val part = aire[MeshPart.BODY.ordinal] / total
+            assertTrue(
+                part > 0.5,
+                "${model.asset} : la carrosserie ne couvre que ${(part * 100).toInt()} % de la surface —" +
+                    " le reste est peint en pièce sombre, le véhicule se lira comme une coque noire",
+            )
+        }
+    }
+
+    /**
+     * **Le noir est réservé aux roues.**
+     *
+     * « On ne doit pas voir le châssis » : vu du ciel, un véhicule est une
+     * caisse, des vitres et des roues. Toute pièce sombre qui déborde de ce
+     * compte se lit comme une carcasse posée sous la carrosserie — le défaut
+     * exact que montrait la flotte avant le 12/09. Les jupes et pare-chocs
+     * prennent donc la livrée assombrie ([MeshPart.SKIRT]), qui appartient
+     * visuellement au véhicule.
+     */
+    @Test
+    fun `seules les roues sont peintes en sombre`() {
+        for (model in VehicleMeshCatalog.ALL) {
+            val mesh = load(model)
+            val aire = DoubleArray(MeshPart.entries.size)
+            for (t in 0 until mesh.triangleCount) {
+                val at = t * 3 * StandardMesh.FLOATS_PER_VERTEX
+                fun coord(corner: Int, axis: Int) =
+                    mesh.vertices[at + corner * StandardMesh.FLOATS_PER_VERTEX + axis].toDouble()
+                val ux = coord(1, 0) - coord(0, 0)
+                val uy = coord(1, 1) - coord(0, 1)
+                val uz = coord(1, 2) - coord(0, 2)
+                val vx = coord(2, 0) - coord(0, 0)
+                val vy = coord(2, 1) - coord(0, 1)
+                val vz = coord(2, 2) - coord(0, 2)
+                val nx = uy * vz - uz * vy
+                val ny = uz * vx - ux * vz
+                val nz = ux * vy - uy * vx
+                val code = mesh.vertices[at + StandardMesh.PART_OFFSET]
+                val piece = MeshPart.entries.first { it.code == code }
+                aire[piece.ordinal] += 0.5 * kotlin.math.sqrt(nx * nx + ny * ny + nz * nz)
+            }
+            val total = aire.sum()
+            val sombre = aire[MeshPart.CHASSIS.ordinal] / total
+            assertTrue(
+                sombre < 0.12,
+                "${model.asset} : ${(sombre * 100).toInt()} % de la surface est peinte en pièce" +
+                    " sombre — au-delà des roues, ça se lit comme un châssis apparent",
+            )
+        }
+    }
+
+    /**
+     * **L'avant du bus est du côté de ses roues avant.**
+     *
+     * Le modèle porte deux maillages nommés : `FrontWheels` est à x ≈ 1,2–2,1 m
+     * dans le fichier, `BackWheels` à x ≈ 8,9–9,8 m. Après redressement, l'avant
+     * doit regarder le nord de la scène (+Y). À l'envers, le bus recule le long
+     * de sa ligne — invisible à l'arrêt, évident en mouvement, et le tram a déjà
+     * son propre test pour la même raison.
+     */
+    @Test
+    fun `les roues avant du bus regardent vers l avant`() {
+        val model = VehicleMeshCatalog.BUS
+        val primitives = GlbReader.read(
+            File("src/main/assets/${VehicleMeshCatalog.ASSET_DIR}/${model.asset}").readBytes(),
+        )
+        val avant = primitives.first { "frontwheel" in it.meshName.lowercase().replace("_", "") }
+        val arriere = primitives.first { "backwheel" in it.meshName.lowercase().replace("_", "") }
+
+        // Les deux trains ensemble : mis aux normes séparément, chacun se
+        // recentrerait sur zéro et la comparaison ne dirait plus rien.
+        val ensemble = MeshStandardizer.standardize(
+            listOf(avant, arriere), model.dimensions, model.forwardIsPositiveZ, model.materialParts,
+        )
+        val moitie = ensemble.vertexCount / 2
+        var yAvant = 0.0
+        var yArriere = 0.0
+        for (v in 0 until moitie) yAvant += ensemble.vertices[v * StandardMesh.FLOATS_PER_VERTEX + 1]
+        for (v in moitie until ensemble.vertexCount) yArriere += ensemble.vertices[v * StandardMesh.FLOATS_PER_VERTEX + 1]
+        assertTrue(
+            yAvant / moitie > yArriere / (ensemble.vertexCount - moitie),
+            "le bus roule en marche arrière : roues avant à ${yAvant / moitie}, arrière à ${yArriere / (ensemble.vertexCount - moitie)}",
+        )
     }
 
     /**

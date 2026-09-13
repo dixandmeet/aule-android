@@ -1,6 +1,8 @@
 #pragma once
 
+#include <algorithm>
 #include <atomic>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -13,8 +15,9 @@ constexpr uint32_t kMaxPoses = 48;
 /// Deux modèles : le bus et le tram. Le navibus garde son volume extrudé.
 constexpr uint32_t kMeshCount = 2;
 
-/// Sept flottants par sommet — contrat avec `MeshStandardizer`.
-constexpr uint32_t kFloatsPerVertex = 7;
+/// Dix flottants par sommet — contrat avec `MeshStandardizer` :
+/// `x y z  nx ny nz  r g b  pièce`.
+constexpr uint32_t kFloatsPerVertex = 10;
 
 /// Ce que le thread principal dit d'un véhicule pour une image.
 struct Pose {
@@ -29,6 +32,32 @@ struct Pose {
     uint32_t mesh;
 };
 
+/// Le nombre de flottants que `VehicleLighting.toFloatArray` publie.
+constexpr uint32_t kLightingFloats = 14;
+
+/**
+ * La lumière de la scène, telle que Kotlin la publie.
+ *
+ * Elle est **celle du style** — même direction, même couleur que le `light`
+ * qui ombre les bâtiments en `fill-extrusion`. Un bus éclairé d'un autre côté
+ * que la façade devant laquelle il passe se verrait immédiatement, et
+ * l'ambiance sombre a sa propre lumière rasante. Voir `VehicleLighting.kt`.
+ */
+struct Lighting {
+    /// Vecteur unitaire **vers** la lumière, dans le repère de scène (est, nord, haut).
+    float sunEast = 0.f, sunNorth = 0.7f, sunUp = 0.7f;
+    /// Couleur × intensité, déjà pondérées.
+    float sunR = 0.45f, sunG = 0.44f, sunB = 0.41f;
+    /// L'ambiante hémisphérique : ce que reçoit une face tournée vers le ciel,
+    /// et ce qu'en reçoit une face tournée vers le sol.
+    float skyR = 0.60f, skyG = 0.64f, skyB = 0.70f;
+    float groundR = 0.36f, groundG = 0.35f, groundB = 0.33f;
+    /// 0 le jour, 1 la nuit : les feux s'allument.
+    float lampGlow = 0.f;
+    /// L'opacité de l'ombre de contact, à pleine opacité du véhicule.
+    float shadowStrength = 0.32f;
+};
+
 /// Tout ce qu'il faut pour dessiner une image, publié d'un bloc.
 struct Frame {
     /// L'ancre en mercator normalisé, et sa latitude — celle qui donne l'échelle.
@@ -41,6 +70,9 @@ struct Frame {
     double anchorMercX = 0.0;
     double anchorMercY = 0.0;
     double anchorLatitude = 0.0;
+    /// La lumière voyage avec la trame : le thread de rendu n'a ainsi jamais à
+    /// lire un objet que le thread principal pourrait être en train d'écrire.
+    Lighting lighting;
     uint32_t count = 0;
     Pose poses[kMaxPoses] = {};
 };
@@ -87,14 +119,31 @@ public:
      * On le garde même après téléversement : c'est ce qui permet de tout
      * reconstruire après une perte de contexte, sans repasser par les assets ni
      * réveiller la JVM depuis le thread de rendu.
+     *
+     * L'emprise au sol est mesurée ici, une fois : c'est elle qui donne sa
+     * taille à l'ombre de contact, et la refaire à chaque image sur trois mille
+     * sommets n'aurait aucun sens.
      */
     void installMesh(uint32_t index, const float* data, size_t floatCount) {
         if (index >= kMeshCount) return;
         meshes_[index].assign(data, data + floatCount);
+
+        float halfX = 0.f;
+        float halfY = 0.f;
+        for (size_t at = 0; at + kFloatsPerVertex <= floatCount; at += kFloatsPerVertex) {
+            halfX = std::max(halfX, std::fabs(data[at]));
+            halfY = std::max(halfY, std::fabs(data[at + 1]));
+        }
+        halfExtent_[index][0] = halfX;
+        halfExtent_[index][1] = halfY;
+
         meshesChanged_.store(true, std::memory_order_release);
     }
 
     const std::vector<float>& mesh(uint32_t index) const { return meshes_[index]; }
+
+    /// La demi-largeur et la demi-longueur du maillage, en mètres, avant exagération.
+    const float* halfExtent(uint32_t index) const { return halfExtent_[index]; }
 
     bool hasAllMeshes() const {
         for (const auto& mesh : meshes_) {
@@ -105,6 +154,23 @@ public:
 
     bool consumeMeshesChanged() {
         return meshesChanged_.exchange(false, std::memory_order_acq_rel);
+    }
+
+    // -------------------------------------------------------------- lumière
+
+    /**
+     * Change la lumière. Thread principal seulement, rarement — à chaque bascule
+     * d'ambiance. Elle part avec la prochaine trame publiée.
+     */
+    void setLighting(const float* values, size_t count) {
+        if (count < kLightingFloats) return;
+        Lighting& l = lighting_;
+        l.sunEast = values[0];  l.sunNorth = values[1];  l.sunUp = values[2];
+        l.sunR = values[3];     l.sunG = values[4];      l.sunB = values[5];
+        l.skyR = values[6];     l.skyG = values[7];      l.skyB = values[8];
+        l.groundR = values[9];  l.groundG = values[10];  l.groundB = values[11];
+        l.lampGlow = values[12];
+        l.shadowStrength = values[13];
     }
 
     // -------------------------------------------------------------- trames
@@ -130,6 +196,7 @@ public:
         frame.anchorMercX = anchorMercX;
         frame.anchorMercY = anchorMercY;
         frame.anchorLatitude = anchorLatitude;
+        frame.lighting = lighting_;
         frame.count = count > kMaxPoses ? kMaxPoses : count;
         std::memcpy(frame.poses, staging_, sizeof(Pose) * frame.count);
         write_ = middle_.exchange(write_ | kDirty, std::memory_order_acq_rel) & kIndexMask;
@@ -164,7 +231,11 @@ private:
     static constexpr unsigned kDirty = 0x4;
 
     std::vector<float> meshes_[kMeshCount];
+    float halfExtent_[kMeshCount][2] = {{0.f, 0.f}, {0.f, 0.f}};
     std::atomic<bool> meshesChanged_{false};
+
+    /// Écrite par le thread principal seul ; copiée dans chaque trame publiée.
+    Lighting lighting_;
 
     Frame frames_[3];
     /// Écrit par le thread principal seul, d'adresse stable. Voir `stagingPoses`.

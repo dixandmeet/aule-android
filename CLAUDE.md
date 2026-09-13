@@ -25,7 +25,8 @@ dans le code et qu'un changement anodin suffise à détruire.
 [ADR-015](Docs/adr/ADR-015-couche-native-vehicules.md)** — et son aînée,
 `../Native/Aule/Core/Map/Render3D/`, qui porte la même fonctionnalité contre le même cœur
 mbgl. Le repère qu'attend MapLibre ne se devine pas : x/y en pixels-monde, **z en mètres**,
-et `pitch`/`bearing` en **radians**.
+et `pitch`/`bearing` en **radians**. L'éclairage de ces modèles est celui du style, recopié dans
+`VehicleLighting.kt` et gardé par un test — [ADR-017](Docs/adr/ADR-017-eclairage-des-vehicules.md).
 
 ## Commandes
 

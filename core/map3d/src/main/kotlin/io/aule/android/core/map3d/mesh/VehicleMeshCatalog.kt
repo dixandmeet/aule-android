@@ -30,7 +30,7 @@ internal object VehicleMeshCatalog {
          * ⚠️ **Ce n'est pas `markerColor` du design system, et c'est délibéré.**
          * La pastille plate est un aplat : elle peut être sombre sans rien
          * perdre. Un modèle, lui, ne se lit que par le **contraste entre sa
-         * caisse et ses pièces** — vitres à `0x1D3831`, châssis à `0x363E3C`.
+         * caisse et ses pièces** — vitrage et châssis presque noirs.
          * Peint du teal `0x0D595E` de la pastille tram, l'ensemble devient un
          * bloc noir où ni vitre ni roue n'apparaît : tout le détail qu'on est
          * allé chercher disparaît.
@@ -39,18 +39,13 @@ internal object VehicleMeshCatalog {
          * qui a tranché la même chose à l'écran : « une livrée blanche
          * *réaliste* disparaissait sur la chaussée claire — la lisibilité prime
          * sur la fidélité de flotte ».
+         *
+         * La nuit ne les assombrit plus : c'est la lumière de la scène qui
+         * baisse, avec celle des façades — voir `VehicleLighting`.
          */
         val bodyColor: Int,
         val materialParts: Map<String, MeshPart> = emptyMap(),
     )
-
-    /**
-     * Le multiplicateur de nuit, repris du web.
-     *
-     * Un seul facteur global plutôt qu'une seconde palette : le modelé est cuit
-     * dans les sommets, et le rehausser la nuit demanderait de tout recuire.
-     */
-    const val NIGHT_TINT = 0x93A1C0
 
     /** Le répertoire des `.glb` dans les assets. */
     const val ASSET_DIR = "models/vehicles"
@@ -70,6 +65,26 @@ internal object VehicleMeshCatalog {
         // devient −Z après redressement.
         forwardIsPositiveZ = false,
         bodyColor = 0x45C299,
+        // ⚠️ **Deux matériaux que leur nom fait mentir**, et c'est mesuré dans le
+        // fichier, pas supposé :
+        //
+        // | matériau | hauteur | longueur | aire |
+        // |---|---|---|---|
+        // | `Bottom` | 0,23 → 1,65 m | 0,2 → 10,9 m | 3,9 |
+        // | `Bumper` | 0,23 → 2,73 m | 0,1 → 11,0 m | 8,1 |
+        // | `Top` | 0,96 → 3,20 m | 0,2 → 10,9 m | 12,4 |
+        //
+        // `Bottom` n'est pas un bas de caisse mais **le panneau latéral inférieur
+        // sur toute la longueur** ; `Bumper` n'est pas un pare-chocs mais la
+        // deuxième surface du modèle. Les laisser au châssis peint **la moitié du
+        // bus en presque noir** : une coque sombre surmontée d'une verrière, ce
+        // qu'on a vu à l'écran le 12/09. Le web fait cette erreur aussi ; elle s'y
+        // remarque moins parce que sa flotte est plus transparente et son ombrage
+        // plus plat.
+        materialParts = mapOf(
+            "Bottom" to MeshPart.BODY,
+            "Bumper" to MeshPart.BODY,
+        ),
     )
 
     val TRAM = Model(

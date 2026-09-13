@@ -16,6 +16,7 @@ import io.aule.android.core.map.MapAmbiance
 import io.aule.android.core.map.MapIcons
 import io.aule.android.core.map.MapInteractiveLayer
 import io.aule.android.core.map.MapZoom
+import io.aule.android.core.map3d.VehicleLighting
 import io.aule.android.core.map3d.VehicleScene
 import io.aule.android.core.map3d.WebMercator
 import io.aule.android.core.model.FleetSnapshot
@@ -387,7 +388,7 @@ class VehiclesLayer(
     }
 
     /**
-     * La teinte de carrosserie d'un modèle, ambiance et origine comprises.
+     * La teinte de carrosserie d'un modèle, origine comprise.
      *
      * ⚠️ **Elle ne vient pas de `markerColor`, à la différence de l'extrusion.**
      * Un aplat plat peut être sombre sans rien perdre ; un modèle ne se lit que
@@ -400,20 +401,11 @@ class VehiclesLayer(
      * retrait, dit de la même façon.
      */
     private fun bodyPaint(mesh: Int, isLive: Boolean): AuleRgba {
-        var paint = AuleRgba(VehicleScene.bodyColor(mesh))
-        if (night) {
-            paint = paint.scaledBy(AuleRgba(VehicleScene.NIGHT_TINT))
-        }
+        // La nuit n'assombrit plus la teinte : c'est la lumière de la scène qui
+        // baisse, publiée par [VehicleScene.setLighting] — comme sur les façades.
+        val paint = AuleRgba(VehicleScene.bodyColor(mesh))
         return if (isLive) paint else paint.mixedWith(AuleTokens.of(night).surfaceSolid, GHOST_MIX)
     }
-
-    /** Multiplication composante à composante — le geste du web pour la nuit. */
-    private fun AuleRgba.scaledBy(other: AuleRgba): AuleRgba = AuleRgba(
-        red = red * other.red,
-        green = green * other.green,
-        blue = blue * other.blue,
-        alpha = alpha,
-    )
 
     /** Le maillage d'un mode, ou `null` s'il n'en a pas — le navibus. */
     private fun meshIndex(mode: TransportMode): Int? = when (mode) {
@@ -573,6 +565,8 @@ class VehiclesLayer(
 
     override fun mount(style: Style, map: MapLibreMap) {
         this.map = map
+        // La lumière du jour au montage ; la bascule d'ambiance la remplace.
+        scene?.setLighting(VehicleLighting.of(night))
 
         source = GeoJsonSource(
             SOURCE,
@@ -711,8 +705,10 @@ class VehiclesLayer(
     override fun onAmbianceChange(ambiance: MapAmbiance, style: Style) {
         val night = ambiance == MapAmbiance.DARK
         // La scène 3D reçoit une couleur déjà résolue : elle n'a pas
-        // d'`Expression` à réévaluer, donc il faut la lui redire.
+        // d'`Expression` à réévaluer, donc il faut la lui redire — et lui
+        // donner la lumière de la nouvelle ambiance, celle du style qui arrive.
         this.night = night
+        scene?.setLighting(VehicleLighting.of(night))
         val tokens = AuleTokens.of(night)
         (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
             PropertyFactory.circleStrokeColor(tokens.surfaceSolid.argb),
@@ -875,11 +871,18 @@ class VehiclesLayer(
         const val GHOST_MIX = 0.28
 
         /**
-         * La flotte au repos : assez présente pour se suivre du regard, assez
-         * transparente pour qu'on lise la rue dessous — et pour que le véhicule
-         * choisi, lui, se détache d'un coup.
+         * La flotte est **opaque**. Un véhicule ne se voit pas au travers.
+         *
+         * Elle était à 0,6 — « assez transparente pour qu'on lise la rue
+         * dessous ». À z18 sur un tram de vingt-huit mètres, on voyait les rails
+         * à travers la caisse : rien ne trahit plus vite un décor qu'un objet
+         * qu'on traverse du regard. La rue sous un bus n'a rien à dire, et
+         * l'ombre de contact dit déjà où il se pose (ADR-017).
+         *
+         * Le véhicule choisi ne se distingue donc plus par son opacité mais par
+         * son anneau, qui est de toute façon ce qu'on regarde.
          */
-        const val FLEET_OPACITY = 0.6
+        const val FLEET_OPACITY = 1.0
 
         /** Le véhicule choisi, en couleur pleine : c'est la réponse à un doigt posé. */
         const val SELECTED_OPACITY = 1.0

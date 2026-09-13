@@ -19,6 +19,8 @@
  *
  * ⚠️ `pitch` et `bearing` de ces paramètres sont en **radians**, pas en degrés.
  * Lus en degrés, on croit la carte à plat et on cherche un défaut qui n'existe pas.
+ * Le rendu n'en lit d'ailleurs plus aucun : la position de l'œil se tire de la
+ * matrice elle-même, qui ne peut pas mentir sur ses unités.
  *
  * ## L'ancrage
  *
@@ -35,6 +37,16 @@
  * (vérifié au bytecode). Le Mali-G78 rend en fait de l'ES 3.2, mais rien ne
  * l'oblige : GLSL ES 1.00, pas de VAO, pas d'instanciation. Quarante-huit
  * `glDrawArrays` de mille cinq cents triangles ne coûtent rien.
+ *
+ * ## La lumière (ADR-017)
+ *
+ * Le nuancier **éclaire**, là où la première version cuisait un ombrage fixe
+ * dans les sommets. La lumière est celle du style — direction, couleur,
+ * intensité du `light` qui ombre les bâtiments —, publiée par Kotlin avec
+ * chaque trame. Trois matières s'en distinguent : la carrosserie satinée, le
+ * vitrage qui reflète le ciel, le châssis mat ; les feux sont émissifs et
+ * s'allument la nuit. Une ombre de contact, dessinée avant les caisses, pose
+ * chaque véhicule sur la chaussée au lieu de l'y faire flotter.
  */
 
 #include <jni.h>
@@ -58,6 +70,7 @@
 namespace {
 
 using aule::Frame;
+using aule::Lighting;
 using aule::Pose;
 using aule::SceneState;
 using aule::SceneStatus;
@@ -67,6 +80,23 @@ using aule::SceneStatus;
 constexpr double kEquatorMeters = 2.0 * M_PI * 6378137.0;
 
 constexpr double kTileSize = 512.0;
+
+/**
+ * La hauteur de l'ombre de contact au-dessus de la chaussée, en mètres.
+ *
+ * Sous la semelle du modèle (`GROUND_CLEARANCE_M`, 0,05), pour rester dessous ;
+ * au-dessus de zéro, pour la même raison que la semelle : à zéro exactement,
+ * l'ombre et la chaussée se disputent le tampon de profondeur.
+ */
+constexpr float kShadowLiftMeters = 0.03f;
+
+/// De combien l'ombre déborde de l'emprise, en mètres avant exagération : le
+/// flou a besoin de place pour s'éteindre.
+constexpr float kShadowReachMeters = 0.9f;
+
+/// Le décalage de l'ombre à l'opposé de la lumière, en mètres. Assez pour
+/// dire d'où vient le jour, pas assez pour détacher l'ombre de sa caisse.
+constexpr float kShadowOffsetMeters = 0.45f;
 
 /// Produit de deux matrices 4×4 en colonnes majeures — la disposition de `mbgl::mat4`.
 template <typename T>
@@ -98,41 +128,205 @@ GLuint compile(GLenum type, const char* source) {
     return shader;
 }
 
-// Le nuancier, transposé de `Shaders.metal` d'iOS.
+/// Compile et lie un programme ; rend 0 et journalise si l'une des étapes échoue.
+GLuint link(const char* vertexSource, const char* fragmentSource) {
+    const GLuint vertex = compile(GL_VERTEX_SHADER, vertexSource);
+    const GLuint fragment = compile(GL_FRAGMENT_SHADER, fragmentSource);
+    if (vertex == 0 || fragment == 0) {
+        if (vertex != 0) glDeleteShader(vertex);
+        if (fragment != 0) glDeleteShader(fragment);
+        return 0;
+    }
+    const GLuint program = glCreateProgram();
+    glAttachShader(program, vertex);
+    glAttachShader(program, fragment);
+    glLinkProgram(program);
+    GLint linked = GL_FALSE;
+    glGetProgramiv(program, GL_LINK_STATUS, &linked);
+    glDeleteShader(vertex);
+    glDeleteShader(fragment);
+    if (linked != GL_TRUE) {
+        char log[1024] = {0};
+        glGetProgramInfoLog(program, sizeof(log) - 1, nullptr, log);
+        LOGE("édition de liens refusée : %s", log);
+        glDeleteProgram(program);
+        return 0;
+    }
+    return program;
+}
+
+// ------------------------------------------------------------------ nuanciers
+
+// Le nuancier des véhicules.
 //
-// `a_color.rgb` porte soit la couleur déjà ombrée d'une pièce fixe, soit
-// l'ombrage seul pour la carrosserie ; `a_color.a` est le masque qui distingue
-// les deux. C'est ce masque qui permet **un seul maillage par modèle** quelle
-// que soit la livrée : cuire la couleur de ligne dans les sommets demanderait un
-// tampon par ligne.
+// `a_color.rgb` est la couleur propre d'une pièce fixe, et `a_color.a` le code
+// de la pièce : 0 carrosserie, 1 vitrage, 2 roues, 3 feux, 4 bas de caisse. La
+// carrosserie et le bas de caisse ne portent pas de couleur dans le maillage —
+// ils prennent la teinte de la ligne au rendu, le second assombri. C'est ce qui
+// permet **un seul maillage par modèle** quelle que soit la livrée : cuire la
+// couleur de ligne dans les sommets demanderait un tampon par ligne.
 //
-// Aucune lumière. C'est délibéré : l'éclairage du web dépendait de l'ordre de
-// chargement et de l'espace colorimétrique actif, et rendait la flotte sombre
-// une fois sur deux. Le modelé est cuit, plus rien ne peut l'assombrir.
-const char* kVertexShader = R"(
+// ⚠️ **Les roues sont le seul noir du véhicule.** Vu du ciel, un bus n'a pas de
+// châssis visible : une caisse, des vitres, des roues. Peindre les jupes et les
+// pare-chocs en anthracite neutre donnait une carcasse sous une carrosserie —
+// le défaut qui empêchait la flotte de paraître vraie.
+//
+// Le sommet transporte sa normale de face : le modèle est bas-poly et non
+// indexé, donc chaque triangle garde son facettage franc. L'éclairage se
+// calcule **par fragment** — le reflet d'une vitre se déplace sur sa surface
+// quand la caméra tourne, ce qu'un calcul par sommet ne donnerait pas.
+const char* kVehicleVertexShader = R"(
 attribute vec3 a_position;
+attribute vec3 a_normal;
 attribute vec4 a_color;
 uniform mat4 u_viewProjection;
 uniform mat4 u_model;
+uniform mat3 u_rotation;
 uniform vec4 u_tint;
-varying vec4 v_color;
+varying vec3 v_world;
+varying vec3 v_normal;
+varying vec3 v_albedo;
+varying float v_part;
+varying float v_height;
 void main() {
-    gl_Position = u_viewProjection * (u_model * vec4(a_position, 1.0));
-    float shade = a_color.r;
-    vec3 painted = mix(a_color.rgb, u_tint.rgb * shade, a_color.a);
-    // Alpha prémultiplié : MapLibre compose ainsi. Une couleur droite cernerait
-    // les véhicules translucides d'un halo sombre.
-    v_color = vec4(painted * u_tint.a, u_tint.a);
+    vec4 world = u_model * vec4(a_position, 1.0);
+    gl_Position = u_viewProjection * world;
+    v_world = world.xyz;
+    // L'exagération est isotrope : la rotation seule transporte la normale.
+    v_normal = u_rotation * a_normal;
+    // Carrosserie (0) et bas de caisse (4) prennent la teinte de la ligne ; le
+    // second l'assombrit, parce qu'une jupe n'est pas d'une autre matière que sa
+    // caisse — elle est à l'ombre d'elle-même.
+    float livree = (1.0 - step(0.5, a_color.a)) + step(3.5, a_color.a);
+    // ⚠️ Une **nuance**, pas une seconde couleur. La livrée du tram est déjà
+    // sombre (0x2F9D80) et un flanc reçoit 0,57 d'éclairement : à 0,48 le bas de
+    // caisse tombait à RGB (26,44,37), soit la barre noire qu'on cherchait à
+    // faire disparaître. Mesuré à l'écran le 12/09.
+    float assombri = 1.0 - 0.22 * step(3.5, a_color.a);
+    v_albedo = mix(a_color.rgb, u_tint.rgb * assombri, livree);
+    v_part = a_color.a;
+    // La hauteur dans le modèle, en mètres, avant exagération : c'est elle qui
+    // assombrit le bas de caisse.
+    v_height = a_position.z;
 }
 )";
 
-const char* kFragmentShader = R"(
+const char* kVehicleFragmentShader = R"(
+#ifdef GL_FRAGMENT_PRECISION_HIGH
+precision highp float;
+#else
 precision mediump float;
-varying vec4 v_color;
+#endif
+uniform vec4 u_tint;
+uniform vec3 u_camera;
+uniform vec3 u_sunDir;
+uniform vec3 u_sunColor;
+uniform vec3 u_sky;
+uniform vec3 u_ground;
+uniform float u_lampGlow;
+varying vec3 v_world;
+varying vec3 v_normal;
+varying vec3 v_albedo;
+varying float v_part;
+varying float v_height;
+
 void main() {
-    gl_FragColor = v_color;
+    vec3 N = normalize(v_normal);
+    vec3 V = normalize(u_camera - v_world);
+    vec3 H = normalize(u_sunDir + V);
+    float ndl = max(dot(N, u_sunDir), 0.0);
+    float ndv = max(dot(N, V), 0.0);
+    float ndh = max(dot(N, H), 0.0);
+    // Schlick : les faces vues en rasant renvoient le ciel.
+    float fresnel = pow(1.0 - ndv, 4.0);
+
+    // Ambiante hémisphérique : le toit voit le ciel, la jupe voit la chaussée.
+    vec3 ambient = mix(u_ground, u_sky, N.z * 0.5 + 0.5);
+    // Occlusion de contact : le bas de caisse est dans l'ombre du véhicule
+    // lui-même. Elle ne descend qu'à 0,82 et s'éteint à quatre-vingt-dix
+    // centimètres, la hauteur des passages de roue — elle se **multiplie** à
+    // l'ambiante, et à 0,45 sur un mètre vingt elle noircissait tout le bas du
+    // tram (mesuré à z18 le 12/09).
+    float occlusion = mix(0.82, 1.0, smoothstep(0.0, 0.9, v_height));
+
+    // Les quatre pièces se sélectionnent sans branche : GLSL ES 1.00 ne
+    // garantit pas le branchement sur une valeur interpolée.
+    float isBody = 1.0 - step(0.5, v_part);
+    float isGlass = step(0.5, v_part) * (1.0 - step(1.5, v_part));
+    float isLamp = step(2.5, v_part) * (1.0 - step(3.5, v_part));
+    // Roues et bas de caisse partagent la même réponse mate ; c'est leur albédo
+    // qui les sépare, l'un presque noir, l'autre la livrée assombrie.
+    float isMatte = step(1.5, v_part) * (1.0 - step(2.5, v_part)) + step(3.5, v_part);
+
+    // Carrosserie : satinée. Un reflet large et doux, un liseré de ciel —
+    // discret : à 0,35 il délavait les flancs vus en rasant, et la livrée
+    // perdait sa teinte.
+    vec3 body = v_albedo * (ambient + u_sunColor * ndl) * occlusion
+              + u_sunColor * pow(ndh, 40.0) * 0.30
+              + u_sky * fresnel * 0.18;
+
+    // Vitrage : il **réfléchit**, et c'est ce qui le distingue d'un aplat sombre.
+    // Vue d'un drone, une baie vitrée verticale renvoie la chaussée, pas le ciel
+    // — le vecteur réfléchi pointe vers le bas —, et un réseau de trams vu d'en
+    // haut n'est jamais noir. La part réfléchie de base pèse donc autant que
+    // l'albédo ; sans elle, un tram dont les flancs sont vitrés aux deux tiers
+    // devient une barre noire, ce qu'on a vu à l'écran le 12/09.
+    vec3 R = reflect(-V, N);
+    vec3 reflection = mix(u_ground, u_sky * 1.25, clamp(R.z * 1.5 + 0.5, 0.0, 1.0));
+    vec3 glass = v_albedo * (ambient * 0.75 + u_sunColor * ndl * 0.35)
+               + reflection * (0.24 + 0.55 * fresnel)
+               + u_sunColor * pow(ndh, 90.0) * 0.8;
+
+    // Roues et bas de caisse : mats, et dans l'ombre de la caisse.
+    vec3 matte = v_albedo * (ambient + u_sunColor * ndl * 0.7) * occlusion;
+
+    // Feux : émissifs, plus forts la nuit.
+    vec3 lamp = v_albedo * (0.85 + 0.6 * u_lampGlow) + ambient * 0.15;
+
+    vec3 color = body * isBody + glass * isGlass + matte * isMatte + lamp * isLamp;
+    // Alpha prémultiplié : MapLibre compose ainsi. Une couleur droite cernerait
+    // les véhicules translucides d'un halo sombre.
+    gl_FragColor = vec4(color * u_tint.a, u_tint.a);
 }
 )";
+
+// L'ombre de contact : un rectangle arrondi, flou sur ses bords, posé sous la
+// caisse. Ce n'est pas une ombre portée — elle ne suit ni la hauteur ni la
+// forme du véhicule — mais c'est ce qui le **pose** sur la chaussée : sans
+// elle, un modèle éclairé par-dessus flotte à quelques centimètres du sol.
+const char* kShadowVertexShader = R"(
+attribute vec2 a_corner;
+uniform mat4 u_viewProjection;
+uniform mat4 u_model;
+uniform vec2 u_halfQuad;
+varying vec2 v_local;
+void main() {
+    v_local = a_corner * u_halfQuad;
+    gl_Position = u_viewProjection * (u_model * vec4(v_local, 0.0, 1.0));
+}
+)";
+
+const char* kShadowFragmentShader = R"(
+precision mediump float;
+uniform vec2 u_halfBody;
+uniform float u_strength;
+varying vec2 v_local;
+void main() {
+    // Distance signée au rectangle arrondi de l'emprise, en mètres.
+    float radius = 0.6;
+    vec2 q = abs(v_local) - (u_halfBody - vec2(radius));
+    float d = length(max(q, 0.0)) - radius;
+    // Pleine sous la caisse, éteinte à soixante-dix centimètres du bord.
+    float alpha = (1.0 - smoothstep(-0.25, 0.7, d)) * u_strength;
+    gl_FragColor = vec4(0.0, 0.0, 0.0, alpha);
+}
+)";
+
+/// Les quatre coins d'un carré unité, en deux triangles.
+const float kQuadCorners[12] = {
+    -1.f, -1.f,  1.f, -1.f,  1.f, 1.f,
+    -1.f, -1.f,  1.f,  1.f, -1.f, 1.f,
+};
 
 class VehicleSceneHost : public mbgl::style::CustomLayerHost {
 public:
@@ -143,36 +337,39 @@ public:
              reinterpret_cast<const char*>(glGetString(GL_VERSION)),
              reinterpret_cast<const char*>(glGetString(GL_RENDERER)));
 
-        const GLuint vertex = compile(GL_VERTEX_SHADER, kVertexShader);
-        const GLuint fragment = compile(GL_FRAGMENT_SHADER, kFragmentShader);
-        if (vertex == 0 || fragment == 0) {
-            state_->setStatus(SceneStatus::Failed);
-            return;
-        }
-
-        program_ = glCreateProgram();
-        glAttachShader(program_, vertex);
-        glAttachShader(program_, fragment);
-        glLinkProgram(program_);
-        GLint linked = GL_FALSE;
-        glGetProgramiv(program_, GL_LINK_STATUS, &linked);
-        glDeleteShader(vertex);
-        glDeleteShader(fragment);
-        if (linked != GL_TRUE) {
-            char log[1024] = {0};
-            glGetProgramInfoLog(program_, sizeof(log) - 1, nullptr, log);
-            LOGE("édition de liens refusée : %s", log);
-            glDeleteProgram(program_);
-            program_ = 0;
+        program_ = link(kVehicleVertexShader, kVehicleFragmentShader);
+        shadowProgram_ = link(kShadowVertexShader, kShadowFragmentShader);
+        if (program_ == 0 || shadowProgram_ == 0) {
+            releasePrograms();
             state_->setStatus(SceneStatus::Failed);
             return;
         }
 
         viewProjectionUniform_ = glGetUniformLocation(program_, "u_viewProjection");
         modelUniform_ = glGetUniformLocation(program_, "u_model");
+        rotationUniform_ = glGetUniformLocation(program_, "u_rotation");
         tintUniform_ = glGetUniformLocation(program_, "u_tint");
+        cameraUniform_ = glGetUniformLocation(program_, "u_camera");
+        sunDirUniform_ = glGetUniformLocation(program_, "u_sunDir");
+        sunColorUniform_ = glGetUniformLocation(program_, "u_sunColor");
+        skyUniform_ = glGetUniformLocation(program_, "u_sky");
+        groundUniform_ = glGetUniformLocation(program_, "u_ground");
+        lampGlowUniform_ = glGetUniformLocation(program_, "u_lampGlow");
         positionAttrib_ = glGetAttribLocation(program_, "a_position");
+        normalAttrib_ = glGetAttribLocation(program_, "a_normal");
         colorAttrib_ = glGetAttribLocation(program_, "a_color");
+
+        shadowViewProjectionUniform_ = glGetUniformLocation(shadowProgram_, "u_viewProjection");
+        shadowModelUniform_ = glGetUniformLocation(shadowProgram_, "u_model");
+        shadowHalfQuadUniform_ = glGetUniformLocation(shadowProgram_, "u_halfQuad");
+        shadowHalfBodyUniform_ = glGetUniformLocation(shadowProgram_, "u_halfBody");
+        shadowStrengthUniform_ = glGetUniformLocation(shadowProgram_, "u_strength");
+        cornerAttrib_ = glGetAttribLocation(shadowProgram_, "a_corner");
+
+        glGenBuffers(1, &quadBuffer_);
+        glBindBuffer(GL_ARRAY_BUFFER, quadBuffer_);
+        glBufferData(GL_ARRAY_BUFFER, sizeof(kQuadCorners), kQuadCorners, GL_STATIC_DRAW);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
 
         uploadMeshes();
 
@@ -184,11 +381,11 @@ public:
             return;
         }
         state_->setStatus(SceneStatus::Ready);
-        LOGI("initialize terminé — programme %u", program_);
+        LOGI("initialize terminé — programmes %u et %u", program_, shadowProgram_);
     }
 
     void render(const mbgl::style::CustomLayerRenderParameters& p) override {
-        if (program_ == 0) return;
+        if (program_ == 0 || shadowProgram_ == 0) return;
         if (state_->consumeMeshesChanged()) uploadMeshes();
         if (!state_->hasAllMeshes()) return;
         if (buffers_[0] == 0 || buffers_[1] == 0) return;
@@ -221,9 +418,10 @@ public:
         float viewProjection[16];
         for (int i = 0; i < 16; ++i) viewProjection[i] = static_cast<float>(composed[i]);
 
+        float camera[3];
+        eyeOf(composed, camera);
+
         saveState();
-        glUseProgram(program_);
-        glUniformMatrix4fv(viewProjectionUniform_, 1, GL_FALSE, viewProjection);
 
         // On **garde** l'occlusion : `nearClippedProjectionMatrix` est celle des
         // `fill-extrusion`, donc du même espace de profondeur que les bâtiments.
@@ -235,6 +433,12 @@ public:
         glDepthFunc(GL_LEQUAL);
         glEnable(GL_BLEND);
         glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+
+        // Les ombres d'abord, sans écrire la profondeur : les caisses opaques
+        // les recouvrent ensuite, les translucides les laissent voir — et une
+        // caisse posée sur son ombre est justement ce qu'on cherche.
+        drawShadows(*frame, viewProjection);
+
         // Sans faces arrière écartées, un solide fermé reste juste tant que la
         // profondeur écrit ; la translucidité, elle, doublerait. On trie donc les
         // instances et on écarte l'arrière — voir `drawPass`.
@@ -243,7 +447,18 @@ public:
         // La scène retourne l'axe nord-sud, donc l'orientation des triangles.
         glFrontFace(GL_CW);
 
+        glUseProgram(program_);
+        glUniformMatrix4fv(viewProjectionUniform_, 1, GL_FALSE, viewProjection);
+        glUniform3fv(cameraUniform_, 1, camera);
+        const Lighting& light = frame->lighting;
+        glUniform3f(sunDirUniform_, light.sunEast, light.sunNorth, light.sunUp);
+        glUniform3f(sunColorUniform_, light.sunR, light.sunG, light.sunB);
+        glUniform3f(skyUniform_, light.skyR, light.skyG, light.skyB);
+        glUniform3f(groundUniform_, light.groundR, light.groundG, light.groundB);
+        glUniform1f(lampGlowUniform_, light.lampGlow);
+
         glEnableVertexAttribArray(static_cast<GLuint>(positionAttrib_));
+        glEnableVertexAttribArray(static_cast<GLuint>(normalAttrib_));
         glEnableVertexAttribArray(static_cast<GLuint>(colorAttrib_));
 
         // Deux passes. Les opaques d'abord, profondeur en écriture : elles posent
@@ -254,6 +469,7 @@ public:
         drawPass(*frame, viewProjection, /* opaque */ false);
 
         glDisableVertexAttribArray(static_cast<GLuint>(positionAttrib_));
+        glDisableVertexAttribArray(static_cast<GLuint>(normalAttrib_));
         glDisableVertexAttribArray(static_cast<GLuint>(colorAttrib_));
         restoreState();
     }
@@ -264,22 +480,32 @@ public:
         // sont conservés côté processeur précisément pour ce moment-là.
         LOGI("contextLost — objets GL oubliés, maillages conservés");
         program_ = 0;
+        shadowProgram_ = 0;
         buffers_[0] = 0;
         buffers_[1] = 0;
+        quadBuffer_ = 0;
         state_->setStatus(SceneStatus::NeedsInit);
     }
 
     void deinitialize() override {
         // Peut être appelée sans `initialize` préalable : la spécification le dit.
         if (buffers_[0] != 0 || buffers_[1] != 0) glDeleteBuffers(2, buffers_);
-        if (program_ != 0) glDeleteProgram(program_);
-        program_ = 0;
+        if (quadBuffer_ != 0) glDeleteBuffers(1, &quadBuffer_);
+        releasePrograms();
         buffers_[0] = 0;
         buffers_[1] = 0;
+        quadBuffer_ = 0;
         state_->setStatus(SceneStatus::NeedsInit);
     }
 
 private:
+    void releasePrograms() {
+        if (program_ != 0) glDeleteProgram(program_);
+        if (shadowProgram_ != 0) glDeleteProgram(shadowProgram_);
+        program_ = 0;
+        shadowProgram_ = 0;
+    }
+
     void uploadMeshes() {
         if (!state_->hasAllMeshes()) return;
         if (buffers_[0] == 0) glGenBuffers(2, buffers_);
@@ -294,6 +520,101 @@ private:
         }
         glBindBuffer(GL_ARRAY_BUFFER, 0);
         LOGI("maillages téléversés — %d et %d sommets", vertexCount_[0], vertexCount_[1]);
+    }
+
+    /**
+     * L'œil de la caméra dans le repère de scène, tiré de la matrice.
+     *
+     * Pour toute projection en perspective, l'œil est l'unique point que la
+     * matrice envoie en `x = y = w = 0`. Trois lignes de la matrice, trois
+     * inconnues : un système linéaire, résolu en `double` par Cramer. On ne
+     * lit ainsi ni `bearing`, ni `pitch`, ni `fieldOfView` — trois valeurs dont
+     * les unités ne sont pas documentées et dont l'une a déjà coûté une journée.
+     *
+     * Le reflet d'une vitre et le liseré de Fresnel en dépendent ; un œil faux
+     * ne planterait rien, il rendrait simplement les reflets incohérents d'un
+     * bord de l'écran à l'autre.
+     */
+    static void eyeOf(const double* m, float* out) {
+        // Lignes 0, 1 et 3 de la matrice en colonnes majeures : m[c * 4 + r].
+        const double a[3][3] = {
+            {m[0], m[4], m[8]},
+            {m[1], m[5], m[9]},
+            {m[3], m[7], m[11]},
+        };
+        const double b[3] = {-m[12], -m[13], -m[15]};
+
+        auto det3 = [](const double c0[3], const double c1[3], const double c2[3]) {
+            return c0[0] * (c1[1] * c2[2] - c1[2] * c2[1])
+                 - c1[0] * (c0[1] * c2[2] - c0[2] * c2[1])
+                 + c2[0] * (c0[1] * c1[2] - c0[2] * c1[1]);
+        };
+        const double col0[3] = {a[0][0], a[1][0], a[2][0]};
+        const double col1[3] = {a[0][1], a[1][1], a[2][1]};
+        const double col2[3] = {a[0][2], a[1][2], a[2][2]};
+        const double det = det3(col0, col1, col2);
+        if (std::fabs(det) < 1e-30) {
+            // Une projection sans point de fuite — jamais chez MapLibre, mais on
+            // ne divise pas par zéro sur un thread de rendu. Un œil très haut
+            // rend un éclairage plausible, pas un plantage.
+            out[0] = 0.f;
+            out[1] = 0.f;
+            out[2] = 1.0e6f;
+            return;
+        }
+        const double bx[3] = {b[0], b[1], b[2]};
+        out[0] = static_cast<float>(det3(bx, col1, col2) / det);
+        out[1] = static_cast<float>(det3(col0, bx, col2) / det);
+        out[2] = static_cast<float>(det3(col0, col1, bx) / det);
+    }
+
+    void drawShadows(const Frame& frame, const float* viewProjection) {
+        const Lighting& light = frame.lighting;
+        if (light.shadowStrength <= 0.f) return;
+
+        // L'ombre glisse à l'opposé de la lumière, d'autant plus qu'elle est basse.
+        const float horizontal = std::sqrt(light.sunEast * light.sunEast +
+                                           light.sunNorth * light.sunNorth);
+        float offsetEast = 0.f;
+        float offsetNorth = 0.f;
+        if (horizontal > 1e-4f) {
+            const float reach = kShadowOffsetMeters * std::min(1.f, horizontal / std::max(light.sunUp, 0.2f));
+            offsetEast = -light.sunEast / horizontal * reach;
+            offsetNorth = -light.sunNorth / horizontal * reach;
+        }
+
+        glDepthMask(GL_FALSE);
+        // Le quadrilatère n'a pas d'orientation qui compte : on ne l'écarte pas.
+        glDisable(GL_CULL_FACE);
+        glUseProgram(shadowProgram_);
+        glUniformMatrix4fv(shadowViewProjectionUniform_, 1, GL_FALSE, viewProjection);
+        glBindBuffer(GL_ARRAY_BUFFER, quadBuffer_);
+        glEnableVertexAttribArray(static_cast<GLuint>(cornerAttrib_));
+        glVertexAttribPointer(static_cast<GLuint>(cornerAttrib_), 2, GL_FLOAT, GL_FALSE, 0,
+                              reinterpret_cast<void*>(0));
+
+        for (uint32_t i = 0; i < frame.count; ++i) {
+            const Pose& pose = frame.poses[i];
+            const uint32_t mesh = pose.mesh < aule::kMeshCount ? pose.mesh : 0;
+            const float* half = state_->halfExtent(mesh);
+            if (half[0] <= 0.f || half[1] <= 0.f) continue;
+
+            float model[16];
+            modelMatrix(pose, model);
+            model[12] += offsetEast;
+            model[13] += offsetNorth;
+            model[14] = kShadowLiftMeters;
+            glUniformMatrix4fv(shadowModelUniform_, 1, GL_FALSE, model);
+            glUniform2f(shadowHalfQuadUniform_, half[0] + kShadowReachMeters,
+                        half[1] + kShadowReachMeters);
+            glUniform2f(shadowHalfBodyUniform_, half[0], half[1]);
+            // L'ombre suit l'opacité de sa caisse : un véhicule qui s'estompe au
+            // seuil de zoom n'en laisse pas une derrière lui.
+            glUniform1f(shadowStrengthUniform_, light.shadowStrength * pose.a);
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        glDisableVertexAttribArray(static_cast<GLuint>(cornerAttrib_));
     }
 
     void drawPass(const Frame& frame, const float* viewProjection, bool opaque) {
@@ -326,17 +647,22 @@ private:
                 bound = buffers_[mesh];
                 glBindBuffer(GL_ARRAY_BUFFER, bound);
                 const GLsizei stride = aule::kFloatsPerVertex * sizeof(float);
+                // La disposition d'un sommet — le contrat avec `MeshStandardizer` :
+                // position, normale, puis `r g b` et le code de pièce.
                 glVertexAttribPointer(static_cast<GLuint>(positionAttrib_), 3, GL_FLOAT, GL_FALSE,
                                       stride, reinterpret_cast<void*>(0));
-                // Quatre composantes à partir du quatrième flottant : `r g b` et
-                // le masque. Le contrat avec `MeshStandardizer`.
-                glVertexAttribPointer(static_cast<GLuint>(colorAttrib_), 4, GL_FLOAT, GL_FALSE,
+                glVertexAttribPointer(static_cast<GLuint>(normalAttrib_), 3, GL_FLOAT, GL_FALSE,
                                       stride, reinterpret_cast<void*>(sizeof(float) * 3));
+                glVertexAttribPointer(static_cast<GLuint>(colorAttrib_), 4, GL_FLOAT, GL_FALSE,
+                                      stride, reinterpret_cast<void*>(sizeof(float) * 6));
             }
 
             float model[16];
             modelMatrix(pose, model);
             glUniformMatrix4fv(modelUniform_, 1, GL_FALSE, model);
+            float rotation[9];
+            rotationMatrix(pose, rotation);
+            glUniformMatrix3fv(rotationUniform_, 1, GL_FALSE, rotation);
             glUniform4f(tintUniform_, pose.r, pose.g, pose.b, pose.a);
             glDrawArrays(GL_TRIANGLES, 0, vertexCount_[mesh]);
         }
@@ -363,6 +689,17 @@ private:
         out[4] = -s * pose.scaleY; out[5] = c * pose.scaleY;  out[6] = 0.f;          out[7] = 0.f;
         out[8] = 0.f;              out[9] = 0.f;              out[10] = pose.scaleZ; out[11] = 0.f;
         out[12] = pose.east;       out[13] = pose.north;      out[14] = 0.f;         out[15] = 1.f;
+    }
+
+    /// La rotation seule, pour les normales — l'exagération est isotrope, donc
+    /// elle ne les déforme pas.
+    static void rotationMatrix(const Pose& pose, float* out) {
+        const float angle = -pose.heading;
+        const float c = std::cos(angle);
+        const float s = std::sin(angle);
+        out[0] = c;   out[1] = s;   out[2] = 0.f;
+        out[3] = -s;  out[4] = c;   out[5] = 0.f;
+        out[6] = 0.f; out[7] = 0.f; out[8] = 1.f;
     }
 
     static float depthOf(const Pose& pose, const float* m) {
@@ -430,13 +767,32 @@ private:
     std::shared_ptr<SceneState> state_;
 
     GLuint program_ = 0;
+    GLuint shadowProgram_ = 0;
     GLuint buffers_[aule::kMeshCount] = {0, 0};
+    GLuint quadBuffer_ = 0;
     GLsizei vertexCount_[aule::kMeshCount] = {0, 0};
+
     GLint viewProjectionUniform_ = -1;
     GLint modelUniform_ = -1;
+    GLint rotationUniform_ = -1;
     GLint tintUniform_ = -1;
+    GLint cameraUniform_ = -1;
+    GLint sunDirUniform_ = -1;
+    GLint sunColorUniform_ = -1;
+    GLint skyUniform_ = -1;
+    GLint groundUniform_ = -1;
+    GLint lampGlowUniform_ = -1;
     GLint positionAttrib_ = -1;
+    GLint normalAttrib_ = -1;
     GLint colorAttrib_ = -1;
+
+    GLint shadowViewProjectionUniform_ = -1;
+    GLint shadowModelUniform_ = -1;
+    GLint shadowHalfQuadUniform_ = -1;
+    GLint shadowHalfBodyUniform_ = -1;
+    GLint shadowStrengthUniform_ = -1;
+    GLint cornerAttrib_ = -1;
+
     /// Réutilisé d'une image à l'autre : trier ne doit rien allouer.
     std::vector<uint32_t> order_;
     SavedState saved_;
@@ -471,6 +827,22 @@ Java_io_aule_android_core_map3d_VehicleScene_nativeInstallMesh(
     jfloat* values = env->GetFloatArrayElements(data, nullptr);
     if (values == nullptr) return;
     (*state)->installMesh(static_cast<uint32_t>(index), values, static_cast<size_t>(count));
+    env->ReleaseFloatArrayElements(data, values, JNI_ABORT);
+}
+
+/**
+ * La lumière de la scène — celle du style, publiée par Kotlin à chaque
+ * bascule d'ambiance. Rare, donc un tableau alloué côté JVM ne coûte rien ici.
+ */
+JNIEXPORT void JNICALL
+Java_io_aule_android_core_map3d_VehicleScene_nativeSetLighting(
+    JNIEnv* env, jclass, jlong handle, jfloatArray data) {
+    StateHandle* state = handleOf(handle);
+    if (state == nullptr || data == nullptr) return;
+    const jsize count = env->GetArrayLength(data);
+    jfloat* values = env->GetFloatArrayElements(data, nullptr);
+    if (values == nullptr) return;
+    (*state)->setLighting(values, static_cast<size_t>(count));
     env->ReleaseFloatArrayElements(data, values, JNI_ABORT);
 }
 

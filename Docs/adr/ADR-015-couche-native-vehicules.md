@@ -125,3 +125,7 @@ Et l'ADR-002 change de nature : OpenGL n'est plus seulement un choix de compatib
 `../Native/Aule/Core/Map/Render3D/` porte la même fonctionnalité contre le même cœur mbgl,
 livrée avant celle-ci. C'est la référence — le repère, le sens de marche des modèles, le
 nuancier non éclairé en viennent. La prochaine divergence entre les deux doit se voir.
+
+**Elle se voit** : depuis l'[ADR-017](ADR-017-eclairage-des-vehicules.md), le nuancier
+Android éclaire — normales par sommet, lumière du style, ombre de contact — là où iOS cuit
+encore son ombrage. Le « aucune lumière » de cette ADR ne tient plus ; la 017 dit pourquoi.

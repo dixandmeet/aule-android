@@ -15,40 +15,103 @@ internal data class MeshDimensions(
 /**
  * Ce qu'une pièce du modèle devient à l'écran.
  *
- * [BODY] ne porte pas de couleur : elle transporte son ombrage, que le nuancier
- * multipliera par la teinte de la ligne. C'est ce qui permet de garder **un seul
- * maillage par modèle** quelle que soit la livrée ; cuire la couleur de ligne
- * dans les sommets exigerait un tampon par ligne.
+ * Chaque pièce est une **matière** pour le nuancier, pas seulement une couleur :
+ * la carrosserie est satinée, le vitrage reflète le ciel, le châssis est mat et
+ * les feux émettent. Le code voyage dans le quatrième flottant de couleur —
+ * voir [StandardMesh].
+ *
+ * [BODY] ne porte pas de couleur : elle prend la teinte de la ligne au rendu.
+ * C'est ce qui permet de garder **un seul maillage par modèle** quelle que soit
+ * la livrée ; cuire la couleur de ligne dans les sommets exigerait un tampon par
+ * ligne.
  */
-internal enum class MeshPart { BODY, GLASS, CHASSIS, LIGHTS }
+internal enum class MeshPart(val code: Float) {
+    BODY(0f),
+    GLASS(1f),
+
+    /**
+     * Les roues, et elles seules.
+     *
+     * ⚠️ **Le seul noir autorisé sur un véhicule.** Vu du ciel, un bus n'a pas
+     * de châssis : il a une caisse, des vitres et des roues. Tout ce qu'on
+     * peignait ici en anthracite — jupes, pare-chocs, bogies — se lisait comme
+     * une carcasse posée sous une carrosserie, et c'est exactement ce qui
+     * empêchait la flotte de paraître vraie.
+     */
+    CHASSIS(2f),
+    LIGHTS(3f),
+
+    /**
+     * Le bas de caisse : la livrée, assombrie.
+     *
+     * Une jupe de tram n'est pas d'une autre matière que sa caisse, elle est à
+     * l'ombre d'elle-même. Lui donner un gris neutre la détache du véhicule ;
+     * lui donner la teinte de la ligne en plus sombre la rattache. C'est ce que
+     * montre n'importe quelle vue aérienne d'un réseau.
+     */
+    SKIRT(4f),
+}
 
 /**
- * Comment le nom d'un matériau devient une couleur.
+ * Comment le nom d'un matériau — ou du maillage qui le porte — devient une pièce.
  *
- * L'heuristique est celle du web, mot pour mot, parce que ce sont les mêmes
- * fichiers et que leurs matériaux s'appellent `Windows`, `Bottom`, `Lights`,
- * `Black`. S'en écarter repeindrait des pièces que les deux autres plateformes
- * laissent sombres.
+ * L'heuristique vient du web, parce que ce sont les mêmes fichiers et que leurs
+ * matériaux s'appellent `Windows`, `Bottom`, `Lights`, `Black`. Elle s'en écarte
+ * en deux points, tous deux constatés à l'écran :
+ *
+ * - les **roues du bus** portent le matériau générique `Material` — seul le nom
+ *   du maillage (`FrontWheels`, `BackWheels`) les distingue. Le web les peint
+ *   en vert de ligne ; un bus aux jantes vertes n'est pas un bus ;
+ * - `Black` est le bogie du tram, pas une vitre. Le web lui donne la couleur du
+ *   vitrage, ce qui ne se voyait pas tant que rien ne brillait. Un bogie qui
+ *   reflète le ciel, si.
  */
 internal object MeshPalette {
 
-    /** Les vitres et les pièces noires. */
-    const val GLASS = 0x1D3831
+    /**
+     * Le vitrage : un bleu-gris froid, et non le vert sombre du web.
+     *
+     * ⚠️ **Assez clair pour se lire comme du verre.** Les flancs d'un tram sont
+     * surtout vitrés — `Windows` occupe les deux tiers de la bande 1,6–2,6 m —,
+     * donc un vitrage trop sombre ne fait pas une vitre sombre : il fait un tram
+     * noir. En plein jour, une baie vue d'en haut renvoie la chaussée et tourne
+     * autour de 0,25 de luminance ; c'est cette valeur qu'on vise, base plus
+     * reflet. Une base verdâtre, elle, virait au turquoise sous le reflet.
+     */
+    const val GLASS = 0x3A4654
 
-    /** Roues, bas de caisse, pare-chocs, détails. */
-    const val CHASSIS = 0x363E3C
+    /**
+     * Les roues : du caoutchouc, et rien d'autre ne porte cette teinte.
+     *
+     * ⚠️ **Une couleur sombre ne peut pas être lue sans son éclairage.** Le
+     * nuancier multiplie cet aplat par l'ambiante ; sous 0,7 celui-ci rend
+     * ≈ 0,13, ce qu'on lit comme un pneu. Le choisir plus sombre ne gagnerait
+     * rien et ramènerait le trou noir. La teinte se règle avec les valeurs de
+     * `VehicleLighting`, jamais seule.
+     */
+    const val CHASSIS = 0x35393E
 
-    /** Les feux. */
+    /** Les feux, blanc chaud : ils s'allument la nuit. */
     const val LIGHTS = 0xF6E7AE
 
-    fun part(materialName: String, overrides: Map<String, MeshPart> = emptyMap()): MeshPart {
+    fun part(
+        materialName: String,
+        meshName: String = "",
+        overrides: Map<String, MeshPart> = emptyMap(),
+    ): MeshPart {
         overrides[materialName]?.let { return it }
         val lower = materialName.lowercase()
+        val mesh = meshName.lowercase()
         return when {
-            "window" in lower || "black" in lower -> MeshPart.GLASS
-            "wheel" in lower || "bottom" in lower ||
-                "bumper" in lower || "detail" in lower -> MeshPart.CHASSIS
+            // Les roues d'abord : c'est la seule pièce qui ait droit au noir, et
+            // sur le bus elle ne se reconnaît qu'au nom de son maillage.
+            "wheel" in mesh || "wheel" in lower -> MeshPart.CHASSIS
+            "window" in lower || "glass" in lower -> MeshPart.GLASS
             "light" in lower -> MeshPart.LIGHTS
+            // Tout le reste du sombre devient un bas de caisse : la livrée
+            // assombrie, pas une pièce rapportée.
+            "black" in lower || "bottom" in lower ||
+                "bumper" in lower || "detail" in lower -> MeshPart.SKIRT
             else -> MeshPart.BODY
         }
     }
@@ -57,8 +120,10 @@ internal object MeshPalette {
         MeshPart.GLASS -> GLASS
         MeshPart.CHASSIS -> CHASSIS
         MeshPart.LIGHTS -> LIGHTS
-        // Jamais lu : la carrosserie prend la teinte de la ligne au rendu.
-        MeshPart.BODY -> GLASS
+        // Jamais lues : la carrosserie et le bas de caisse prennent la teinte de
+        // la ligne au rendu, la seconde assombrie. Le blanc est ce que le
+        // nuancier ignore le plus visiblement si le code de pièce se décalait.
+        MeshPart.BODY, MeshPart.SKIRT -> 0xFFFFFF
     }
 }
 
@@ -66,11 +131,12 @@ internal object MeshPalette {
  * Un modèle prêt à dessiner : des triangles en mètres, dans le repère de scène.
  *
  * La disposition d'un sommet est un **contrat avec le nuancier** de
- * `vehicle_layer.cpp` : sept flottants, `x y z r g b masque`. Y ajouter un champ
- * sans toucher au shader décale silencieusement toutes les couleurs.
+ * `vehicle_layer.cpp` : dix flottants, `x y z  nx ny nz  r g b  pièce`. Y
+ * ajouter un champ sans toucher au shader ni à `kFloatsPerVertex` décale
+ * silencieusement toutes les couleurs.
  */
 internal class StandardMesh(
-    /** Sept flottants par sommet, trois sommets par triangle. */
+    /** Dix flottants par sommet, trois sommets par triangle. */
     val vertices: FloatArray,
     val dimensions: MeshDimensions,
 ) {
@@ -78,19 +144,31 @@ internal class StandardMesh(
     val triangleCount: Int get() = vertexCount / 3
 
     companion object {
-        const val FLOATS_PER_VERTEX = 7
+        const val FLOATS_PER_VERTEX = 10
+
+        /** L'indice du premier flottant de la normale dans un sommet. */
+        const val NORMAL_OFFSET = 3
+
+        /** L'indice du premier flottant de couleur dans un sommet. */
+        const val COLOR_OFFSET = 6
+
+        /** L'indice du code de pièce dans un sommet. */
+        const val PART_OFFSET = 9
     }
 }
 
 /**
  * La mise aux normes d'un modèle brut : orientation, cotes, ancrage au sol,
- * ombrage cuit.
+ * normales de face.
  *
  * C'est le portage du `MeshStandardizer` d'iOS, lui-même la version **corrigée**
  * du `standardize()` du web — celui-ci redresse un modèle exporté en largeur
  * mais ignore le **sens de marche**, et les deux fichiers du pack ne suivent pas
  * la même convention. Un modèle à l'envers recule sagement le long de sa voie :
  * invisible à l'arrêt, évident en mouvement.
+ *
+ * Il diverge d'iOS sur un point : l'ombrage **n'est plus cuit** dans les sommets.
+ * Le sommet emporte sa normale, et c'est le nuancier qui éclaire (ADR-017).
  *
  * Chaque étape corrige un défaut constaté à l'écran ailleurs ; les refaire dans
  * un autre ordre les ramène.
@@ -130,7 +208,7 @@ internal object MeshStandardizer {
         var vertex = 0
         var triangleCursor = 0
         for (primitive in primitives) {
-            val piece = MeshPalette.part(primitive.materialName, overrides)
+            val piece = MeshPalette.part(primitive.materialName, primitive.meshName, overrides)
             val triangles = primitive.triangleCount
             for (i in 0 until triangles * 3) {
                 val source = primitive.indices[i] * 3
@@ -199,7 +277,7 @@ internal object MeshStandardizer {
             position[v * 3 + 2] += shiftZ
         }
 
-        // 5. Cuire la normale de chaque triangle dans ses trois sommets.
+        // 5. Porter la normale de chaque triangle dans ses trois sommets.
         //
         // La normale se calcule **après** la mise aux cotes : celle-ci est
         // anisotrope, et transporter les normales du fichier à travers elle
@@ -221,31 +299,16 @@ internal object MeshStandardizer {
             if (length > EPSILON) {
                 nx /= length; ny /= length; nz /= length
             } else {
-                // Triangle dégénéré : pas de normale, donc pas de rehaut.
-                nx = 0.0; ny = 0.0; nz = 0.0
+                // Triangle dégénéré : une normale vers le haut plutôt qu'un
+                // vecteur nul, que le nuancier ne saurait pas normaliser.
+                nx = 0.0; ny = 0.0; nz = 1.0
             }
-
-            // L'ombrage du web, à la lettre : toits pleins, flancs assourdis, un
-            // rehaut à l'est. Il est **cuit**, et le matériau n'est pas éclairé —
-            // aucune lumière, aucun espace colorimétrique, aucun ordre de
-            // chargement ne peut plus assombrir la flotte. C'est le défaut que le
-            // web a payé une fois.
-            val shade = (0.72 + 0.24 * max(0.0, nz) + 0.06 * max(0.0, nx)).toFloat()
 
             val piece = part[triangle] ?: MeshPart.BODY
-            val r: Float
-            val g: Float
-            val b: Float
-            val mask: Float
-            if (piece == MeshPart.BODY) {
-                r = shade; g = shade; b = shade; mask = 1f
-            } else {
-                val rgb = MeshPalette.color(piece)
-                r = min(1f, (rgb shr 16 and 0xFF) / 255f * shade)
-                g = min(1f, (rgb shr 8 and 0xFF) / 255f * shade)
-                b = min(1f, (rgb and 0xFF) / 255f * shade)
-                mask = 0f
-            }
+            val rgb = MeshPalette.color(piece)
+            val r = (rgb shr 16 and 0xFF) / 255f
+            val g = (rgb shr 8 and 0xFF) / 255f
+            val b = (rgb and 0xFF) / 255f
 
             for (corner in 0 until 3) {
                 val v = a + corner
@@ -253,10 +316,13 @@ internal object MeshStandardizer {
                 out[at] = position[v * 3].toFloat()
                 out[at + 1] = position[v * 3 + 1].toFloat()
                 out[at + 2] = position[v * 3 + 2].toFloat()
-                out[at + 3] = r
-                out[at + 4] = g
-                out[at + 5] = b
-                out[at + 6] = mask
+                out[at + StandardMesh.NORMAL_OFFSET] = nx.toFloat()
+                out[at + StandardMesh.NORMAL_OFFSET + 1] = ny.toFloat()
+                out[at + StandardMesh.NORMAL_OFFSET + 2] = nz.toFloat()
+                out[at + StandardMesh.COLOR_OFFSET] = r
+                out[at + StandardMesh.COLOR_OFFSET + 1] = g
+                out[at + StandardMesh.COLOR_OFFSET + 2] = b
+                out[at + StandardMesh.PART_OFFSET] = piece.code
             }
         }
 
@@ -293,4 +359,3 @@ internal object MeshStandardizer {
         }
     }
 }
-
