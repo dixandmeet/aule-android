@@ -2,7 +2,9 @@ package io.aule.android.data
 
 import io.aule.android.core.common.log.NoopLogger
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.CrowdingLevel
 import io.aule.android.core.model.DeparturesOutcome
+import io.aule.android.core.model.RecommendationReason
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.VehicleFeed
 import io.aule.android.core.network.ApiException
@@ -19,6 +21,7 @@ import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
@@ -275,6 +278,86 @@ class BffRepositoryTest {
         assertTrue(query.contains("to=-1.5232,47.2412"), query)
         assertTrue(query.contains("v=28"), query)
         assertTrue(query.contains("mode=transit"), query)
+    }
+
+    /**
+     * Le conseil du moteur, décodé là où il se décide.
+     *
+     * ## ⚠️ Pourquoi cette épreuve vit ici et non dans le voyageur
+     *
+     * La règle « la variante conseillée est retenue d'office » s'applique dans
+     * `toPlan()`, au moment où le fil devient un modèle. Une épreuve du voyageur
+     * qui construirait un `RoutePlan` à la main **rejouerait** cette règle dans
+     * sa doublure au lieu de l'éprouver : elle resterait verte après qu'on l'ait
+     * retirée du décodeur. Contrôle négatif fait — `selectedId` ramené à la
+     * première variante, ce cas rougit, et ceux du voyageur non.
+     *
+     * La charge utile est la capture réelle du 16/08/2026, enrichie des seuls
+     * champs du conseil : c'est la forme que le BFF sert depuis le lot A.
+     */
+    @Test
+    fun `la variante conseillee est retenue, ses raisons decodees`() = runTest {
+        respond(fixture("route-transit-conseil.json"))
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.TRANSIT,
+            from = Coordinate(latitude = 47.2136, longitude = -1.5601),
+            to = Coordinate(latitude = 47.2412, longitude = -1.5232),
+        )
+
+        val conseillee = assertNotNull(plan.recommended)
+        assertEquals(plan.alternatives[1].id, conseillee.id)
+        // Retenue d'office : c'est tout le sens du conseil. Sans cette règle, le
+        // volet afficherait un badge sur la seconde en montrant la première.
+        assertEquals(conseillee.id, plan.selectedId)
+        assertEquals(conseillee.id, plan.selected()?.id)
+        // ⚠️ Un code inconnu est **ignoré**, jamais une erreur : refuser la charge
+        // utile entière pour un mot ferait disparaître le conseil à la première
+        // évolution du contrat.
+        assertEquals(
+            listOf(RecommendationReason.LESS_WALK, RecommendationReason.FEWER_TRANSFERS),
+            conseillee.reasons,
+        )
+        assertEquals(CrowdingLevel.MODERATE, plan.alternatives.first().crowding)
+        assertEquals("aule1|120:35|D021951:1:13", plan.alternatives.first().providerRef)
+    }
+
+    @Test
+    fun `un troncon en vehicule porte l identite de sa course`() = runTest {
+        respond(fixture("route-transit-conseil.json"))
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.TRANSIT,
+            from = Coordinate(latitude = 47.2136, longitude = -1.5601),
+            to = Coordinate(latitude = 47.2412, longitude = -1.5232),
+        )
+
+        val vehicule = assertNotNull(plan.alternatives.first().segments.firstOrNull { !it.walk })
+        assertEquals("D021951:1:13", vehicule.departureId)
+        assertEquals("Commerce", vehicule.boardStopName)
+        assertEquals("Beaujoire", vehicule.alightStopName)
+        assertEquals("Beaujoire", vehicule.headsign)
+        // Une marche n'a pas de course, et n'en invente pas : un identifiant vide
+        // ferait interroger un véhicule qui n'existe pas.
+        assertNull(plan.alternatives.first().segments.first { it.walk }.departureId)
+    }
+
+    @Test
+    fun `un conseil qui designe une variante absente ne selectionne rien d invalide`() = runTest {
+        // Le cas arrive : un plan servi d'un cache serveur, une variante devenue
+        // infaisable après recalage géométrique. Retenir l'identifiant d'une
+        // variante disparue ferait afficher un badge sur une rangée pendant
+        // qu'une autre se dirait choisie.
+        respond(
+            fixture("route-transit-conseil.json")
+                .replace("b24d0e803782ecd31f4a3c7410ee9108-1786877635000\",\n    \"reasons", "disparue\",\n    \"reasons"),
+        )
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.TRANSIT,
+            from = Coordinate(latitude = 47.2136, longitude = -1.5601),
+            to = Coordinate(latitude = 47.2412, longitude = -1.5232),
+        )
+
+        assertEquals("disparue", plan.recommended?.id)
+        assertEquals(plan.alternatives.first().id, plan.selectedId)
     }
 
     /**

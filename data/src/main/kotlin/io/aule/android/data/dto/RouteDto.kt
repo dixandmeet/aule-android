@@ -1,10 +1,13 @@
 package io.aule.android.data.dto
 
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.CrowdingLevel
+import io.aule.android.core.model.RecommendationReason
 import io.aule.android.core.model.RoadManeuver
 import io.aule.android.core.model.RouteCandidate
 import io.aule.android.core.model.RoutePlan
 import io.aule.android.core.model.RouteProfile
+import io.aule.android.core.model.RouteRecommendation
 import io.aule.android.core.model.RouteReliability
 import io.aule.android.core.model.RouteSegment
 import io.aule.android.core.model.RouteStep
@@ -28,6 +31,20 @@ internal data class RoutePayloadDto(
     val departures: List<RouteCandidateDto> = emptyList(),
     val engine: String? = null,
     val maneuvers: List<RouteManeuverDto> = emptyList(),
+    val recommended: RouteRecommendationDto? = null,
+)
+
+/**
+ * La variante conseillée du plan.
+ *
+ * ⚠️ **Un code inconnu est ignoré, jamais une erreur.** Le serveur peut ajouter
+ * une raison que cette version ne connaît pas ; refuser la charge utile entière
+ * pour un mot ferait disparaître le conseil à la première évolution du contrat.
+ */
+@Serializable
+internal data class RouteRecommendationDto(
+    val id: String? = null,
+    val reasons: List<String> = emptyList(),
 )
 
 /**
@@ -86,6 +103,8 @@ internal data class RouteCandidateDto(
     val waitSeconds: Double? = null,
     val transfers: Int? = null,
     val maneuvers: List<RouteManeuverDto> = emptyList(),
+    val crowding: String? = null,
+    val providerRef: String? = null,
 )
 
 @Serializable
@@ -96,6 +115,11 @@ internal data class RouteSegmentDto(
     val routeId: String? = null,
     val departureAt: String? = null,
     val arrivalAt: String? = null,
+    val departureId: String? = null,
+    val headsign: String? = null,
+    val fromStopName: String? = null,
+    val toStopName: String? = null,
+    val crowding: String? = null,
 )
 
 @Serializable
@@ -113,11 +137,27 @@ internal fun RoutePayloadDto.toPlan(): RoutePlan? {
         listOf(primary)
     }
     val next = departures.mapNotNull { it.toDomain() }
+    val advice = recommended?.toDomain()
+    // ⚠️ **La conseillée est retenue d'office, et c'est tout le sens
+    // d'« optimiser »** — mais seulement si elle a survécu au décodage. Retenir
+    // l'identifiant d'une variante absente ferait retomber `selected()` sur la
+    // première tout en affichant un badge ailleurs : deux rangées se diraient
+    // choisies.
+    val selected = advice?.id?.takeIf { id -> (resolved + next).any { it.id == id } }
     return RoutePlan(
         alternatives = resolved,
         departures = next.ifEmpty { resolved },
-        selectedId = resolved.first().id,
+        selectedId = selected ?: resolved.first().id,
         timetable = engine == "timetable",
+        recommended = advice,
+    )
+}
+
+private fun RouteRecommendationDto.toDomain(): RouteRecommendation? {
+    val identifier = id?.takeIf { it.isNotBlank() } ?: return null
+    return RouteRecommendation(
+        id = identifier,
+        reasons = reasons.mapNotNull { RecommendationReason.fromApiValue(it) },
     )
 }
 
@@ -163,6 +203,8 @@ private fun RouteCandidateDto.toDomain(): RouteCandidate? {
         wait = waitSeconds.toDurationOrNull(),
         transfers = transfers,
         maneuvers = maneuvers.mapNotNull { it.toDomain() },
+        crowding = CrowdingLevel.fromApiValue(crowding),
+        providerRef = providerRef?.takeIf { it.isNotBlank() },
     )
 }
 
@@ -196,6 +238,13 @@ private fun RouteSegmentDto.toDomain(): RouteSegment? {
         routeId = routeId,
         departureAt = departureAt.toInstantOrNull(),
         arrivalAt = arrivalAt.toInstantOrNull(),
+        departureId = departureId?.takeIf { it.isNotBlank() },
+        headsign = headsign?.takeIf { it.isNotBlank() },
+        boardStopName = fromStopName?.takeIf { it.isNotBlank() },
+        alightStopName = toStopName?.takeIf { it.isNotBlank() },
+        // Un cran inconnu se lit comme une absence : traduire par défaut afficherait
+        // « peu de monde » sur un véhicule bondé.
+        crowding = CrowdingLevel.fromApiValue(crowding),
     )
 }
 

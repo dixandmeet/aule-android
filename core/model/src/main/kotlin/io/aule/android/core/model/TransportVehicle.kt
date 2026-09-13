@@ -80,6 +80,22 @@ data class TransportVehicle(
      * calculé.
      */
     val twinId: String? = null,
+
+    /**
+     * L'affluence observée par les voyageurs qui contribuent, quand ils sont assez
+     * nombreux.
+     *
+     * ⚠️ **Ce n'est pas [load], et les deux ne se remplacent pas.** [load] traduit un
+     * taux publié par le réseau sur quatre paliers décidés ici ; celle-ci porte un cran
+     * décidé **par le serveur** sur trois, les mêmes pour les deux téléphones. Laisser
+     * chaque socle trancher ferait afficher deux mots différents du même bus.
+     *
+     * ⚠️ **Et ce n'est pas une mesure de remplissage.** Le serveur compte des
+     * *contributeurs*, pas des voyageurs : six téléphones dans un tram de trois cents
+     * places ne disent pas qu'il est plein, ils disent qu'il l'est **plus** que celui où
+     * personne ne contribue.
+     */
+    val crowding: VehicleCrowding? = null,
 ) {
     val isLive: Boolean get() = feed == VehicleFeed.LIVE
 
@@ -251,3 +267,19 @@ data class FleetSnapshot(
         val EMPTY = FleetSnapshot()
     }
 }
+
+/**
+ * Ce que la communauté dit d'un véhicule.
+ *
+ * Le niveau est décidé **par le serveur** et non ici : ce socle compte quatre paliers de
+ * charge, celui d'iOS en compte trois, et laisser chacun trancher ferait afficher deux mots
+ * différents du même bus sur les deux téléphones.
+ *
+ * Les deux compteurs ne servent pas à l'affichage — on n'écrit jamais « 7 voyageurs », ce qui
+ * rendrait les contributeurs identifiables à quelques-uns près. Ils servent au diagnostic.
+ */
+data class VehicleCrowding(
+    val level: CrowdingLevel,
+    val contributors: Int = 0,
+    val reports: Int = 0,
+)

@@ -1,9 +1,11 @@
 package io.aule.android.data.dto
 
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.CrowdingLevel
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
+import io.aule.android.core.model.VehicleCrowding
 import io.aule.android.core.model.VehicleFeed
 import io.aule.android.core.network.InstantIso8601Serializer
 import java.time.Instant
@@ -58,6 +60,7 @@ internal data class VehicleDto(
     val etaSeconds: Double? = null,
     val twinId: String? = null,
     val occupancy: Double? = null,
+    val crowding: VehicleCrowdingDto? = null,
 ) {
     fun toDomain(): TransportVehicle? {
         val identifier = id?.takeIf { it.isNotBlank() } ?: return null
@@ -93,6 +96,30 @@ internal data class VehicleDto(
             nextStop = nextStop,
             etaSeconds = etaSeconds,
             twinId = twinId,
+            crowding = crowding?.toDomain(),
+        )
+    }
+}
+
+/**
+ * L'affluence communautaire, telle que `/vehicles` la sert.
+ *
+ * ⚠️ **Un cran inconnu se lit comme une absence, jamais comme « tranquille ».** Si le serveur
+ * gagne un jour un quatrième palier, un client qui le traduirait par défaut afficherait « de
+ * la place » sur un véhicule bondé. Mieux vaut ne rien dire.
+ */
+@Serializable
+internal data class VehicleCrowdingDto(
+    val level: String? = null,
+    val contributors: Int? = null,
+    val reports: Int? = null,
+) {
+    fun toDomain(): VehicleCrowding? {
+        val crowding = CrowdingLevel.fromApiValue(level) ?: return null
+        return VehicleCrowding(
+            level = crowding,
+            contributors = contributors ?: 0,
+            reports = reports ?: 0,
         )
     }
 }

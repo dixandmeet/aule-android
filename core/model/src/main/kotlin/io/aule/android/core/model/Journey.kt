@@ -40,6 +40,28 @@ data class JourneyLeg(
     val departureAt: Instant? = null,
     val arrivalAt: Instant? = null,
     val maneuvers: List<RoadManeuver> = emptyList(),
+    /**
+     * L'identifiant de la course, sur une jambe en véhicule seulement.
+     *
+     * Relayé du tronçon, jamais deviné : c'est ce qui permet d'interroger la
+     * santé d'un trajet en cours et de dire dans quel véhicule on est, sans
+     * relire une phrase du serveur.
+     */
+    val departureId: String? = null,
+    /** Le terminus annoncé de la course. */
+    val headsign: String? = null,
+    /** Les arrêts de montée et de descente. */
+    val boardStopName: String? = null,
+    val alightStopName: String? = null,
+    /**
+     * L'affluence de la course, quand la communauté la renseigne.
+     *
+     * ⚠️ Distincte de celle du plan, qui porte la pire des jambes : pendant un guidage,
+     * seule celle du véhicule où l'on se trouve veut dire quelque chose. Afficher le pire
+     * de la chaîne ferait descendre quelqu'un d'un tram vide parce que le bus d'avant
+     * était plein.
+     */
+    val crowding: CrowdingLevel? = null,
 ) {
     /** Vrai quand des manœuvres de voirie ont un sens. Un tram ne « tourne » pas. */
     val isRoad: Boolean get() = mode == LegMode.WALK || mode == LegMode.CAR
@@ -55,6 +77,16 @@ data class JourneyPlan(
     val arrivalAt: Instant? = null,
     val duration: Duration? = null,
     val walkSpeedMps: Double? = null,
+    /**
+     * La référence opaque du trajet, à relayer et **jamais à interpréter**
+     * (contrat BFF §8). Le trajet assemblé est ce que la veille du trajet
+     * interroge, et elle n'a pas accès à la variante d'origine.
+     */
+    val providerRef: String? = null,
+    /** Le nombre de perturbations qui touchent ce trajet. */
+    val alertCount: Int = 0,
+    /** Le niveau d'affluence connu. */
+    val crowding: CrowdingLevel? = null,
 ) {
     val isEmpty: Boolean get() = points.size < 2 || legs.isEmpty()
 
@@ -183,6 +215,9 @@ fun journeyFromCandidate(
                     maneuvers = candidate.maneuvers,
                 ),
             ),
+            providerRef = candidate.providerRef,
+            alertCount = candidate.alertCount,
+            crowding = candidate.crowding,
         )
     }
 
@@ -214,6 +249,11 @@ fun journeyFromCandidate(
             lineColor = segment.color.trim().takeIf { it.isNotEmpty() },
             departureAt = segment.departureAt ?: deduced,
             arrivalAt = segment.arrivalAt,
+            departureId = segment.departureId,
+            headsign = segment.headsign,
+            boardStopName = segment.boardStopName,
+            alightStopName = segment.alightStopName,
+            crowding = segment.crowding,
         )
     }
     if (legs.isEmpty()) return null
@@ -225,7 +265,32 @@ fun journeyFromCandidate(
         arrivalAt = candidate.arrivalAt,
         duration = Duration.ofMinutes(candidate.durationMinutes.toLong()),
         walkSpeedMps = walkSpeed(candidate, legs),
+        providerRef = candidate.providerRef,
+        alertCount = candidate.alertCount,
+        crowding = candidate.crowding,
     )
+}
+
+/**
+ * Le rang de la jambe en véhicule qu'on fait — ou qu'on s'apprête à faire — à
+ * cet avancement, compté **parmi les seules jambes en véhicule**.
+ *
+ * ⚠️ **Deux numérotations coexistent, et les confondre fait interroger la
+ * mauvaise course.** L'indice de [JourneyPlan.legs] compte les marches ; la
+ * référence du moteur, elle, n'énumère que les jambes en véhicule. Sur un
+ * marche → tram → marche, la jambe de tram est le tronçon 1 et la course 0.
+ *
+ * @return `null` quand plus aucune jambe en véhicule ne reste — la marche finale.
+ */
+fun JourneyPlan.transitOrdinal(legIndex: Int): Int? {
+    var ordinal = 0
+    legs.forEachIndexed { index, leg ->
+        if (leg.mode == LegMode.TRANSIT) {
+            if (index >= legIndex) return ordinal
+            ordinal += 1
+        }
+    }
+    return null
 }
 
 private fun walkSpeed(candidate: RouteCandidate, legs: List<JourneyLeg>): Double? {

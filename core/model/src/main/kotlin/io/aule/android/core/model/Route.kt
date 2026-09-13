@@ -108,6 +108,65 @@ enum class RouteReliability {
     }
 }
 
+/**
+ * Pourquoi une variante est conseillée.
+ *
+ * Des codes, jamais des phrases (ADR-011) : c'est la vue qui les formule, et un
+ * code qu'une version ancienne ne connaît pas est ignoré, jamais une erreur.
+ */
+enum class RecommendationReason {
+    FASTEST,
+    FEWER_TRANSFERS,
+    LESS_WALK,
+    LESS_CROWDED,
+    AVOIDS_DISRUPTION,
+    REALTIME_CONFIRMED,
+    ;
+
+    companion object {
+        fun fromApiValue(value: String?): RecommendationReason? = when (value) {
+            "fastest" -> FASTEST
+            "fewer_transfers" -> FEWER_TRANSFERS
+            "less_walk" -> LESS_WALK
+            "less_crowded" -> LESS_CROWDED
+            "avoids_disruption" -> AVOIDS_DISRUPTION
+            "realtime_confirmed" -> REALTIME_CONFIRMED
+            else -> null
+        }
+    }
+}
+
+/** La variante que le moteur conseille, et ce qui la distingue. */
+data class RouteRecommendation(
+    val id: String,
+    val reasons: List<RecommendationReason> = emptyList(),
+)
+
+/**
+ * Combien de monde, d'après les voyageurs qui contribuent.
+ *
+ * ⚠️ **Trois paliers, et c'est le serveur qui tranche.** [VehicleLoad] en a
+ * quatre parce qu'elle lit un ratio d'occupation d'origine opérateur ; celle-ci
+ * lit un comptage de contributeurs, que seul le serveur sait interpréter. Les
+ * deux téléphones affichent donc le même mot du même véhicule (§35), ce que
+ * deux échelles locales ne garantissaient pas.
+ */
+enum class CrowdingLevel {
+    LIGHT,
+    MODERATE,
+    HEAVY,
+    ;
+
+    companion object {
+        fun fromApiValue(value: String?): CrowdingLevel? = when (value) {
+            "light" -> LIGHT
+            "moderate" -> MODERATE
+            "heavy" -> HEAVY
+            else -> null
+        }
+    }
+}
+
 /** Le signe d'une étape, nommé par son sens et non par son dessin. */
 enum class RouteStepKind { WALK, CAR, TRAM, BUS, NAVIBUS }
 
@@ -137,6 +196,28 @@ data class RouteSegment(
     val routeId: String? = null,
     val departureAt: Instant? = null,
     val arrivalAt: Instant? = null,
+    /**
+     * L'identifiant de la course, sur un tronçon en véhicule seulement.
+     *
+     * ⚠️ **C'est ce qui rend un tronçon interrogeable.** Sans lui, la seule
+     * façon de savoir quel véhicule on suit était de relire la phrase du
+     * serveur — qui change au premier changement de vocabulaire, sans que rien
+     * ne le signale.
+     */
+    val departureId: String? = null,
+    /** Le terminus de la course, tel que la grille le nomme. */
+    val headsign: String? = null,
+    /** Les arrêts de montée et de descente. */
+    val boardStopName: String? = null,
+    val alightStopName: String? = null,
+    /**
+     * L'affluence de **cette course**, telle que la communauté la renseigne.
+     *
+     * ⚠️ Distincte de celle de la variante ([RouteCandidate.crowding]), qui porte la
+     * pire des jambes. Pendant un guidage, seule celle du véhicule où l'on se trouve
+     * veut dire quelque chose.
+     */
+    val crowding: CrowdingLevel? = null,
 )
 
 data class RouteCandidate(
@@ -165,6 +246,14 @@ data class RouteCandidate(
      * un second serveur ; avec elles, il n'a plus à sortir.
      */
     val maneuvers: List<RoadManeuver> = emptyList(),
+    /** Le niveau d'affluence connu, d'après les voyageurs qui contribuent. */
+    val crowding: CrowdingLevel? = null,
+    /**
+     * La référence opaque du trajet : à relayer telle quelle et **jamais à
+     * interpréter** (contrat BFF §8). C'est la clé des départs suivants et de
+     * la veille du trajet.
+     */
+    val providerRef: String? = null,
 ) {
     /**
      * Les coordonnées réellement peintes — la même source que la couche,
@@ -180,6 +269,16 @@ data class RoutePlan(
     val departures: List<RouteCandidate>,
     val selectedId: String,
     val timetable: Boolean,
+    /**
+     * La variante que le moteur conseille parmi [alternatives] **et**
+     * [departures].
+     *
+     * ⚠️ **Une annotation, pas un ordre.** L'ordre servi ne change pas ; un
+     * client qui l'ignore affiche ce qu'il affichait. Absente d'un plan
+     * heuristique — une estimation ne se conseille pas — et d'un plan servi
+     * d'un cache serveur d'avant le conseil.
+     */
+    val recommended: RouteRecommendation? = null,
 ) {
     fun selected(id: String? = selectedId): RouteCandidate? =
         alternatives.firstOrNull { it.id == id } ?: alternatives.firstOrNull()
