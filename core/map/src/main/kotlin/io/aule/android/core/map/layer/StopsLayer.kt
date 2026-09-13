@@ -31,6 +31,35 @@ import org.maplibre.geojson.Point
  *
  * Les lieux sont dédupliqués par [TransitStop.departuresKey] : plusieurs quais
  * appartiennent au même lieu, et l'afficher huit fois n'apprend rien.
+ *
+ * ## Les noms passent sous les pastilles, et ce n'est pas de la peinture
+ *
+ * mbgl place les symboles **couche entière par couche entière**, en parcourant
+ * la pile du dessus vers le dessous : ce qui est peint en dernier a la priorité
+ * de placement. Tant que la couche des noms était ajoutée au-dessus, elle était
+ * donc servie la **première**, sur un index de collision encore vide. Les noms
+ * se posaient partout, y compris là où les pastilles allaient tomber ; et
+ * celles-ci, portant `iconAllowOverlap`, se peignaient ensuite par-dessus sans
+ * pouvoir renoncer. À l'écran : un nom écrit en travers de la pastille de
+ * l'arrêt voisin.
+ *
+ * Posée **sous** les deux couches de pastilles, elle est servie en dernier.
+ * Toutes les pastilles sont alors déjà dans l'index — elles y entrent, faute de
+ * `iconIgnorePlacement` — et le nom qui ne trouve pas de place s'efface, ce que
+ * `textOptional` autorise. Le nom est aussi peint dessous, si bien qu'un
+ * chevauchement résiduel laisserait la pastille lisible plutôt que l'inverse.
+ *
+ * ⚠️ **Ne pas fusionner nom et pastille en un seul symbole pour régler ça.**
+ * C'est la correction qui vient à l'esprit, et elle rate sa cible : à
+ * l'intérieur d'une couche, mbgl place symbole par symbole et n'inscrit l'icône
+ * dans l'index qu'une fois ce symbole traité. Les symboles étant triés par y
+ * écran — du haut vers le bas — et le nom se posant sous son point, il viserait
+ * précisément les pastilles pas encore placées : le défaut se déplacerait au
+ * lieu de disparaître. Elle coûterait en plus le seuil du texte, qui ne
+ * pourrait plus être le `minZoom` d'une couche portant aussi la pastille : il
+ * faudrait un `step` sur `textField`, or les propriétés de *layout* sont
+ * évaluées au zoom **entier** de la tuile, ce qui ferait glisser le palier de
+ * 14,5 à 15.
  */
 class StopsLayer(
     private val onSelect: (TransitStop) -> Unit,
@@ -94,6 +123,41 @@ class StopsLayer(
             ),
         )
 
+        // Les noms **avant** les pastilles, donc sous elles : c'est cet ordre,
+        // et lui seul, qui les empêche de s'écrire en travers. Le KDoc de classe
+        // dit pourquoi — et pourquoi fusionner les deux ne le remplacerait pas.
+        style.addLayer(
+            SymbolLayer(PLACE_LABEL_LAYER, PLACES_SOURCE).withProperties(
+                PropertyFactory.textField(Expression.get(PROP_NAME)),
+                // Le fontstack doit exister côté serveur de glyphes : le style
+                // n'en référence que deux, et en demander un troisième ne
+                // dessine simplement aucune étiquette.
+                PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
+                PropertyFactory.textSize(labelScale()),
+                // Quatre positions candidates au lieu d'une seule. Avec une
+                // ancre fixe, le nom n'avait qu'un endroit où aller : pris, il
+                // disparaissait. Il essaie maintenant le dessous, le dessus, la
+                // droite, la gauche, et ne cède qu'une fois les quatre prises.
+                PropertyFactory.textVariableAnchor(arrayOf("top", "bottom", "right", "left")),
+                // 1,25 **em**, donc relatif au corps : l'écart au jeton grandit
+                // avec le texte, et l'étiquette ne vient jamais mordre l'anneau
+                // quand les deux grossissent ensemble. À 0,9 elle chevauchait le
+                // bas de la pastille dès que celle-ci a pris son pictogramme.
+                //
+                // `textRadialOffset` et non `textOffset` : l'écart doit valoir
+                // dans les quatre directions, et un décalage cartésien ne suit
+                // pas l'ancre retenue.
+                PropertyFactory.textRadialOffset(1.25f),
+                // Sans « auto », la justification resterait celle d'un texte
+                // posé dessous alors qu'il est passé à gauche.
+                PropertyFactory.textJustify("auto"),
+                PropertyFactory.textMaxWidth(8f),
+                PropertyFactory.textHaloWidth(1.4f),
+                PropertyFactory.textAllowOverlap(false),
+                PropertyFactory.textOptional(true),
+            ).also { it.minZoom = LABELS_FROM },
+        )
+
         style.addLayer(
             SymbolLayer(QUAY_LAYER, QUAYS_SOURCE).withProperties(
                 PropertyFactory.iconImage(Expression.get(PROP_ICON)),
@@ -131,27 +195,6 @@ class StopsLayer(
                 // petit qui bavait sous le plus grand.
                 it.maxZoom = MapZoom.QUAYS_FROM.toFloat()
             },
-        )
-
-        style.addLayer(
-            SymbolLayer(PLACE_LABEL_LAYER, PLACES_SOURCE).withProperties(
-                PropertyFactory.textField(Expression.get(PROP_NAME)),
-                // Le fontstack doit exister côté serveur de glyphes : le style
-                // n'en référence que deux, et en demander un troisième ne
-                // dessine simplement aucune étiquette.
-                PropertyFactory.textFont(arrayOf("Noto Sans Regular")),
-                PropertyFactory.textSize(labelScale()),
-                PropertyFactory.textAnchor("top"),
-                // 1,25 **em**, donc relatif au corps : l'écart au jeton grandit
-                // avec le texte, et l'étiquette ne vient jamais mordre l'anneau
-                // quand les deux grossissent ensemble. À 0,9 elle chevauchait le
-                // bas de la pastille dès que celle-ci a pris son pictogramme.
-                PropertyFactory.textOffset(arrayOf(0f, 1.25f)),
-                PropertyFactory.textMaxWidth(8f),
-                PropertyFactory.textHaloWidth(1.4f),
-                PropertyFactory.textAllowOverlap(false),
-                PropertyFactory.textOptional(true),
-            ).also { it.minZoom = LABELS_FROM },
         )
 
         // Le montage se **termine** par une publication de la donnée courante :
@@ -294,7 +337,11 @@ class StopsLayer(
     )
 
     override fun hitTest(map: MapLibreMap, rect: RectF, point: PointF): (() -> Unit)? {
-        val hits = map.queryRenderedFeatures(rect, PLACE_LAYER, QUAY_LAYER)
+        // Le nom répond comme la pastille : la cible s'étend à l'étiquette, ce
+        // qui aide surtout les arrêts dont le jeton est encore petit. Le
+        // départage se fait de toute façon sur la distance à l'ancre, plus bas,
+        // donc une étiquette large ne vole pas l'arrêt qu'elle survole.
+        val hits = map.queryRenderedFeatures(rect, PLACE_LAYER, PLACE_LABEL_LAYER, QUAY_LAYER)
         if (hits.isEmpty()) return null
 
         // On départage par la distance **à l'écran** au doigt, et non par l'ordre
