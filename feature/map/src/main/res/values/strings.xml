@@ -251,6 +251,7 @@
     <string name="maneuver_sharp_right">Tourner franchement à droite</string>
     <string name="maneuver_uturn">Faire demi-tour</string>
     <string name="maneuver_roundabout">Prendre le rond-point</string>
+    <string name="maneuver_roundabout_exit">Sortir du rond-point</string>
     <string name="maneuver_fork">Prendre l\'embranchement</string>
     <string name="maneuver_merge">S\'insérer</string>
     <string name="maneuver_ramp">Prendre la bretelle</string>

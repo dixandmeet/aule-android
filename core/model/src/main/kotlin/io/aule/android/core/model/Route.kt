@@ -156,6 +156,21 @@ data class RouteCandidate(
     val walk: Duration? = null,
     val wait: Duration? = null,
     val transfers: Int? = null,
+    /**
+     * Les manœuvres de voirie, **dans l'ordre du trajet**, quand le moteur les
+     * rend.
+     *
+     * Vide sur un trajet en transports, et ce n'est pas un manque :
+     * `/api/route` ne les calcule que sur le porte-à-porte, seul chemin où
+     * l'on rend une voirie que quelqu'un va suivre en direct. Le bandeau
+     * retombe alors sur ce que la jambe sait dire — générique, jamais faux.
+     *
+     * ⚠️ **Elles viennent du même appel que la géométrie**, et c'est la seule
+     * façon d'être sûr qu'elles décrivent le trait qu'on peint. Deux appels
+     * rendraient deux chemins, donc un bandeau qui annonce un virage que le
+     * tracé ne prend pas (`docs/CONTRAT-BFF.md` §10).
+     */
+    val maneuvers: List<RoadManeuver> = emptyList(),
 ) {
     /**
      * Les coordonnées réellement peintes — la même source que la couche,

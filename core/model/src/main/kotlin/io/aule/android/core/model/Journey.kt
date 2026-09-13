@@ -128,6 +128,7 @@ fun journeyFromCandidate(
                     duration = Duration.ofMinutes(candidate.durationMinutes.toLong()),
                     departureAt = candidate.departureAt,
                     arrivalAt = candidate.arrivalAt,
+                    maneuvers = candidate.maneuvers,
                 ),
             ),
         )
@@ -161,6 +162,14 @@ fun journeyFromCandidate(
             lineColor = segment.color.trim().takeIf { it.isNotEmpty() },
             departureAt = segment.departureAt ?: deduced,
             arrivalAt = segment.arrivalAt,
+            // La liste entière, non découpée : c'est `pinManeuvers` qui borne,
+            // par le même `t` que la jambe. La recouper ici demanderait de
+            // projeter deux fois, et les deux découpes finiraient par diverger.
+            //
+            // Elle est vide sur un trajet en transports — `/api/route` n'en
+            // calcule que sur le porte-à-porte —, et c'est pourquoi une jambe
+            // en véhicule n'en reçoit aucune : un tram ne tourne pas.
+            maneuvers = if (mode == LegMode.WALK) candidate.maneuvers else emptyList(),
         )
     }
     if (legs.isEmpty()) return null

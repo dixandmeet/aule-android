@@ -137,6 +137,10 @@ fun ManeuverKind.phrase(): String = when (this) {
     ManeuverKind.SHARP_RIGHT -> stringResource(R.string.maneuver_sharp_right)
     ManeuverKind.U_TURN -> stringResource(R.string.maneuver_uturn)
     ManeuverKind.ROUNDABOUT -> stringResource(R.string.maneuver_roundabout)
+    // Elle ne s'annonce jamais — `nextManeuver` la saute —, mais le `when` doit
+    // rester exhaustif : c'est ce qui garantit qu'une manœuvre ajoutée demain
+    // ne passera pas en silence.
+    ManeuverKind.ROUNDABOUT_EXIT -> stringResource(R.string.maneuver_roundabout_exit)
     ManeuverKind.FORK -> stringResource(R.string.maneuver_fork)
     ManeuverKind.MERGE -> stringResource(R.string.maneuver_merge)
     ManeuverKind.RAMP -> stringResource(R.string.maneuver_ramp)

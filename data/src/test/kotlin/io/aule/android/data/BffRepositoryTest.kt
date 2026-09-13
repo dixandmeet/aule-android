@@ -12,13 +12,19 @@ import io.aule.android.data.aule.AulePlaceSearchRepository
 import io.aule.android.data.aule.AuleRoutingRepository
 import io.aule.android.data.aule.AuleStopRepository
 import io.aule.android.data.aule.AuleVehicleRepository
+import io.aule.android.core.model.LegMode
+import io.aule.android.core.model.ManeuverKind
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RouteProfile
+import io.aule.android.core.model.journeyFromCandidate
+import io.aule.android.core.model.nextManeuver
+import io.aule.android.core.model.pinManeuvers
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertNull
 import kotlin.test.assertTrue
 import kotlinx.coroutines.test.runTest
 import mockwebserver3.MockResponse
@@ -275,6 +281,185 @@ class BffRepositoryTest {
         assertTrue(query.contains("to=-1.5232,47.2412"), query)
         assertTrue(query.contains("v=28"), query)
         assertTrue(query.contains("mode=transit"), query)
+    }
+
+    /**
+     * Le défaut que ce lot ferme : le tracé venait du BFF, les virages
+     * d'OSRM public. Deux moteurs, donc deux chemins, donc un bandeau qui
+     * annonce un virage que le trait peint ne prend pas — ce que le §10 du
+     * contrat déconseille en toutes lettres.
+     *
+     * La capture est un Nantes-centre → Bouguenais réel du 26/08/2026 :
+     * quarante-quatre manœuvres, quatorze giratoires comptés deux fois, deux
+     * carrefours à voies. Elle **ne porte pas** `bearingBefore` /
+     * `bearingAfter` : le BFF ne les rendait pas encore le jour de la
+     * capture. L'arbitrage qu'ils commandent s'éprouve donc sur les charges
+     * ci-dessous et dans `ManeuversTest`, pas ici.
+     */
+    @Test
+    fun `un porte-a-porte en voiture rend ses manoeuvres avec son trace`() = runTest {
+        respond(fixture("route-car.json"))
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.CAR,
+            from = Coordinate(latitude = 47.2184, longitude = -1.5536),
+            to = Coordinate(latitude = 47.1500, longitude = -1.6100),
+        )
+        val candidate = plan.alternatives.single()
+
+        assertEquals("primary", candidate.id)
+        assertEquals(44, candidate.maneuvers.size)
+
+        val depart = candidate.maneuvers.first()
+        assertEquals("depart", depart.instruction)
+        assertEquals("Rue de Strasbourg", depart.streetName)
+        // ⚠️ `bearingBefore` ne veut rien dire sur un `depart` — le moteur y met
+        // 0 —, et le BFF ne le rend donc pas. Un décodeur qui compléterait par
+        // zéro ferait mesurer un angle à partir d'un cap inventé.
+        assertNull(depart.bearingBefore)
+        assertNull(depart.bearingAfter)
+
+        // Le numéro de sortie est porté par l'entrée **et** par la sortie.
+        val entree = candidate.maneuvers[1]
+        assertEquals("roundabout", entree.instruction)
+        assertEquals(1, entree.exit)
+        assertEquals("exit roundabout", candidate.maneuvers[2].instruction)
+        assertEquals(1, candidate.maneuvers[2].exit)
+
+        // Les voies, le seul élément du guidage dont une erreur envoie
+        // quelqu'un dans la mauvaise file.
+        val fourche = candidate.maneuvers.first { it.instruction == "fork" }
+        assertEquals(listOf(false, true), fourche.lanes.map { it.valid })
+        assertEquals(listOf("slight right"), fourche.lanes.last().indications)
+    }
+
+    /**
+     * L'ordre `lng,lat` ne se vérifie pas en lisant deux nombres : inversée, une
+     * manœuvre nantaise reste dans les bornes du globe et se décode sans une
+     * plainte. Ce qui la trahit, c'est qu'elle ne tombe plus sur le tracé.
+     *
+     * Le test agrafe donc la capture entière sur sa propre géométrie : c'est la
+     * seule épreuve qui distingue « décodé » de « décodé dans le bon ordre ».
+     */
+    @Test
+    fun `les manoeuvres du BFF tombent sur le trace du meme appel`() = runTest {
+        respond(fixture("route-car.json"))
+        val candidate = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.CAR,
+            from = Coordinate(latitude = 47.2184, longitude = -1.5536),
+            to = Coordinate(latitude = 47.1500, longitude = -1.6100),
+        ).alternatives.single()
+
+        val pinned = pinManeuvers(candidate.paintedCoordinates, candidate.maneuvers)
+        assertEquals(candidate.maneuvers.size, pinned.size, "des manœuvres tombent à côté du tracé")
+        // Le plancher ne recule jamais : deux manœuvres peuvent partager un point
+        // du sol, jamais un rang.
+        assertEquals(pinned.map { it.t }.sorted(), pinned.map { it.t })
+
+        // ⚠️ La sortie de giratoire est gardée — c'est la seule borne qui dise
+        // quand on quitte l'anneau — et ne s'annonce pas : l'entrée a déjà dit le
+        // numéro de sortie, et la laisser parler la remplacerait par « sortir »
+        // à l'instant précis où l'on cherche la sortie.
+        val sorties = pinned.count { it.kind == ManeuverKind.ROUNDABOUT_EXIT }
+        assertEquals(14, sorties)
+        val apresUneEntree = pinned.indexOfFirst { it.kind == ManeuverKind.ROUNDABOUT }
+        val depuis = pinned[apresUneEntree].t
+        val suivante = nextManeuver(pinned, depuis + 1e-9, candidate.distanceMeters.toDouble())
+        assertNotNull(suivante)
+        assertTrue(
+            suivante.maneuver.kind != ManeuverKind.ROUNDABOUT_EXIT,
+            "la sortie d'anneau ne doit pas s'annoncer",
+        )
+    }
+
+    /**
+     * Le point d'arrivée du lot : la jambe porte les manœuvres, donc
+     * `MapViewModel.loadManeuversAround` prend sa branche courte et n'appelle
+     * plus le routeur de voirie sur un porte-à-porte.
+     */
+    @Test
+    fun `le trajet assemble porte les manoeuvres, sans routeur de voirie`() = runTest {
+        respond(fixture("route-car.json"))
+        val candidate = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.CAR,
+            from = Coordinate(latitude = 47.2184, longitude = -1.5536),
+            to = Coordinate(latitude = 47.1500, longitude = -1.6100),
+        ).alternatives.single()
+
+        val journey = assertNotNull(journeyFromCandidate(candidate, destinationLabel = "Bouguenais"))
+        val leg = journey.legs.single()
+        assertTrue(leg.isRoad)
+        assertEquals(44, leg.maneuvers.size)
+        // Sans `steps`, le porte-à-porte se lit comme une marche : c'est le
+        // comportement d'avant ce lot, et il n'est pas ce qu'on éprouve ici.
+        assertEquals(LegMode.WALK, leg.mode)
+    }
+
+    /**
+     * Les caps et le guidage enrichi traversent le décodeur.
+     *
+     * La charge est écrite à la main, et c'est assumé : le BFF déployé le jour
+     * de la capture ne rendait encore ni `bearingBefore`, ni `ref`, ni
+     * `destinations` — ils sont arrivés côté serveur le 25/08/2026, avec la
+     * génération de cache `:m2`. La forme, elle, est celle du §10.
+     *
+     * ⚠️ **Les caps ne se gardent que tous les deux.** Un angle est une
+     * différence, et une différence à laquelle il manque un terme ne vaut pas
+     * zéro degré — elle ne vaut rien.
+     */
+    @Test
+    fun `les caps et le guidage enrichi traversent le decodeur`() = runTest {
+        respond(
+            """
+            {"coordinates":[[-1.55,47.2],[-1.549,47.2],[-1.548,47.2]],
+             "distance":1200,"duration":180,
+             "maneuvers":[
+               {"location":[-1.55,47.2],"type":"depart","street":"rue du départ"},
+               {"location":[-1.5495,47.2],"type":"turn","modifier":"right",
+                "street":"boulevard des Anglais","ref":"D178",
+                "destinations":"A 11: Paris, Angers","rotaryName":"anneau du Sillon",
+                "bearingBefore":10,"bearingAfter":100,
+                "lanes":[{"indications":["straight"],"valid":false},
+                         {"indications":["straight","right"],"valid":true}]},
+               {"location":[-1.549,47.2],"type":"turn","modifier":"left","bearingAfter":100},
+               {"location":[-1.548,47.2],"type":"arrive"}
+             ]}
+            """.trimIndent(),
+        )
+        val candidate = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.CAR,
+            from = Coordinate(latitude = 47.2, longitude = -1.55),
+            to = Coordinate(latitude = 47.2, longitude = -1.548),
+        ).alternatives.single()
+
+        assertEquals(4, candidate.maneuvers.size)
+        val virage = candidate.maneuvers[1]
+        assertEquals(10.0, virage.bearingBefore)
+        assertEquals(100.0, virage.bearingAfter)
+        assertEquals("D178", virage.ref)
+        assertEquals("A 11: Paris, Angers", virage.destinations)
+        assertEquals("anneau du Sillon", virage.rotaryName)
+        assertEquals(listOf(false, true), virage.lanes.map { it.valid })
+        assertEquals(listOf("straight", "right"), virage.lanes.last().indications)
+
+        // Un seul cap ne vaut rien : il est jeté, et le modificateur du moteur
+        // passe alors tel quel, comme avant les caps.
+        val boiteux = candidate.maneuvers[2]
+        assertNull(boiteux.bearingBefore)
+        assertNull(boiteux.bearingAfter)
+
+        // Le côté mesuré — quatre-vingt-dix degrés à droite — **confirme** ici
+        // celui du moteur. C'est le cas ordinaire, celui qui doit rester intact ;
+        // la correction s'éprouve dans `ManeuversTest`.
+        val pinned = pinManeuvers(candidate.paintedCoordinates, candidate.maneuvers)
+        assertEquals(
+            listOf(
+                ManeuverKind.DEPART,
+                ManeuverKind.RIGHT,
+                ManeuverKind.LEFT,
+                ManeuverKind.ARRIVE,
+            ),
+            pinned.map { it.kind },
+        )
     }
 
     @Test

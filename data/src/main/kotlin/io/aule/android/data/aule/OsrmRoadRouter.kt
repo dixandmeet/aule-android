@@ -12,8 +12,13 @@ import kotlinx.coroutines.CancellationException
 /**
  * Client du serveur OSRM public.
  *
- * Il comble le silence de `/api/route`, qui ne rend aucune manœuvre. Un
- * échec rend `null` : le bandeau retombe sur le libellé de la jambe, et
+ * Un **repli**, depuis que `/api/route` rend ses manœuvres avec son tracé :
+ * il ne sert plus qu'aux jambes qui n'en portent aucune — une jambe piétonne
+ * de correspondance, un trajet d'avant la bascule. Le préférer là où le BFF
+ * en rend ferait décrire le chemin par un moteur et peindre l'autre, donc
+ * annoncer un virage que le trait ne prend pas (`docs/CONTRAT-BFF.md` §10).
+ *
+ * Un échec rend `null` : le bandeau retombe sur le libellé de la jambe, et
  * ce silence n'est pas une panne.
  *
  * L'hôte est injectable : le serveur public n'a pas de garantie de

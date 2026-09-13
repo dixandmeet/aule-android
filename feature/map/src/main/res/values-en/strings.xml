@@ -251,6 +251,7 @@
     <string name="maneuver_sharp_right">Turn sharp right</string>
     <string name="maneuver_uturn">Make a U-turn</string>
     <string name="maneuver_roundabout">Take the roundabout</string>
+    <string name="maneuver_roundabout_exit">Leave the roundabout</string>
     <string name="maneuver_fork">Take the fork</string>
     <string name="maneuver_merge">Merge</string>
     <string name="maneuver_ramp">Take the ramp</string>
