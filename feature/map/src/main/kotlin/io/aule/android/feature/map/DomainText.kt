@@ -1,6 +1,7 @@
 package io.aule.android.feature.map
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.res.stringResource
 import io.aule.android.core.geo.GeoMath
 import java.text.DecimalFormatSymbols
@@ -14,6 +15,8 @@ import io.aule.android.core.model.SummaryMetricKind
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.VehicleLoad
 import io.aule.android.core.model.Wait
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 /**
  * Tout ce que l'application dit à l'usager sur son domaine.
@@ -179,3 +182,19 @@ fun SummaryMetric.labelText(): String = when (kind) {
 @Composable
 private fun formatDistance(meters: Double): String =
     GeoMath.formatDistance(meters, DecimalFormatSymbols.getInstance().decimalSeparator)
+
+/**
+ * L'horloge des heures de passage.
+ *
+ * Une heure de transport se lit en 24 h sur tout le réseau, sur les poteaux
+ * comme dans l'application : `FormatStyle.SHORT` suivrait la locale et
+ * écrirait « 5:24 PM » en anglais, soit une heure de plus à traduire de tête
+ * au moment précis où l'usager compare l'écran au poteau devant lui.
+ */
+@Composable
+internal fun rememberPassageClock(): DateTimeFormatter {
+    val zone = ZoneId.systemDefault()
+    return remember(zone) {
+        DateTimeFormatter.ofPattern("HH:mm").withZone(zone)
+    }
+}

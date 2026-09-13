@@ -1344,14 +1344,6 @@ private fun FallbackTimeStep(
 }
 
 @Composable
-private fun rememberPassageClock(): java.time.format.DateTimeFormatter {
-    val zone = java.time.ZoneId.systemDefault()
-    return remember(zone) {
-        java.time.format.DateTimeFormatter.ofPattern("HH:mm").withZone(zone)
-    }
-}
-
-@Composable
 private fun ChoiceRow(
     label: String,
     selected: Boolean,

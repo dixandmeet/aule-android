@@ -26,9 +26,6 @@ import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.model.TripSummary
 import java.time.Duration
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
-import java.time.format.FormatStyle
 
 /** Hauteur de la barre, port de `kSummaryBarHeightPx`. */
 internal val TripSummaryBarHeight = 72.dp
@@ -41,7 +38,8 @@ internal fun TripSummaryBar(
     onHeightPx: (Float) -> Unit = {},
 ) {
     val unknown = stringResource(R.string.value_unknown)
-    val arrival = summary.arrivalAt?.let { clockFormatter.format(it) } ?: unknown
+    val clock = rememberPassageClock()
+    val arrival = summary.arrivalAt?.let { clock.format(it) } ?: unknown
     val remaining = summary.remaining?.clockLabel() ?: unknown
     val arrivalLabel = if (summary.estimated) {
         stringResource(R.string.nav_arrival_estimated)
@@ -102,6 +100,3 @@ private fun Duration.clockLabel(): String {
     val rest = minutes % 60
     return "${hours}h${rest.toString().padStart(2, '0')}"
 }
-
-private val clockFormatter: DateTimeFormatter =
-    DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
