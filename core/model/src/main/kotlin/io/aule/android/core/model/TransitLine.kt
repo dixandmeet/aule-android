@@ -63,6 +63,24 @@ data class TransitLine(
      * cadre pas.
      */
     val bounds: TransitLineBounds? = null,
+
+    /**
+     * Les identifiants GTFS que le réseau donne à cette ligne — « ALEOP:309 ».
+     *
+     * ## ⚠️ Pourquoi l'indice public ne suffit pas
+     *
+     * Une position **théorique** porte le `route_id` brut du GTFS, et non l'indice affiché sur
+     * la caisse. Sur le réseau nantais les deux coïncident (`C1` = `C1`), sur l'interurbain non :
+     * `ALEOP:309` s'annonce **E309**, `ALEOP:305AT` s'annonce **305**, et `ALEOP:T5 ESAT`
+     * s'annonce **ESAT**. Couper à partir du deux-points ne rattrape donc que le cas facile.
+     *
+     * Sans cette table, une pastille portait « ALEOP:309 », l'en-tête se coupait en « BUS ·
+     * LIGNE AL… » et la ligne restait grise, faute de se reconnaître dans l'index (recette du
+     * 18/09/2026, BUG-AND-009).
+     *
+     * Vide sur les lignes dont l'identifiant **est** l'indice : il n'y a alors rien à traduire.
+     */
+    val routeIds: List<String> = emptyList(),
 ) {
     /**
      * Le nom sous lequel les **tuiles** connaissent cette ligne.
@@ -346,6 +364,11 @@ fun decodeTransitLineIndex(raw: String?): List<TransitLine> {
             bounds = runCatching {
                 obj["bbox"]?.jsonArray?.mapNotNull { it.jsonPrimitive.doubleOrNull }
             }.getOrNull()?.let(::transitLineBoundsFromGeoJson),
+            routeIds = runCatching {
+                obj["routes"]?.jsonArray
+                    ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
+                    .orEmpty()
+            }.getOrDefault(emptyList()),
         )
     }
 }

@@ -87,6 +87,14 @@ class VehiclesLayer(
     private var map: MapLibreMap? = null
     private var selectedID: String? = null
 
+    /**
+     * La **course** suivie, par-dessus l'identifiant du moment.
+     *
+     * Voir [TransportVehicle.courseIdentity] : c'est elle qui permet de retrouver le véhicule
+     * au sondage suivant, quand le flux temps réel lui a donné un autre nom.
+     */
+    private var selectedIdentity: String? = null
+
     private var snapshot: FleetSnapshot = FleetSnapshot.EMPTY
     private var byId: Map<String, TransportVehicle> = emptyMap()
 
@@ -158,6 +166,11 @@ class VehiclesLayer(
     // ------------------------------------------------------------------ données
 
     fun apply(next: FleetSnapshot) {
+        // ⚠️ **Avant d'écraser `byId`.** C'est le seul endroit où l'on sait encore à quelle
+        // course appartenait chaque position déjà peinte : relu après l'affectation, il
+        // répondrait sur le nouvel instantané, c'est-à-dire sur les véhicules qu'on cherche
+        // justement à rattacher aux anciens.
+        val previous = byId
         snapshot = next
         byId = next.vehicles.associateBy { it.id }
         receivedAtMillis = SystemClock.elapsedRealtime()
@@ -196,10 +209,20 @@ class VehiclesLayer(
         // mesuré qui remplace son jumeau théorique hérite de la position de ce
         // dernier — sinon la carte clignote au moment précis où la donnée
         // s'améliore.
+        //
+        // ⚠️ **L'héritage se fait par course, pas par identifiant.** Le flux temps réel
+        // renomme ses véhicules d'un sondage à l'autre : la seule correspondance qui tienne
+        // est [TransportVehicle.courseIdentity]. Par identifiant seul, le même bus repartait
+        // de sa position brute toutes les quinze secondes, c'est-à-dire sautait.
+        val heldByCourse = HashMap<String, Pose>(displayed.size)
+        for ((identifier, pose) in displayed) {
+            heldByCourse[previous[identifier]?.courseIdentity ?: identifier] = pose
+        }
         val carried = HashMap<String, Pose>(next.vehicles.size)
         for (vehicle in next.vehicles) {
             val pose = displayed[vehicle.id]
                 ?: vehicle.twinId?.let { displayed[it] }
+                ?: heldByCourse[vehicle.courseIdentity]
                 ?: Pose(vehicle.coordinate, vehicle.headingDegrees)
             carried[vehicle.id] = pose
         }
@@ -208,28 +231,54 @@ class VehiclesLayer(
 
         val stillSelected = selectedID
         if (stillSelected != null && stillSelected !in byId) {
-            // Le théorique qu'on suivait vient peut-être d'être **remplacé par
-            // sa mesure** : c'est le même bus, sous un autre identifiant. On
-            // reporte l'anneau dessus, sinon la sélection se perdrait au moment
-            // précis où la donnée s'améliore — et la caméra, qui suit cet
-            // identifiant, décrocherait avec elle.
-            val heir = next.vehicles.firstOrNull { it.twinId == stillSelected }
+            // Le véhicule qu'on suivait revient sous un autre identifiant : soit le
+            // théorique a été **remplacé par sa mesure**, soit la mesure elle-même a changé
+            // de nom — le flux temps réel fait tourner ses identifiants d'un sondage à
+            // l'autre. C'est la **course** qu'on suit, et elle, elle ne bouge pas : voir
+            // [TransportVehicle.courseIdentity].
+            //
+            // ⚠️ **Et non `it.twinId == stillSelected`.** Ce repli-là ne rattrapait qu'un
+            // seul saut, du théorique vers sa première mesure, puis lâchait : au sondage
+            // suivant, l'identifiant retenu n'était plus le jumeau de personne. La sélection
+            // se perdait, l'anneau disparaissait et la caméra suivait une pastille
+            // invisible (recette du 18/09/2026, BUG-AND-008).
+            val identity = selectedIdentity ?: previous[stillSelected]?.courseIdentity ?: stillSelected
+            val heir = heirOf(identity, next.vehicles)
             // Sinon, le véhicule a quitté la zone : on lâche l'anneau plutôt
             // que de désigner un fantôme. La fiche, elle, garde ce qu'elle
             // savait — c'est le modèle d'écran qui décide de fermer.
             selectedID = heir?.id
+            if (heir == null) selectedIdentity = null
         }
 
         redraw(progress = 0.0)
     }
 
-    fun setSelected(id: String?) {
+    /**
+     * @param identity la **course** suivie, quand l'appelant la connaît — voir
+     *   [TransportVehicle.courseIdentity].
+     *
+     *   ⚠️ **À donner dès que le véhicule peut manquer de l'instantané.** Un sondage qui ne le
+     *   rend pas laisse l'appelant avec un identifiant orphelin ; déduite de `byId`, l'identité
+     *   vaudrait alors cet identifiant-là, et le sondage suivant — qui republie la course sous
+     *   un troisième nom — ne s'y reconnaîtrait pas davantage. C'est la course qu'il faut
+     *   retenir, elle ne bouge pas de la journée.
+     */
+    fun setSelected(id: String?, identity: String? = null) {
         selectedID = id
+        // ⚠️ **L'identité se retient au moment où l'on choisit**, et pas au moment où l'on
+        // cherche un héritier : à ce moment-là, le véhicule a déjà disparu de `byId` et son
+        // `twinId` avec lui — il ne resterait qu'un identifiant orphelin à comparer.
+        selectedIdentity = identity ?: id?.let { byId[it]?.courseIdentity ?: it }
         // Un redessin complet plutôt que le seul anneau : c'est la propriété
         // `selected` de chaque caisse qui décide de la couche translucide ou de
         // la pleine, et elle ne s'écrit qu'ici.
         redraw(slideProgress)
     }
+
+    /** Le véhicule qu'on suit, tel que l'instantané courant le nomme. */
+    private fun heirOf(identity: String, among: List<TransportVehicle>): TransportVehicle? =
+        among.firstOrNull { it.courseIdentity == identity }
 
     fun vehicle(id: String): TransportVehicle? = byId[id]
 
@@ -239,13 +288,30 @@ class VehiclesLayer(
      */
     fun displayedCoordinate(id: String): Pose? = displayed[id]
 
+    /**
+     * La pose du véhicule choisi, telle qu'elle est peinte.
+     *
+     * ⚠️ **C'est par ici qu'une caméra de suivi doit passer, et pas par
+     * l'identifiant qu'un écran a retenu.** Une position mesurée porte son propre
+     * identifiant et **remplace** le théorique qu'on avait touché ; la couche
+     * reporte la sélection sur l'héritier (voir [apply]), un appelant qui garde
+     * l'ancien identifiant décrocherait au moment précis où la donnée s'améliore.
+     */
+    val selectedPose: Pose? get() = selectedID?.let { displayed[it] }
+
+    /** Le véhicule choisi, héritage compris — sa vitesse commande le cadrage. */
+    val selectedVehicle: TransportVehicle? get() = selectedID?.let { byId[it] }
+
     // ---------------------------------------------------------------- animation
 
     /**
      * Où en est la glisse depuis le dernier instantané.
      *
-     * On laisse un peu dépasser l'horizon plutôt que de figer net : un sondage en
-     * retard fige alors la flotte progressivement au lieu de l'arrêter d'un coup.
+     * ⚠️ **Elle dépasse 1, mais l'avancement est borné à 1 par [interpolatedPose].**
+     * Au-delà de l'horizon, le tracé ne dit plus rien : le véhicule attend la fin
+     * de son tracé connu plutôt que d'inventer la suite. Le sondage est à 15 s
+     * pour un horizon de 10 : ces cinq secondes d'attente ne se rattrapent pas ici,
+     * elles se rattraperont le jour où l'un des deux rejoindra l'autre.
      */
     private val slideProgress: Double
         get() {
@@ -254,13 +320,29 @@ class VehiclesLayer(
             return min(age / horizon, MAX_SLIDE)
         }
 
+    /**
+     * L'horodatage de la dernière image, pour en mesurer la durée.
+     *
+     * `onFrame` reçoit le temps écoulé **depuis le démarrage de l'horloge**, pas
+     * l'écart entre deux images. C'est pourtant l'écart qui règle la rotation
+     * des caisses : il se calcule donc ici, et se remet à zéro avec le style.
+     */
+    private var lastFrameSeconds = 0.0
+
     override fun onFrame(elapsedSeconds: Double) {
+        val previousFrame = lastFrameSeconds
+        // Retenu avant les sorties anticipées : sinon la première image après un
+        // retour dans le cadre porterait tout le temps passé hors de lui.
+        lastFrameSeconds = elapsedSeconds
         if (snapshot.vehicles.isEmpty()) return
         // Sous le seuil d'apparition, les couches sont invisibles : on calculait
         // jusqu'à 250 positions par image pour ne rien montrer.
         val zoom = map?.cameraPosition?.zoom ?: return
         if (zoom < MapZoom.VEHICLES_FROM) return
-        redraw(slideProgress)
+        // L'horloge peut repartir de zéro — une application reprise en pose un
+        // nouveau départ : un écart négatif ne doit pas remonter le temps.
+        val frame = (elapsedSeconds - previousFrame).coerceIn(0.0, VehicleGlide.MAX_FRAME_SECONDS)
+        redraw(slideProgress, frame)
     }
 
     /**
@@ -304,7 +386,10 @@ class VehiclesLayer(
         return box
     }
 
-    private fun redraw(progress: Double) {
+    /**
+     * [dtSeconds] vaut zéro hors de la boucle d'image : voir [interpolatedPose].
+     */
+    private fun redraw(progress: Double, dtSeconds: Double = 0.0) {
         val source = source ?: return
         val map = map
 
@@ -343,7 +428,7 @@ class VehiclesLayer(
             // figerait au moment précis où l'on a le plus besoin d'elle.
             if (box != null && !vehicle.coordinate.isInside(box) && !isSelected) continue
 
-            val pose = interpolatedPose(vehicle, progress)
+            val pose = interpolatedPose(vehicle, progress, dtSeconds)
             displayed[vehicle.id] = pose
 
             val props = properties[vehicle.id] ?: continue
@@ -364,10 +449,27 @@ class VehiclesLayer(
             if (!volumes) continue
             val mesh = if (models) meshIndex(vehicle.mode) else null
             if (mesh != null && (poses < VehicleScene.MAX_POSES || isSelected)) {
-                if (poses < VehicleScene.MAX_POSES) {
-                    writePose(poses++, vehicle, pose, zoom, isSelected, fade,
-                        anchorMercX, anchorMercY, anchorLat, mesh)
-                }
+                // ⚠️ **Le véhicule choisi prend une place, quitte à la prendre à un autre.**
+                //
+                // Le plafond franchi, ce bloc ne faisait **rien** : la condition extérieure
+                // laissait entrer le véhicule choisi grâce à `isSelected`, et la garde
+                // intérieure lui refusait ensuite l'écriture. Il tombait donc entre les deux
+                // branches — ni modèle, ni volume extrudé —, et comme le glyphe plat est éteint
+                // au-dessus de [MapZoom.VEHICLE_BODIES_FROM], il devenait **invisible** alors
+                // même que le commentaire ci-dessus promet qu'il passe toujours.
+                //
+                // ⚠️ **Entre 15,2 et 16,5 seulement**, et c'est ce qui rend le défaut rare : le
+                // budget d'objets du voyageur tombe à trente au-delà (`FleetViewport.limitForZoom`),
+                // donc les quarante-huit places ne peuvent plus se remplir. La bande étroite où
+                // il se produit est aussi celle où la flotte est la plus dense à l'écran.
+                //
+                // Il reprend donc la dernière place écrite plutôt que d'être perdu. C'est le
+                // bon échange : le plafond est là pour tenir le budget d'une image, et de tous
+                // les véhicules à l'écran, celui qu'on regarde est le dernier qu'on accepte de
+                // ne pas voir.
+                val slot = if (poses < VehicleScene.MAX_POSES) poses++ else VehicleScene.MAX_POSES - 1
+                writePose(slot, vehicle, pose, zoom, isSelected, fade,
+                    anchorMercX, anchorMercY, anchorLat, mesh)
             } else if (bodyBuffer.size < MAX_BODIES || isSelected) {
                 // Le navibus n'a pas de modèle dans le pack, et le repli non plus :
                 // les deux passent par l'extrusion, qui reste donc **empruntée à
@@ -388,7 +490,7 @@ class VehiclesLayer(
     }
 
     /**
-     * La teinte de carrosserie d'un modèle, origine comprise.
+     * La teinte de carrosserie d'un modèle : **la livrée, et rien d'autre**.
      *
      * ⚠️ **Elle ne vient pas de `markerColor`, à la différence de l'extrusion.**
      * Un aplat plat peut être sombre sans rien perdre ; un modèle ne se lit que
@@ -397,15 +499,17 @@ class VehiclesLayer(
      * jupe n'apparaît — tout le détail qu'on est allé chercher disparaît. Voir
      * [VehicleScene.bodyColor].
      *
-     * Le théorique reste mêlé à la surface, comme sur l'extrusion : c'est le même
-     * retrait, dit de la même façon.
+     * ⚠️ **Et le théorique n'y est plus mêlé, à la différence de l'extrusion.**
+     * `GHOST_MIX` vaut 0,28 de **surface**, c'est-à-dire de blanc : sur un aplat
+     * plat, c'est un retrait qui se lit ; sur un modèle éclairé, c'est un
+     * délavage, et il se multiplie ensuite par l'ambiante. La livrée du tram
+     * passait de `#2F9D80` à `#69B8A4` avant d'avoir reçu le moindre rayon — une
+     * caisse qui a perdu sa teinte, sur une flotte du soir presque entièrement
+     * théorique. La fraîcheur, elle, reste dite par le glyphe plat jusqu'au seuil
+     * des volumes, par le registre de la pastille, et en toutes lettres par la
+     * fiche.
      */
-    private fun bodyPaint(mesh: Int, isLive: Boolean): AuleRgba {
-        // La nuit n'assombrit plus la teinte : c'est la lumière de la scène qui
-        // baisse, publiée par [VehicleScene.setLighting] — comme sur les façades.
-        val paint = AuleRgba(VehicleScene.bodyColor(mesh))
-        return if (isLive) paint else paint.mixedWith(AuleTokens.of(night).surfaceSolid, GHOST_MIX)
-    }
+    private fun bodyPaint(mesh: Int): AuleRgba = AuleRgba(VehicleScene.bodyColor(mesh))
 
     /** Le maillage d'un mode, ou `null` s'il n'en a pas — le navibus. */
     private fun meshIndex(mode: TransportMode): Int? = when (mode) {
@@ -440,7 +544,7 @@ class VehiclesLayer(
         val north = WebMercator.northOffsetMeters(pose.coordinate.latitude, anchorMercY, anchorLat)
         val scale = VehicleBody.emphasis(vehicle.mode, zoom).toFloat()
 
-        val paint = bodyPaint(mesh, vehicle.isLive)
+        val paint = bodyPaint(mesh)
         val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade
 
         staging.putFloat(base, east.toFloat())
@@ -517,48 +621,81 @@ class VehiclesLayer(
     private fun Coordinate.isInside(box: DoubleArray): Boolean =
         latitude >= box[0] && latitude <= box[1] && longitude >= box[2] && longitude <= box[3]
 
-    /** Où se trouve un véhicule à cet instant de la glisse. */
-    private fun interpolatedPose(vehicle: TransportVehicle, progress: Double): Pose {
-        val previous = displayed[vehicle.id]
-        val start = previous?.coordinate ?: vehicle.coordinate
-        val startHeading = previous?.heading ?: vehicle.headingDegrees
-
-        // Un véhicule à quai ne glisse pas : il attend, portes ouvertes. Le faire
-        // avancer quand même donnerait un tram qui traverse lentement sa propre
-        // station.
-        if (vehicle.dwellSeconds > 0 && progress * snapshot.horizonSeconds < vehicle.dwellSeconds) {
-            return Pose(start, startHeading)
-        }
-
-        val fraction = progress.coerceIn(0.0, 1.0)
-        val target = positionAlongPath(vehicle, fraction)
-            ?: return Pose(vehicle.coordinate, vehicle.headingDegrees)
-
-        // Le cap se déduit du déplacement **réel** plutôt que du champ `heading` :
-        // c'est lui qui fait tourner la flèche exactement quand le véhicule tourne.
-        val travelled = GeoMath.distance(start, target.point)
-        val heading = if (travelled > HEADING_MIN_TRAVEL_M) {
-            GeoMath.interpolateHeading(startHeading, target.bearing, HEADING_SMOOTHING)
-        } else {
-            startHeading
-        }
-        return Pose(target.point, heading)
-    }
-
-    private fun positionAlongPath(
+    /**
+     * Où se trouve un véhicule à cet instant de la glisse, et vers où il regarde.
+     *
+     * [dtSeconds] est la durée de l'image — zéro pour un redessin qui n'en est
+     * pas un : un sondage, un changement de sélection, un style remonté. Le cap
+     * ne bouge alors pas, et c'est voulu. Ces redessins-là arrivent à des
+     * cadences quelconques ; les laisser avancer le lissage rendrait la vitesse
+     * de rotation d'un bus tributaire de celle du réseau.
+     */
+    private fun interpolatedPose(
         vehicle: TransportVehicle,
-        fraction: Double,
-    ): PolylineProjection.PointOnLine? {
-        paths[vehicle.id]?.let { return PolylineProjection.pointAt(it, fraction) }
+        progress: Double,
+        dtSeconds: Double,
+    ): Pose {
+        val startHeading = displayed[vehicle.id]?.heading ?: vehicle.headingDegrees
 
-        val ahead = vehicle.ahead ?: return PolylineProjection.PointOnLine(
-            vehicle.coordinate,
-            vehicle.headingDegrees,
-        )
-        return PolylineProjection.PointOnLine(
-            GeoMath.interpolate(vehicle.coordinate, ahead, fraction),
-            GeoMath.bearing(vehicle.coordinate, ahead),
-        )
+        // ⚠️ **Le palier de `dwellSeconds` retenait toute la flotte, et pour rien.**
+        // On tenait ici le marqueur immobile pendant les cinq premières secondes
+        // de chaque horizon, au nom du « véhicule à quai qui ne glisse pas ». Mais
+        // `dwellSeconds` vaut **5 pour tout le monde** — 72 véhicules sur 73 au
+        // relevé du 18/09/2026 —, c'est une constante de la glisse et non
+        // l'observation d'un bus arrêté ; [TransportVehicle.isStopped] le dit déjà
+        // en toutes lettres. Et `stopProgress`, le seul champ qui saurait *où* le
+        // quai tombe sur le tracé, est **nul pour les 73**.
+        //
+        // Ce que ça donnait à l'écran, mesuré sur le Samsung : sondage toutes les
+        // 15 s, horizon de 10 s, donc **5 s figé, 5 s à vitesse double, 5 s figé**.
+        // Un véhicule immobile deux tiers du temps, qui traverse son virage deux
+        // fois trop vite, et qui **saute d'une vingtaine de mètres** en une image
+        // au moment où le palier se lève — la position retenue est la fin du tracé
+        // précédent, la suivante est le milieu du nouveau.
+        //
+        // Le web ne fait pas ça : sans `stationDwell`, `progressWithStationDwell`
+        // rend l'avancement tel quel (`lib/carte-immersive/vehicle-motion.ts`). On
+        // glisse donc à vitesse constante sur tout l'horizon, puis on attend le
+        // sondage suivant — c'est tout ce que la donnée permet d'affirmer. Le jour
+        // où le serveur publiera `stopProgress`, le palier se reposera **au quai**,
+        // comme sur le web, et pas au début de la fenêtre.
+        val fraction = progress.coerceIn(0.0, 1.0)
+
+        // Le cap vient de **la voie sous la caisse**, lue sur la longueur de cette
+        // caisse : c'est ce qui la fait pivoter pendant tout le virage, et se
+        // poser dans l'axe dès que la voie est droite. [VehicleGlide] porte la
+        // mesure de ce que l'ancienne dérivation — le déplacement entre deux
+        // images — coûtait à l'écran.
+        val path = paths[vehicle.id]
+        if (path != null) {
+            val point = PolylineProjection.pointAt(path, fraction)?.point
+                ?: return Pose(vehicle.coordinate, startHeading)
+            val aim = VehicleGlide.tangent(
+                path = path,
+                distanceMeters = fraction * path.length,
+                spanMeters = VehicleBody.gauge(vehicle.mode).lengthMeters,
+            )
+            return Pose(point, VehicleGlide.heading(startHeading, aim, dtSeconds))
+        }
+
+        // Sans tracé, il ne reste que la corde vers le point d'arrivée annoncé.
+        // Elle ne dit rien de la voirie : c'est le repli, pas le cas courant —
+        // les 72 véhicules du relevé du 18/09/2026 portaient tous le leur.
+        val ahead = vehicle.ahead
+        val aim = if (ahead != null &&
+            GeoMath.distance(vehicle.coordinate, ahead) >= VehicleGlide.MIN_CHORD_M
+        ) {
+            GeoMath.bearing(vehicle.coordinate, ahead)
+        } else {
+            // ⚠️ Surtout pas la corde : `atan2(0, 0)` vaut zéro, et un véhicule
+            // arrêté pointerait alors plein nord. Le champ du serveur, lui, dit
+            // le cap relevé.
+            vehicle.headingDegrees
+        }
+        val point = ahead
+            ?.let { GeoMath.interpolate(vehicle.coordinate, it, fraction) }
+            ?: vehicle.coordinate
+        return Pose(point, VehicleGlide.heading(startHeading, aim, dtSeconds))
     }
 
     // ------------------------------------------------------------------ montage
@@ -696,6 +833,9 @@ class VehiclesLayer(
         selectionSource = null
         bodySource = null
         bodiesPublished = false
+        // L'horloge d'images repart avec le style ; un horodatage gardé d'avant
+        // rendrait la première durée d'image négative.
+        lastFrameSeconds = 0.0
         // La carte n'appartient pas plus à la couche que le style : la garder
         // après un démontage, c'est retenir une `MapLibreMap` détruite pour lire
         // sa caméra. [mount] la rend.
@@ -907,13 +1047,18 @@ class VehiclesLayer(
 
         const val PROPERTY_ALIGNMENT_MAP = "map"
 
-        /** On laisse la glisse dépasser l'horizon de 35 % avant de figer. */
+        /**
+         * Le plafond de l'avancement brut.
+         *
+         * ⚠️ **Il ne prolonge pas la glisse.** [interpolatedPose] borne la fraction
+         * à 1 : passé l'horizon, le véhicule attend au bout de son tracé. Ce qui
+         * dépasse ne sert donc qu'à empêcher un compteur de courir indéfiniment
+         * quand un sondage tarde.
+         */
         const val MAX_SLIDE = 1.35
 
-        /** En dessous, le déplacement est du bruit et ne doit pas faire tourner la flèche. */
-        const val HEADING_MIN_TRAVEL_M = 1.5
-
-        const val HEADING_SMOOTHING = 0.35
+        // Le cap n'a plus ni seuil de déplacement ni part fixe par image : il se
+        // lit sur la voie, et se rejoint en un temps donné. Voir [VehicleGlide].
 
         /** Marge autour du cadre visible, en fraction de sa taille. */
         const val BOUNDS_MARGIN = 0.35

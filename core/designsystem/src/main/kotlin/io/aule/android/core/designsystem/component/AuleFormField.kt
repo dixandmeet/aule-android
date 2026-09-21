@@ -23,6 +23,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -99,7 +100,23 @@ fun AuleFormField(
         OutlinedTextField(
             value = value,
             onValueChange = onValueChange,
-            modifier = fieldModifier.fillMaxWidth(),
+            // ⚠️ **L'état d'erreur se dit aussi hors de la couleur.** `isError` repeint la
+            // bordure et le libellé ; il ne pose **pas** l'état d'erreur dans l'arbre
+            // d'accessibilité. Un champ refusé se lisait donc exactement comme un champ
+            // ordinaire — même texte sous la boîte, même annonce — et la seule différence était
+            // celle que le lecteur d'écran ne voit pas (recette du 18/09/2026, BUG-AND-023).
+            //
+            // `error()` est ce qui fait annoncer « non valide » puis le motif, à la place du
+            // simple libellé. Le message y est repris tel quel : c'est celui qui s'affiche.
+            modifier = fieldModifier
+                .fillMaxWidth()
+                .then(
+                    if (error != null) {
+                        Modifier.semantics { error(error) }
+                    } else {
+                        Modifier
+                    },
+                ),
             enabled = enabled,
             textStyle = MaterialTheme.typography.bodyLarge,
             placeholder = placeholder?.let {

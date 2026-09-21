@@ -136,6 +136,27 @@ object StopSearch {
         return clusters
     }
 
+    /**
+     * Regroupe un catalogue **déjà choisi**, sans rien filtrer.
+     *
+     * ## ⚠️ Pourquoi cette porte existe
+     *
+     * [search] fait deux choses : il choisit les arrêts qui répondent à la frappe, puis il les
+     * regroupe par lieu. Un appelant qui a choisi **autrement** — une tolérance aux fautes,
+     * par exemple — ne veut que la seconde : passer ses candidats à [search] les lui ferait
+     * refiltrer au caractère près, et ils disparaîtraient tous (`rank` rend `null` sur un nom
+     * qui ne contient pas la frappe). C'est exactement ce qui est arrivé à la recherche
+     * approchée du voyageur, le 22/09/2026 : « comerse » trouvait « Commerce » dans le dépôt,
+     * et le perdait ici.
+     *
+     * ⚠️ **L'ordre donné est l'ordre rendu** : c'est à l'appelant de classer ses candidats,
+     * puisque c'est lui qui sait pourquoi ils répondent.
+     */
+    fun group(catalog: List<TransitStop>, limit: Int = SEARCH_LIMIT_PER_KIND): List<StopSearchHit> {
+        if (limit <= 0) return emptyList()
+        return cluster(catalog).take(limit).map { it.toHit() }
+    }
+
     /** `null` quand le nom ne répond pas du tout. */
     private fun rank(name: String, needle: String): Int? {
         if (name.startsWith(needle)) return 0

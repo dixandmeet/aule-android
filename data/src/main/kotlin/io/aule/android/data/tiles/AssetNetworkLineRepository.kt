@@ -39,11 +39,23 @@ class AssetNetworkLineRepository(
     @Volatile private var catalogue: List<TransitLine>? = null
     @Volatile private var byName: Map<String, TransitLine> = emptyMap()
 
+    /**
+     * Les identifiants GTFS, quand ils ne sont pas l'indice public.
+     *
+     * ⚠️ **C'est le seul chemin depuis une position théorique.** Elle porte le `route_id` brut
+     * — `ALEOP:309` —, que rien ne rattache à « E309 » par une règle d'écriture : il faut la
+     * table. Voir [TransitLine.routeIds].
+     */
+    @Volatile private var byRouteId: Map<String, TransitLine> = emptyMap()
+
     override suspend fun allLines(): List<TransitLine> = loaded()
 
     override suspend fun line(named: String): TransitLine? {
         loaded()
-        return byName[canonicalLineName(named)]
+        val key = canonicalLineName(named)
+        // L'indice public d'abord : c'est le cas de 111 lignes sur 138, et une ligne ne doit
+        // jamais se faire voler son nom par l'identifiant technique d'une autre.
+        return byName[key] ?: byRouteId[key]
     }
 
     private suspend fun loaded(): List<TransitLine> {
@@ -57,6 +69,11 @@ class AssetNetworkLineRepository(
             // `putIfAbsent` et non `associateBy` : ce dernier garde la **dernière**
             // occurrence d'une clé en double, quand on veut la première.
             byName = buildMap { lines.forEach { putIfAbsent(it.match, it) } }
+            byRouteId = buildMap {
+                lines.forEach { line ->
+                    line.routeIds.forEach { putIfAbsent(canonicalLineName(it), line) }
+                }
+            }
             catalogue = lines
             lines
         }

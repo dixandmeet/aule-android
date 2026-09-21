@@ -87,28 +87,7 @@ fun AuleNetworkBackdrop(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val still = reduceMotionEnabled()
-
-    // Le pointillé défile d'une période complète, puis recommence : le motif
-    // étant périodique, l'image de fin **est** l'image de départ, et la boucle
-    // ne se voit pas. Une durée plus courte donnerait un fil qui court ; à
-    // 2,4 s il dérive, ce qui est le mot du web (`animate-drift`).
-    val phase = if (still) {
-        0f
-    } else {
-        val transition = rememberInfiniteTransition(label = "network-drift")
-        val animated by transition.animateFloat(
-            initialValue = 0f,
-            targetValue = -DASH_PERIOD,
-            animationSpec = infiniteRepeatable(
-                animation = tween(DRIFT_MS, easing = LinearEasing),
-                repeatMode = RepeatMode.Restart,
-            ),
-            label = "network-dash",
-        )
-        animated
-    }
-
+    val phase = networkDrift()
     val fade = if (quiet) TRACE_ALPHA_QUIET else TRACE_ALPHA
 
     Box(
@@ -126,6 +105,9 @@ fun AuleNetworkBackdrop(
                     accent = colors.primary,
                     fade = fade,
                     dashPhase = phase,
+                    // La bande basse d'un écran plein : voir [TRACE_TOP] et [TRACE_SPAN].
+                    originY = TRACE_TOP * size.height,
+                    scaleY = TRACE_SPAN * size.height / VIEW_HEIGHT,
                 )
                 drawRect(
                     brush = Brush.radialGradient(
@@ -144,6 +126,99 @@ fun AuleNetworkBackdrop(
 }
 
 /**
+ * Le tracé seul, posé derrière un contenu qui a **déjà** son fond.
+ *
+ * ## Ce qu'il emprunte à la scène, et ce qu'il lui laisse
+ *
+ * [AuleNetworkBackdrop] pose trois couches : un lavis en diagonale, le tracé, puis une vignette
+ * qui referme les bords. Les deux premières et la dernière **font un fond** — elles décident de
+ * la couleur du rectangle — et c'est bien ce qu'on veut d'un écran de connexion, dont la nuit
+ * est permanente.
+ *
+ * Un volet, lui, a déjà sa couleur, sa forme et son ombre : le blanc franc de
+ * `surfaceContainerLowest`, qui lui rend son arête au-dessus d'une carte claire. Y poser la
+ * scène entière repeindrait la feuille en noir et ferait de chaque fiche d'arrêt un écran de
+ * marque. Ce modificateur ne garde donc que la **couche du milieu** : le réseau qu'on devine, et
+ * le pointillé d'accent qui dérive dessus.
+ *
+ * ## Où il se pose, et pourquoi il ne défile pas
+ *
+ * Sur le cadre du volet, jamais sur son contenu : `drawBehind` dessine sous les enfants du nœud
+ * qui le porte, et un tracé accroché à une colonne qui défile deviendrait un motif de papier
+ * peint qui glisse avec la liste. Posé sur le cadre, il reste ce qu'il est — un fond.
+ *
+ * Le **cadrage**, en revanche, n'est pas celui de la scène : il part du haut du volet et se
+ * mesure à la largeur, pour la raison dite à l'appel ci-dessous. Le motif tient alors entre 45 %
+ * et 120 % de la largeur sous le bord de la feuille — sous son en-tête, et dans le palier replié
+ * d'une fiche d'arrêt.
+ *
+ * @param quiet vrai par défaut, **à l'inverse de la scène**. Derrière un formulaire de
+ *   connexion, le tracé pose l'écran ; derrière une liste de départs, il ne doit que se
+ *   deviner.
+ * @param animated faux quand le volet est fermé ou replié à zéro. Une animation infinie
+ *   continue de réclamer une image par battement tant qu'elle est composée, et l'hôte d'un
+ *   volet garde son contenu composé bien après l'avoir escamoté. Le mouvement suit donc ce qui
+ *   est visible, et le tracé reste dessiné — immobile — quand il ne l'est pas.
+ */
+@Composable
+fun Modifier.auleNetworkTrace(
+    quiet: Boolean = true,
+    animated: Boolean = true,
+): Modifier {
+    val colors = MaterialTheme.colorScheme
+    val phase = if (animated) networkDrift() else 0f
+    val fade = if (quiet) TRACE_ALPHA_QUIET else TRACE_ALPHA
+    return drawBehind {
+        networkTrace(
+            ink = colors.onSurface,
+            accent = colors.primary,
+            fade = fade,
+            dashPhase = phase,
+            // ⚠️ **La hauteur du nœud n'est pas celle du volet visible**, et c'est pour cela
+            // que le cadrage de la scène ne marche pas ici. Un contenu de volet est mesuré à
+            // sa hauteur **déployée** — `heightIn(max = …)` pour la feuille de la carte, la
+            // hauteur de la liste entière pour un volet modal qui défile — tandis que ce qu'on
+            // en voit dépend de l'endroit où la feuille s'est arrêtée. Un motif posé aux deux
+            // tiers de cette hauteur-là tombe sous le bord de l'écran, et ne s'y montre jamais.
+            // Relevé sur un S21 le 15/09/2026 : le tracé était bien dessiné, à 1 300 pixels
+            // d'un volet qui n'en montrait que 1 176.
+            //
+            // Il est donc posé **en haut du nœud** et mis à l'échelle de la **largeur** : le
+            // haut d'un volet est ce qu'on en voit toujours, replié comme déployé, et une
+            // largeur ne dépend pas de l'endroit où la feuille s'est arrêtée.
+            originY = 0f,
+            scaleY = size.width * SHEET_SPAN / VIEW_HEIGHT,
+        )
+    }
+}
+
+/**
+ * De combien le pointillé a dérivé, à cette image-ci.
+ *
+ * Il défile d'une période complète, puis recommence : le motif étant périodique, l'image de fin
+ * **est** l'image de départ, et la boucle ne se voit pas. Une durée plus courte donnerait un fil
+ * qui court ; à 2,4 s il dérive, ce qui est le mot du web (`animate-drift`).
+ *
+ * Zéro quand le système demande moins de mouvement : c'est la seule chose qui bouge de l'écran
+ * de connexion, et la retirer n'en retire rien d'autre.
+ */
+@Composable
+private fun networkDrift(): Float {
+    if (reduceMotionEnabled()) return 0f
+    val transition = rememberInfiniteTransition(label = "network-drift")
+    val phase by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = -DASH_PERIOD,
+        animationSpec = infiniteRepeatable(
+            animation = tween(DRIFT_MS, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "network-dash",
+    )
+    return phase
+}
+
+/**
  * Le tracé lui-même, dans le repère du web.
  *
  * Les deux lignes de fond sont posées à l'encre du texte et à quelques
@@ -156,6 +231,8 @@ private fun DrawScope.networkTrace(
     accent: Color,
     fade: Float,
     dashPhase: Float,
+    originY: Float,
+    scaleY: Float,
 ) {
     val unit = size.width / VIEW_WIDTH
     fun stroke(width: Float, effect: PathEffect? = null) = Stroke(
@@ -164,10 +241,10 @@ private fun DrawScope.networkTrace(
         pathEffect = effect,
     )
 
-    val main = path(NETWORK_MAIN)
+    val main = path(NETWORK_MAIN, originY, scaleY)
     drawPath(main, color = ink.copy(alpha = MAIN_ALPHA * fade), style = stroke(MAIN_WIDTH))
     drawPath(
-        path(NETWORK_SECONDARY),
+        path(NETWORK_SECONDARY, originY, scaleY),
         color = ink.copy(alpha = SECONDARY_ALPHA * fade),
         style = stroke(SECONDARY_WIDTH),
     )
@@ -186,40 +263,48 @@ private fun DrawScope.networkTrace(
     drawCircle(
         color = accent.copy(alpha = fade),
         radius = ACCENT_DOT * unit,
-        center = point(ACCENT_AT),
+        center = point(ACCENT_AT, originY, scaleY),
     )
     FADED_DOTS.forEach { (at, alpha) ->
         drawCircle(
             color = ink.copy(alpha = alpha * fade),
             radius = FADED_DOT * unit,
-            center = point(at),
+            center = point(at, originY, scaleY),
         )
     }
 }
 
 /**
- * Un point du repère web, ramené aux proportions de l'écran réel.
+ * Un point du repère web, ramené aux proportions de la surface réelle.
  *
- * La hauteur ne se ramène pas à l'écran entier mais à sa **bande basse**. Le
- * web n'a jamais son tracé sous le formulaire : il vit dans la colonne d'à
- * côté, et sur la page pleine largeur il passe sous un contenu court. Un
- * téléphone n'a pas de colonne d'à côté — étalé sur toute la hauteur, le
- * pointillé traversait le libellé du mot de passe, ce qui ne se lit pas comme
- * un fond mais comme une rayure. Ramené sous le contenu, il redevient ce qu'il
- * est : un pied de page graphique.
+ * La largeur se ramène toujours à la largeur : le tracé s'étire avec l'écran,
+ * ce qu'une ligne droite supporte. La **hauteur**, elle, se décide dehors —
+ * [originY] dit où commence la boîte de dessin et [scaleY] combien vaut une
+ * unité de ses neuf cents.
+ *
+ * Elle se décide dehors parce que les deux surfaces qui portent ce tracé ne
+ * mesurent pas la même chose. Un écran plein connaît sa hauteur, et le motif y
+ * prend sa bande basse : le web n'a jamais son tracé sous le formulaire — il
+ * vit dans la colonne d'à côté — et étalé sur toute la hauteur d'un téléphone,
+ * le pointillé traversait le libellé du mot de passe, ce qui ne se lit pas
+ * comme un fond mais comme une rayure. Un **volet**, lui, ne connaît pas la
+ * sienne : ce qu'il mesure est sa hauteur déployée, et ce qu'on en voit dépend
+ * de l'endroit où la feuille s'est arrêtée. Son cadrage part donc du haut et
+ * suit la largeur — voir [Modifier.auleNetworkTrace].
  */
-private fun DrawScope.point(at: Offset): Offset = Offset(
+private fun DrawScope.point(at: Offset, originY: Float, scaleY: Float): Offset = Offset(
     x = at.x / VIEW_WIDTH * size.width,
-    y = (TRACE_TOP + at.y / VIEW_HEIGHT * TRACE_SPAN) * size.height,
+    y = originY + at.y * scaleY,
 )
 
-/** Une polyligne du repère web, ramenée aux proportions de l'écran réel. */
-private fun DrawScope.path(points: List<Offset>): Path = Path().apply {
-    points.forEachIndexed { index, at ->
-        val scaled = point(at)
-        if (index == 0) moveTo(scaled.x, scaled.y) else lineTo(scaled.x, scaled.y)
+/** Une polyligne du repère web, ramenée aux proportions de la surface réelle. */
+private fun DrawScope.path(points: List<Offset>, originY: Float, scaleY: Float): Path =
+    Path().apply {
+        points.forEachIndexed { index, at ->
+            val scaled = point(at, originY, scaleY)
+            if (index == 0) moveTo(scaled.x, scaled.y) else lineTo(scaled.x, scaled.y)
+        }
     }
-}
 
 /** La boîte de dessin du web, dont les chemins ci-dessous portent les valeurs. */
 private const val VIEW_WIDTH = 600f
@@ -284,6 +369,17 @@ private const val TRACE_ALPHA_QUIET = 0.26f
  */
 private const val TRACE_TOP = 0.45f
 private const val TRACE_SPAN = 0.62f
+
+/**
+ * Ce que vaut la boîte de dessin sous un volet, en parts de sa **largeur**.
+ *
+ * Le motif occupe les unités 300 à 800 de ses neuf cents : à 1,35 largeur, il tient donc entre
+ * 45 % et 120 % de la largeur sous le haut du volet — un peu moins de la moitié d'un écran de
+ * téléphone. C'est ce qu'il faut pour qu'il soit **entier dans le palier replié** d'une fiche
+ * d'arrêt sans monter derrière son titre, et qu'il reste dans le tiers haut une fois la feuille
+ * déployée. Plus grand, il devient un décor qu'on regarde ; plus petit, un gribouillis.
+ */
+private const val SHEET_SPAN = 1.35f
 
 /** La part centrale que la vignette laisse intacte. */
 private const val VIGNETTE_CLEAR = 0.4f

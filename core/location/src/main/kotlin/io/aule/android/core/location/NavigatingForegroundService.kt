@@ -8,6 +8,7 @@ import android.app.Service
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.IBinder
 import android.os.PowerManager
@@ -36,17 +37,54 @@ class NavigatingForegroundService : Service() {
 
     @SuppressLint("InlinedApi")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent != null) {
+        val arret = intent?.action == ACTION_STOP
+        if (intent != null && !arret) {
             onDuty = intent.getBooleanExtra(EXTRA_ON_DUTY, false)
         }
         ensureChannel()
         val notification = buildNotification()
-        ServiceCompat.startForeground(
-            this,
-            NOTIFICATION_ID,
-            notification,
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
-        )
+        // ⚠️ **`startForeground` d'abord, même quand on vient pour s'arrêter.**
+        //
+        // Le système a promis un service de premier plan dès l'appel à
+        // `startForegroundService()` ; il exige la notification dans les
+        // secondes qui suivent, et tue l'application sinon —
+        // `ForegroundServiceDidNotStartInTimeException`. Un arrêt qui
+        // court-circuiterait cet appel serait exactement le défaut qu'on
+        // corrige ici : voir [stop].
+        //
+        // ⚠️ **Mais le système peut le refuser, et il ne faut alors pas insister.**
+        //
+        // Un service de premier plan de type `location` exige la permission de
+        // localisation : sans elle, `startForeground` lève `SecurityException`
+        // — non rattrapée, sur le fil principal, elle **tue l'application**.
+        // Relevé sur le S21 le 18/09/2026, position refusée : Aule plantait en
+        // boucle au lancement (« Aule s'arrête systématiquement ») avant même
+        // d'avoir peint sa carte, parce que l'arbitre demandait l'arrêt d'un
+        // service qu'on n'avait plus le droit de démarrer.
+        //
+        // Le refus n'est pas une erreur à remonter : c'est la réponse du
+        // système à une demande devenue illégitime. On s'en va proprement.
+        val posee = try {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION,
+            )
+            true
+        } catch (refuse: SecurityException) {
+            false
+        } catch (refuse: IllegalStateException) {
+            // Android 12+ : démarrage depuis l'arrière-plan hors des cas permis.
+            false
+        }
+        if (arret || !posee) {
+            // Le contrat est tenu — ou n'a jamais pu l'être ; on peut partir.
+            // `onDestroy` retire la notification et rend le verrou.
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        running = true
         acquireWakeLock()
         // **`START_NOT_STICKY`, et non `START_STICKY`.**
         //
@@ -78,6 +116,7 @@ class NavigatingForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        running = false
         releaseWakeLock()
         stopForeground(STOP_FOREGROUND_REMOVE)
         super.onDestroy()
@@ -119,13 +158,40 @@ class NavigatingForegroundService : Service() {
                     if (onDuty) R.string.duty_foreground_text else R.string.nav_foreground_text,
                 ),
             )
-            .setSmallIcon(android.R.drawable.ic_menu_mylocation)
+            .setSmallIcon(smallIcon())
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
             .setContentIntent(launch)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
             .build()
+    }
+
+    /**
+     * Le glyphe de la barre d'état.
+     *
+     * ## ⚠️ C'était une icône d'Android, pas la marque
+     *
+     * `android.R.drawable.ic_menu_mylocation` : le réticule du système. Le volet des
+     * notifications montrait donc une application sans nom à côté de celles qui portent le
+     * leur, pendant que le notifieur de descente, lui, posait bien la monochrome d'Aule
+     * (recette du 18/09/2026, BUG-AND-010).
+     *
+     * ⚠️ **Une bibliothèque ne peut pas nommer une ressource de l'application.** `:core:location`
+     * est partagé par deux binaires, et la marque vit dans chacun d'eux. L'icône se déclare donc
+     * dans le manifeste, sous [ICON_META_DATA], et le service la lit à l'exécution — c'est le
+     * seul point où les deux se rencontrent.
+     *
+     * Sans déclaration, on retombe sur l'icône du lanceur : la marque plutôt que le système,
+     * même si elle n'est pas monochrome.
+     */
+    private fun smallIcon(): Int {
+        val info = runCatching {
+            packageManager.getApplicationInfo(packageName, PackageManager.GET_META_DATA)
+        }.getOrNull()
+        val declared = info?.metaData?.getInt(ICON_META_DATA, 0) ?: 0
+        if (declared != 0) return declared
+        return info?.icon?.takeIf { it != 0 } ?: android.R.drawable.ic_menu_mylocation
     }
 
     private fun acquireWakeLock() {
@@ -149,6 +215,20 @@ class NavigatingForegroundService : Service() {
 
     companion object {
         const val CHANNEL_ID = "aule_navigating_v1"
+
+        /**
+         * La clé sous laquelle une application déclare son glyphe de barre d'état.
+         *
+         * ```xml
+         * <meta-data
+         *     android:name="io.aule.location.NOTIFICATION_ICON"
+         *     android:resource="@mipmap/ic_launcher_monochrome" />
+         * ```
+         *
+         * ⚠️ **Elle se pose dans `<application>`**, pas sur le service : c'est là que
+         * `getApplicationInfo(GET_META_DATA)` la lit.
+         */
+        const val ICON_META_DATA = "io.aule.location.NOTIFICATION_ICON"
         const val NOTIFICATION_ID = 0xA11E01
 
         /** Six heures : un trajet plus long reprendra le verrou au prochain tick. */
@@ -160,10 +240,76 @@ class NavigatingForegroundService : Service() {
             ContextCompat.startForegroundService(context, intent)
         }
 
+        /**
+         * Arrête le service **sans jamais le détruire avant sa notification**.
+         *
+         * ## ⚠️ Pourquoi pas `stopService()` tout court
+         *
+         * `startForegroundService()` est asynchrone : entre l'appel et la
+         * livraison de `onStartCommand`, il s'écoule quelques millisecondes
+         * pendant lesquelles le système attend déjà sa notification. Un
+         * `stopService()` qui tombe dans cette fenêtre détruit le service avant
+         * son `startForeground()`, et Android **tue le processus** —
+         * `ForegroundServiceDidNotStartInTimeException`, fatale, sur le fil
+         * principal, sans rien que l'application puisse rattraper.
+         *
+         * Ce n'est pas théorique : relevé sur le S21 le 18/09/2026, l'écran
+         * revenant d'une veille pendant que l'arbitre rendait le palier —
+         * démarrage à 13:46:11.871, `Bringing down service while still waiting
+         * for start foreground` sept millisecondes plus tard, plantage à
+         * 13:46:12.025. Les deux gestes venaient de deux causes qui ne se
+         * connaissent pas (le cycle de vie de l'écran, la fin de la veille),
+         * donc aucun ordre ne peut être garanti à l'appelant.
+         *
+         * On passe donc **par le service** : il honore son contrat, puis
+         * `stopSelf()`. Le repli garde l'ancien geste pour le cas où le système
+         * refuse un démarrage depuis l'arrière-plan — refus qui ne survient que
+         * si aucun service n'est en cours, c'est-à-dire précisément quand il
+         * n'y a rien à arrêter.
+         */
         fun stop(context: Context) {
-            context.stopService(Intent(context, NavigatingForegroundService::class.java))
+            // ⚠️ **On ne réveille pas un service qui ne tourne pas.**
+            //
+            // `startForegroundService` **promet** un service de premier plan, et
+            // la promesse doit être tenue par une notification — avec le type
+            // `location`, donc avec la permission de localisation. Demander
+            // l'arrêt de ce qui n'a jamais démarré faisait donc faire cette
+            // promesse pour rien, et la rendait intenable dès que la position
+            // était refusée. C'est le chemin exact du plantage en boucle relevé
+            // le 18/09/2026 : l'arbitre appelle `stop()` au lancement, par
+            // symétrie, sans qu'aucun guidage n'ait jamais commencé.
+            //
+            // `stopService` sur un service arrêté ne fait rien, et ne promet rien.
+            if (!running) {
+                context.stopService(Intent(context, NavigatingForegroundService::class.java))
+                return
+            }
+            val arret = Intent(context, NavigatingForegroundService::class.java)
+                .setAction(ACTION_STOP)
+            runCatching { ContextCompat.startForegroundService(context, arret) }
+                .onFailure {
+                    context.stopService(Intent(context, NavigatingForegroundService::class.java))
+                }
         }
 
+        /**
+         * Le service tient-il actuellement son premier plan ?
+         *
+         * ⚠️ **Lu depuis un autre fil que celui qui l'écrit**, d'où `@Volatile` : l'arbitre
+         * appelle [stop] depuis le fil principal, `onStartCommand` s'exécute sur le même — mais
+         * rien dans le contrat d'Android ne le garantit, et une valeur retenue en cache dirait
+         * qu'un service arrêté tourne encore.
+         *
+         * La mort du processus le remet à faux, ce qui est exact : un processus mort n'a pas de
+         * service.
+         */
+        @Volatile
+        private var running = false
+
         private const val EXTRA_ON_DUTY = "io.aule.android.location.on_duty"
+
+        /** L'ordre d'arrêt, porté par l'action plutôt que par un extra : il doit
+         *  survivre à un `onStartCommand` qui ne lit plus les extras. */
+        private const val ACTION_STOP = "io.aule.android.location.stop"
     }
 }

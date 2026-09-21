@@ -12,11 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonColors
@@ -32,6 +34,8 @@ import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
 import io.aule.android.core.designsystem.token.AuleTouch
 
 /**
@@ -90,6 +94,12 @@ import io.aule.android.core.designsystem.token.AuleTouch
  * une ligne resterait court à côté d'un segment à deux, et le groupe connecté —
  * dont tout l'effet tient à ce que les pastilles forment **une** barre — se
  * lirait comme deux boutons de tailles différentes.
+ *
+ * Deux lignes ne servent qu'à ce qui a un blanc où se replier. Un libellé d'un
+ * **seul mot** — « Transports » — n'en a pas : trop long pour son segment, il se
+ * faisait couper en son milieu (« Transp / orts »). Celui-là tient sur une ligne
+ * et rétrécit jusqu'à un plancher lisible ; la promesse du titre vaut pour les
+ * deux formes.
  *
  * ## L'icône, et le libellé qui rétrécit derrière elle
  *
@@ -202,11 +212,26 @@ fun <T> AuleConnectedButtonGroup(
                             }
                         }
                         if (text.isNotEmpty()) {
+                            // ⚠️ **Un mot seul n'a nulle part où se replier — et il se faisait
+                            // couper.** « Transports » sur le sélecteur de modes de
+                            // l'itinéraire, à trois segments sur un écran de 360 dp : le mot
+                            // demande 71 dp, le segment lui en laisse 50, et le moteur de
+                            // lignes fait alors la seule chose qu'il sache faire — casser à
+                            // l'intérieur. « Transp / orts », relevé sur le S21 le 15/09/2026.
+                            // Deux lignes ne servent qu'à ce qui a un blanc où se replier.
+                            //
+                            // Un mot coupé en deux n'est plus un mot : il tient donc sur une
+                            // ligne et **rétrécit** jusqu'au plancher, ce qui est la seule
+                            // dégradation qui garde le sens. Le plancher est en `sp` : il suit
+                            // le réglage de taille de police plutôt que de l'annuler.
+                            val unSeulMot = text.none { it.isWhitespace() }
                             Text(
                                 text = text,
-                                maxLines = SEGMENT_LINES,
+                                maxLines = if (unSeulMot) 1 else SEGMENT_LINES,
+                                softWrap = !unSeulMot,
                                 overflow = TextOverflow.Ellipsis,
                                 textAlign = TextAlign.Center,
+                                autoSize = if (unSeulMot) rememberSegmentAutoSize() else null,
                             )
                         }
                     }
@@ -235,3 +260,41 @@ fun <T> AuleConnectedButtonGroup(
  * sélecteur haut comme une carte.
  */
 private const val SEGMENT_LINES = 2
+
+/**
+ * De combien un libellé d'un seul mot peut rétrécir avant qu'on renonce.
+ *
+ * Onze points suffisent à faire tenir « Transports » dans un tiers d'écran de
+ * 360 dp, réglage de police agrandi compris — et c'est la seule longueur qui
+ * posait problème. En deçà, le mot ne se lirait plus d'un coup d'œil dans un
+ * véhicule : mieux vaut alors les points de suspension, qui disent qu'il manque
+ * quelque chose.
+ */
+private val SEGMENT_MIN_FONT = 11.sp
+
+/** La taille du libellé quand le thème n'en impose pas — celle des boutons Material. */
+private val SEGMENT_FONT_FALLBACK = 14.sp
+
+/**
+ * Rétrécir, oui ; grossir, jamais. Le plafond est la taille que le thème donne
+ * déjà au libellé, sans quoi un mot court se mettrait à enfler pour remplir son
+ * segment et les trois capsules n'écriraient plus de la même taille.
+ */
+@Composable
+private fun rememberSegmentAutoSize(): TextAutoSize? {
+    // `isSp` et non `isSpecified` : une taille en `em` ne se compare pas à un plancher en
+    // points, et `StepBased` n'accepte pas qu'on lui mélange les deux.
+    val size: TextUnit = LocalTextStyle.current.fontSize
+        .takeIf { it.isSp } ?: SEGMENT_FONT_FALLBACK
+    return remember(size) {
+        if (size.value <= SEGMENT_MIN_FONT.value) {
+            null
+        } else {
+            TextAutoSize.StepBased(
+                minFontSize = SEGMENT_MIN_FONT,
+                maxFontSize = size,
+                stepSize = 0.5.sp,
+            )
+        }
+    }
+}

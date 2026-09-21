@@ -241,6 +241,71 @@ class MeshStandardizerTest {
     }
 
     /**
+     * **Le toit regarde le ciel.**
+     *
+     * Une invariante que rien d'autre ne tient : le nuancier éclaire à l'ambiante de la
+     * chaussée toute face tournée vers le sol, donc une grande surface haute retournée rend
+     * un toit plus sombre que ses flancs — et l'œil lit cette inversion comme un véhicule
+     * couché sur le dos.
+     *
+     * ⚠️ **Ce test ne dit rien du sens des faces à l'écran.** Il éprouve le maillage, pas
+     * le rendu : les triangles peuvent être parfaitement orientés ici et le pilote peindre
+     * l'**intérieur** des caisses, ce qui est exactement ce qui est arrivé le 16/09/2026
+     * (`glFrontFace` inversé, voir `vehicle_layer.cpp`). Aucune épreuve JVM ne peut
+     * l'attraper ; seul l'œil sur l'appareil le fait.
+     */
+    @Test
+    fun `aucune face haute ne regarde le sol`() {
+        for (model in VehicleMeshCatalog.ALL) {
+            val mesh = load(model)
+            val haut = model.dimensions.heightMeters * 0.8
+            var versLeCiel = 0.0
+            var versLeSol = 0.0
+            for (t in 0 until mesh.triangleCount) {
+                val at = t * 3 * StandardMesh.FLOATS_PER_VERTEX
+                val z = (0 until 3)
+                    .map { mesh.vertices[at + it * StandardMesh.FLOATS_PER_VERTEX + 2] }
+                    .average()
+                if (z < haut) continue
+                val nz = mesh.vertices[at + StandardMesh.NORMAL_OFFSET + 2].toDouble()
+                val aire = areaOf(mesh, t)
+                if (nz > 0.5) versLeCiel += aire
+                if (nz < -0.5) versLeSol += aire
+            }
+            assertTrue(versLeCiel > 1.0, "${model.asset} : pas de toit au-dessus de $haut m ?")
+            // ⚠️ **La marge n'est pas de la complaisance, elle est mesurée.** Le toit du bus
+            // garde 1,5 m² de faces tournées vers le sol pour 23,9 m² tournées vers le ciel —
+            // des dessous de trappes et de blocs, jamais vus, et qu'il serait faux d'accuser.
+            // Le défaut qu'on garde, lui, n'est pas de cet ordre : le toit du tram entier était
+            // retourné, soit **quinze mètres carrés** sur un toit qui en fait quarante-cinq.
+            // Entre 6 % et 100 %, le seuil n'a pas besoin d'être fin.
+            assertTrue(
+                versLeSol < versLeCiel * 0.15,
+                "${model.asset} : ${"%.1f".format(versLeSol)} m² de surface haute regarde le sol" +
+                    " pour ${"%.1f".format(versLeCiel)} m² qui regarde le ciel — le toit est" +
+                    " bobiné à l'envers, et il s'éclairera comme un dessous",
+            )
+        }
+    }
+
+    /** L'aire d'un triangle du maillage mis aux normes, en mètres carrés. */
+    private fun areaOf(mesh: StandardMesh, triangle: Int): Double {
+        val at = triangle * 3 * StandardMesh.FLOATS_PER_VERTEX
+        fun coord(corner: Int, axis: Int) =
+            mesh.vertices[at + corner * StandardMesh.FLOATS_PER_VERTEX + axis].toDouble()
+        val ux = coord(1, 0) - coord(0, 0)
+        val uy = coord(1, 1) - coord(0, 1)
+        val uz = coord(1, 2) - coord(0, 2)
+        val vx = coord(2, 0) - coord(0, 0)
+        val vy = coord(2, 1) - coord(0, 1)
+        val vz = coord(2, 2) - coord(0, 2)
+        val nx = uy * vz - uz * vy
+        val ny = uz * vx - ux * vz
+        val nz = ux * vy - uy * vx
+        return 0.5 * kotlin.math.sqrt(nx * nx + ny * ny + nz * nz)
+    }
+
+    /**
      * **La carrosserie doit dominer la surface du modèle.**
      *
      * C'est le test que l'absence a coûté cher. Les noms de matériaux du pack

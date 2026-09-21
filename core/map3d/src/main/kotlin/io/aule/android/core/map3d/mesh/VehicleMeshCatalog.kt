@@ -96,6 +96,22 @@ internal object VehicleMeshCatalog {
         // donc en +Z. Le tram, plus long, est d'un ton plus profond que le bus.
         forwardIsPositiveZ = true,
         bodyColor = 0x2F9D80,
+        // ⚠️ **`Black` n'est pas le bogie du tram : c'est sa coque, toit compris.**
+        // Mesuré dans le fichier, une fois mis aux normes :
+        //
+        // | matériau | z | aire | dont plein ciel |
+        // |---|---|---|---|
+        // | `Outside` + `Top` | 0,36 → 3,40 m | 168,6 m² | 30,2 m² à z 3,27 |
+        // | `Black` | 0,05 → 3,39 m | 79,1 m² | **15,2 m² à z 3,25** |
+        // | `Windows` | 1,09 → 3,09 m | 58,6 m² | 1,3 m² |
+        //
+        // Un tiers du toit, sur toute la largeur. Le ranger au **bas de caisse** —
+        // ce que son nom laissait croire, et ce que faisait l'heuristique —
+        // appliquait à un toit la nuance réservée aux panneaux bas : la livrée
+        // assombrie, plus l'occlusion de contact. Ce n'est pas seulement laid,
+        // c'est faux : une jupe est sombre *parce qu'elle est à l'ombre de sa
+        // caisse*, un toit non. C'est donc de la carrosserie.
+        materialParts = mapOf("Black" to MeshPart.BODY),
     )
 
     val ALL = listOf(BUS, TRAM)

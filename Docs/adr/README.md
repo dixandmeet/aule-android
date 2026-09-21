@@ -25,6 +25,7 @@ effort, elle n'a pas besoin d'ADR.
 | [017](ADR-017-eclairage-des-vehicules.md) | Le nuancier des véhicules éclaire | La lumière du style, une ombre au sol, et pourquoi on revient sur « aucune lumière » |
 | [018](ADR-018-conseil-deterministe.md) | Le conseil est déterministe ; Claude ne fait que le dire | Qui décide d'un itinéraire, et ce qu'un modèle de langage a le droit d'y faire |
 | [019](ADR-019-contribution-affluence.md) | Quatre gardes, et pas une de moins | À quelles conditions on a le droit de collecter la position d'un voyageur |
+| [020](ADR-020-sens-des-faces.md) | Le sens des faces, et la plage du nuancier | Le rendu peignait l'intérieur des caisses ; comment on l'a trouvé, et ce que ça a caché |
 
 La 006 est celle qu'il faut lire en premier si l'on touche à la carte : c'est la seule règle
 du projet qui soit **invisible dans le code** et qu'un changement anodin suffise à détruire.

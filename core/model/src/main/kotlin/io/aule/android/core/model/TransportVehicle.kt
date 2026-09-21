@@ -100,6 +100,28 @@ data class TransportVehicle(
     val isLive: Boolean get() = feed == VehicleFeed.LIVE
 
     /**
+     * Ce qui désigne **la course**, par-dessus l'instantané.
+     *
+     * ## ⚠️ [id] ne survit pas au sondage suivant, [courseIdentity] si
+     *
+     * Une position mesurée porte l'identifiant que lui donne le flux temps réel, et cet
+     * identifiant **tourne** : le même bus revient au sondage d'après sous un autre nom, avec
+     * le même [twinId] — celui de son jumeau théorique, `th-<departureId>`, qui, lui, nomme la
+     * course et ne bouge pas de la journée.
+     *
+     * Qui suit un véhicule par son [id] le perd donc au premier sondage. C'est ce qui rendait
+     * la vue GPS vide trois relevés sur quatre : l'anneau de suivi ne retrouvait plus personne,
+     * la caisse n'était plus peinte en sélection, et la caméra suivait une pastille invisible
+     * (recette du 18/09/2026, BUG-AND-008). Un repli sur `twinId == ancien id` ne rattrapait
+     * qu'**un seul** saut — du théorique vers sa première mesure — et lâchait au suivant.
+     *
+     * ⚠️ **Deux véhicules d'un même instantané peuvent-ils la partager ?** Non : une course est
+     * faite par un véhicule, et le serveur retire le théorique dès que sa mesure arrive. C'est
+     * ce qui autorise à s'en servir comme d'une clé.
+     */
+    val courseIdentity: String get() = twinId ?: id
+
+    /**
      * Il est immobile — **mesuré** immobile.
      *
      * Surtout pas [dwellSeconds] : le serveur y met la même valeur pour tout le

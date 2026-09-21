@@ -27,6 +27,10 @@ dans le code et qu'un changement anodin suffise à détruire.
 mbgl. Le repère qu'attend MapLibre ne se devine pas : x/y en pixels-monde, **z en mètres**,
 et `pitch`/`bearing` en **radians**. L'éclairage de ces modèles est celui du style, recopié dans
 `VehicleLighting.kt` et gardé par un test — [ADR-017](Docs/adr/ADR-017-eclairage-des-vehicules.md).
+Et **avant de toucher au sens des faces ou au dosage des reflets**, lire
+[ADR-020](Docs/adr/ADR-020-sens-des-faces.md) : ce rendu a peint l'intérieur des caisses
+pendant des semaines, aucune épreuve ne pouvait le voir, et trois réglages du nuancier avaient
+été choisis pour compenser.
 
 ## Commandes
 

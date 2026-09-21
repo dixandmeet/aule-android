@@ -2,6 +2,8 @@ package io.aule.android.core.map.layer
 
 import com.google.gson.JsonObject
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.geo.GeoMath
+import io.aule.android.core.geo.PolylinePath
 import io.aule.android.core.map.MapLayer
 import io.aule.android.core.model.LegMode
 import io.aule.android.core.model.ROUTE_FALLBACK_COLOR
@@ -45,6 +47,16 @@ class RouteLayer : MapLayer {
     private var destination: RoutePlace? = null
 
     /**
+     * Où l'on en est, de 0 à 1 — ou `null` tant qu'on n'a pas démarré.
+     *
+     * ⚠️ **C'est ce qui sépare un trajet qu'on regarde d'un trajet qu'on fait.** Un plan se
+     * peint en entier : on le lit avant de partir. Une navigation ne peint que ce qui reste —
+     * sinon, à l'arrivée, la carte porte encore la totalité du chemin parcouru, et le trait
+     * sous les pieds ne dit plus rien (recette du 18/09/2026, BUG-AND-022).
+     */
+    private var progress: Double? = null
+
+    /**
      * [mode] est le mode **demandé**. Sans lui, un porte-à-porte se peindrait
      * toujours en pointillé : le moteur ne rend aucun `segments` sur ce chemin,
      * et rien dans sa réponse ne dit qu'on roule — voir [redraw].
@@ -59,6 +71,22 @@ class RouteLayer : MapLayer {
         this.mode = mode
         this.origin = origin
         this.destination = destination
+        redraw()
+    }
+
+    /**
+     * L'avancement du guidage, le long de [RouteCandidate.paintedCoordinates].
+     *
+     * `null` arrête la navigation et rend le tracé entier : c'est ce que fait la fin d'un
+     * guidage, et c'est aussi l'état d'un trajet qu'on n'a pas encore commencé.
+     *
+     * ⚠️ **La même polyligne que `JourneyPlan.points`**, et c'est ce qui rend la fraction
+     * transposable : les deux concatènent les tronçons dans le même ordre.
+     */
+    fun setProgress(t: Double?) {
+        val next = t?.takeIf { it.isFinite() }?.coerceIn(0.0, 1.0)
+        if (next == progress) return
+        progress = next
         redraw()
     }
 
@@ -83,7 +111,17 @@ class RouteLayer : MapLayer {
                     ),
                 ),
                 PropertyFactory.lineOpacity(0.55f),
-            ).also { it.setFilter(Expression.eq(Expression.get(PROP_KIND), Expression.literal(KIND_TRANSIT))) },
+            ).also {
+                it.setFilter(
+                    Expression.any(
+                        Expression.eq(Expression.get(PROP_KIND), Expression.literal(KIND_TRANSIT)),
+                        // Le ruban de navigation prend le même liseré : c'est lui qui le
+                        // détache de la chaussée, et sans lui un trait épais se confond avec
+                        // la voie qu'il suit.
+                        Expression.eq(Expression.get(PROP_KIND), Expression.literal(KIND_WALK_NAV)),
+                    ),
+                )
+            },
         )
 
         style.addLayer(
@@ -102,6 +140,35 @@ class RouteLayer : MapLayer {
                     ),
                 ),
             ).also { it.setFilter(Expression.eq(Expression.get(PROP_KIND), Expression.literal(KIND_TRANSIT))) },
+        )
+
+        // ⚠️ **Le pointillé de la marche n'est pas un tracé de navigation.** Il dit « vous
+        // ferez ce bout à pied » sur un plan qu'on lit ; sous les pieds de quelqu'un qui
+        // marche, il ne tient pas la chaussée et ne se voit pas du coin de l'œil. Un guidage
+        // demande une épaisseur, et un trait plein (recette du 18/09/2026, BUG-AND-022).
+        //
+        // ⚠️ **Deux couches, et non une propriété.** `line-dasharray` n'est pas pilotable par
+        // les données dans MapLibre : le pointillé et le plein ne peuvent pas cohabiter dans
+        // la même couche, quelle que soit l'expression qu'on y mettrait.
+        style.addLayer(
+            LineLayer(WALK_NAV_LAYER, LINE_SOURCE).withProperties(
+                PropertyFactory.lineCap("round"),
+                PropertyFactory.lineJoin("round"),
+                // ⚠️ **L'encre de la navigation, pas celle du tronçon.** Le moteur donne aux
+                // jambes de marche un gris de **plan** — juste quand on lit un trajet avant de
+                // partir, terne sous les pieds de quelqu'un qui marche. Le ruban qu'on suit
+                // porte donc sa propre couleur, la même quel que soit le tronçon.
+                PropertyFactory.lineColor(WALK_NAV_COLOR),
+                PropertyFactory.lineWidth(
+                    Expression.interpolate(
+                        Expression.linear(),
+                        Expression.zoom(),
+                        Expression.stop(12, 5f),
+                        Expression.stop(16, 9f),
+                        Expression.stop(18, 13f),
+                    ),
+                ),
+            ).also { it.setFilter(Expression.eq(Expression.get(PROP_KIND), Expression.literal(KIND_WALK_NAV))) },
         )
 
         style.addLayer(
@@ -148,6 +215,7 @@ class RouteLayer : MapLayer {
     override fun unmount(style: Style) {
         style.removeLayer(ENDPOINTS_LAYER)
         style.removeLayer(WALK_LAYER)
+        style.removeLayer(WALK_NAV_LAYER)
         style.removeLayer(LINE_LAYER)
         style.removeLayer(CASING_LAYER)
         style.removeSource(ENDPOINTS_SOURCE)
@@ -188,13 +256,24 @@ class RouteLayer : MapLayer {
             }
         }
 
-        val features = segments.mapNotNull { segment ->
+        // Ce qui reste à faire, quand on est en train de le faire. Voir [remainingSegments].
+        val painted = progress?.let { remainingSegments(segments, it) } ?: segments
+        val guiding = progress != null
+
+        val features = painted.mapNotNull { segment ->
             if (segment.coordinates.size < 2) return@mapNotNull null
             val line = LineString.fromLngLats(
                 segment.coordinates.map { Point.fromLngLat(it.longitude, it.latitude) },
             )
             val props = JsonObject().apply {
-                addProperty(PROP_KIND, if (segment.walk) KIND_WALK else KIND_TRANSIT)
+                addProperty(
+                    PROP_KIND,
+                    when {
+                        !segment.walk -> KIND_TRANSIT
+                        guiding -> KIND_WALK_NAV
+                        else -> KIND_WALK
+                    },
+                )
                 addProperty(PROP_COLOR, segment.color)
             }
             Feature.fromGeometry(line, props)
@@ -217,6 +296,51 @@ class RouteLayer : MapLayer {
         endpointsSource?.setGeoJson(FeatureCollection.fromFeatures(endpoints))
     }
 
+    /**
+     * Les tronçons amputés de ce qui est déjà parcouru.
+     *
+     * ⚠️ **La fraction porte sur la concaténation des tronçons**, pas sur chacun d'eux : c'est
+     * la même polyligne que `JourneyPlan.points`, et c'est de là que vient le `t` du guidage.
+     * On coupe donc à une distance cumulée, et le tronçon qui contient la coupure garde un
+     * sommet interpolé — sans lui, le ruban repartirait du sommet suivant, jusqu'à quelques
+     * dizaines de mètres devant les pieds dans un virage large.
+     */
+    private fun remainingSegments(
+        segments: List<io.aule.android.core.model.RouteSegment>,
+        t: Double,
+    ): List<io.aule.android.core.model.RouteSegment> {
+        val total = segments.sumOf { PolylinePath(it.coordinates).length }
+        if (total <= 0.0) return segments
+        var cut = t * total
+        val kept = mutableListOf<io.aule.android.core.model.RouteSegment>()
+        for (segment in segments) {
+            val path = PolylinePath(segment.coordinates)
+            val length = path.length
+            if (cut >= length) {
+                // Tronçon entièrement derrière : il ne reste rien à en peindre.
+                cut -= length
+                continue
+            }
+            kept += if (cut <= 0.0) segment else segment.copy(coordinates = clipped(path, cut))
+            cut = 0.0
+        }
+        // Tout est derrière : on ne rend pas la liste entière, on ne rend rien. Un dernier
+        // mètre repeint en entier se lirait comme un trajet qui n'a pas commencé.
+        return kept
+    }
+
+    /** Le tracé à partir d'une distance donnée, sommet interpolé compris. */
+    private fun clipped(path: PolylinePath, from: Double): List<Coordinate> {
+        val end = path.cumulative.indexOfFirst { it > from }.takeIf { it > 0 } ?: return emptyList()
+        val start = end - 1
+        val span = path.cumulative[end] - path.cumulative[start]
+        val fraction = if (span <= 0.0) 0.0 else (from - path.cumulative[start]) / span
+        return buildList {
+            add(GeoMath.interpolate(path.points[start], path.points[end], fraction))
+            addAll(path.points.subList(end, path.points.size))
+        }
+    }
+
     private companion object {
         const val ID = "aule.route"
         const val LINE_SOURCE = "aule.route.line"
@@ -228,8 +352,18 @@ class RouteLayer : MapLayer {
         const val PROP_KIND = "kind"
         const val PROP_COLOR = "color"
         const val PROP_ROLE = "role"
+        const val WALK_NAV_LAYER = "aule.route.walk.nav"
         const val KIND_WALK = "walk"
+        const val KIND_WALK_NAV = "walk-nav"
         const val KIND_TRANSIT = "transit"
+
+        /**
+         * L'encre du ruban qu'on suit à pied.
+         *
+         * Le teal clair de la marque — assez saturé pour se détacher du fond de carte en
+         * plein jour comme de nuit, et assez sombre pour porter le blanc de son liseré.
+         */
+        const val WALK_NAV_COLOR = "#137B7F"
         const val ROLE_ORIGIN = "origin"
         const val ROLE_DESTINATION = "destination"
     }

@@ -169,6 +169,7 @@ internal class StandardMesh(
  *
  * Il diverge d'iOS sur un point : l'ombrage **n'est plus cuit** dans les sommets.
  * Le sommet emporte sa normale, et c'est le nuancier qui éclaire (ADR-017).
+
  *
  * Chaque étape corrige un défaut constaté à l'écran ailleurs ; les refaire dans
  * un autre ordre les ramène.

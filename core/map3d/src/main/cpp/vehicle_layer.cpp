@@ -38,7 +38,7 @@
  * l'oblige : GLSL ES 1.00, pas de VAO, pas d'instanciation. Quarante-huit
  * `glDrawArrays` de mille cinq cents triangles ne coûtent rien.
  *
- * ## La lumière (ADR-017)
+ * ## La lumière (ADR-017) et le sens des faces (ADR-020)
  *
  * Le nuancier **éclaire**, là où la première version cuisait un ombrage fixe
  * dans les sommets. La lumière est celle du style — direction, couleur,
@@ -47,6 +47,13 @@
  * vitrage qui reflète le ciel, le châssis mat ; les feux sont émissifs et
  * s'allument la nuit. Une ombre de contact, dessinée avant les caisses, pose
  * chaque véhicule sur la chaussée au lieu de l'y faire flotter.
+ *
+ * ⚠️ **Le sens des faces avant est `GL_CCW`, et il n'est pas négociable** :
+ * `sceneToProjection` retourne l'axe nord-sud, la matrice de MapLibre le
+ * retourne une seconde fois, et deux réflexions se composent en une rotation.
+ * Sous `GL_CW`, on écarte les faces extérieures et on peint l'intérieur des
+ * caisses — un toit dont la normale regarde le sol. Payé en semaines, et
+ * introuvable par une épreuve : voir l'ADR-020.
  */
 
 #include <jni.h>
@@ -198,11 +205,14 @@ void main() {
     // second l'assombrit, parce qu'une jupe n'est pas d'une autre matière que sa
     // caisse — elle est à l'ombre d'elle-même.
     float livree = (1.0 - step(0.5, a_color.a)) + step(3.5, a_color.a);
-    // ⚠️ Une **nuance**, pas une seconde couleur. La livrée du tram est déjà
-    // sombre (0x2F9D80) et un flanc reçoit 0,57 d'éclairement : à 0,48 le bas de
-    // caisse tombait à RGB (26,44,37), soit la barre noire qu'on cherchait à
-    // faire disparaître. Mesuré à l'écran le 12/09.
-    float assombri = 1.0 - 0.22 * step(3.5, a_color.a);
+    // ⚠️ Une **nuance**, pas une seconde couleur — et elle se **cumule** avec
+    // l'occlusion de contact plus bas, ce que la première version perdait de vue.
+    // Deux facteurs qui disent la même chose — « cette pièce est à l'ombre de sa
+    // propre caisse » — se multipliaient : 0,78 × 0,82 = 0,64, avant même
+    // l'ambiante. Le bas de caisse tombait alors à 0,45 de la livrée quand le
+    // toit en rendait 1,00, soit un rapport de 2,2 entre deux surfaces de la même
+    // matière. À 0,88 × 0,88 il rend 0,54, ce qui se lit comme une jupe.
+    float assombri = 1.0 - 0.12 * step(3.5, a_color.a);
     v_albedo = mix(a_color.rgb, u_tint.rgb * assombri, livree);
     v_part = a_color.a;
     // La hauteur dans le modèle, en mètres, avant exagération : c'est elle qui
@@ -243,11 +253,10 @@ void main() {
     // Ambiante hémisphérique : le toit voit le ciel, la jupe voit la chaussée.
     vec3 ambient = mix(u_ground, u_sky, N.z * 0.5 + 0.5);
     // Occlusion de contact : le bas de caisse est dans l'ombre du véhicule
-    // lui-même. Elle ne descend qu'à 0,82 et s'éteint à quatre-vingt-dix
-    // centimètres, la hauteur des passages de roue — elle se **multiplie** à
-    // l'ambiante, et à 0,45 sur un mètre vingt elle noircissait tout le bas du
-    // tram (mesuré à z18 le 12/09).
-    float occlusion = mix(0.82, 1.0, smoothstep(0.0, 0.9, v_height));
+    // lui-même. Elle s'éteint à quatre-vingt-dix centimètres, la hauteur des
+    // passages de roue, et ne descend qu'à 0,88 — voir la nuance de jupe :
+    // les deux se multiplient, et il faut lire les deux ensemble.
+    float occlusion = mix(0.88, 1.0, smoothstep(0.0, 0.9, v_height));
 
     // Les quatre pièces se sélectionnent sans branche : GLSL ES 1.00 ne
     // garantit pas le branchement sur une valeur interpolée.
@@ -258,11 +267,19 @@ void main() {
     // qui les sépare, l'un presque noir, l'autre la livrée assombrie.
     float isMatte = step(1.5, v_part) * (1.0 - step(2.5, v_part)) + step(3.5, v_part);
 
-    // Carrosserie : satinée. Un reflet large et doux, un liseré de ciel —
-    // discret : à 0,35 il délavait les flancs vus en rasant, et la livrée
-    // perdait sa teinte.
+    // Carrosserie : satinée, et le reflet est un **éclat**, pas un voile.
+    //
+    // ⚠️ **C'est le réglage qui décide si une livrée garde sa couleur.** À
+    // `pow(ndh, 40) * 0.30`, le lobe est si large qu'il couvre tout un toit, et
+    // 0,30 de blanc ajouté à la livrée du tram (0x2F9D80) donne 0x7BEACC : une
+    // caisse menthe qui a perdu sa teinte. Cette valeur-là avait été choisie
+    // alors que le rendu peignait l'**intérieur** des caisses — où il n'y a rien
+    // à voir sans un éclat très généreux. Le sens des faces rétabli, resserrer à
+    // 120 et 0,12 suffit : l'éclat ne prend que les arêtes et les pare-brise,
+    // ce qu'un satin fait vraiment, et le toit rend sa livrée en plein jour
+    // (0x309F85 mesuré sur le S21 le 16/09/2026, pour 0x2E9E84 calculé).
     vec3 body = v_albedo * (ambient + u_sunColor * ndl) * occlusion
-              + u_sunColor * pow(ndh, 40.0) * 0.30
+              + u_sunColor * pow(ndh, 120.0) * 0.12
               + u_sky * fresnel * 0.18;
 
     // Vitrage : il **réfléchit**, et c'est ce qui le distingue d'un aplat sombre.
@@ -271,11 +288,30 @@ void main() {
     // haut n'est jamais noir. La part réfléchie de base pèse donc autant que
     // l'albédo ; sans elle, un tram dont les flancs sont vitrés aux deux tiers
     // devient une barre noire, ce qu'on a vu à l'écran le 12/09.
+    // ⚠️ **Une baie vue d'en haut renvoie la chaussée, pas le ciel**, et c'est
+    // ce que la part réfléchie doit dire. Le vecteur réfléchi d'un flanc
+    // vertical sort presque à l'horizontale : `clamp(R.z · 1,5 + 0,5)` le
+    // renvoyait à mi-chemin d'un ciel **surexposé** (× 1,25), soit 0,80. Avec un
+    // Fresnel qui monte à 0,79 en rasant, la vitre recevait 0,63 de gris clair
+    // par-dessus son albédo — sur un tram vitré aux deux tiers, une bande claire
+    // sur tout le flanc. Comme l'éclat de carrosserie, ce dosage-là avait été
+    // réglé sur l'intérieur des caisses.
     vec3 R = reflect(-V, N);
-    vec3 reflection = mix(u_ground, u_sky * 1.25, clamp(R.z * 1.5 + 0.5, 0.0, 1.0));
+    vec3 reflection = mix(u_ground, u_sky, clamp(R.z * 1.5 + 0.5, 0.0, 1.0));
+    // ⚠️ **L'éclat du vitrage était à 0,8, et c'est beaucoup.** Une baie orientée
+    // au bon endroit passait alors à 0x939694 : un gris clair qui se lit comme un
+    // trou dans la caisse, pas comme une vitre. À 0,35 le glissement du reflet
+    // reste visible quand la caméra tourne — c'est lui qui donne le volume — sans
+    // percer le flanc.
+    // Le glissement du reflet quand la caméra tourne est **le** signe qui dit
+    // « verre » plutôt que « aplat sombre » : il faut donc en garder, et assez
+    // pour qu'il se voie. 0,18 de base et 0,30 de Fresnel rendent une vitre
+    // autour de 0,37 de luminance — le ton d'une baie qui renvoie la chaussée,
+    // là où 0,24 et 0,55 en rendaient le double. Le pare-brise du bus, à cette
+    // valeur, se lit comme deux panneaux de verre sombre.
     vec3 glass = v_albedo * (ambient * 0.75 + u_sunColor * ndl * 0.35)
-               + reflection * (0.24 + 0.55 * fresnel)
-               + u_sunColor * pow(ndh, 90.0) * 0.8;
+               + reflection * (0.18 + 0.30 * fresnel)
+               + u_sunColor * pow(ndh, 90.0) * 0.35;
 
     // Roues et bas de caisse : mats, et dans l'ombre de la caisse.
     vec3 matte = v_albedo * (ambient + u_sunColor * ndl * 0.7) * occlusion;
@@ -444,8 +480,23 @@ public:
         // instances et on écarte l'arrière — voir `drawPass`.
         glEnable(GL_CULL_FACE);
         glCullFace(GL_BACK);
-        // La scène retourne l'axe nord-sud, donc l'orientation des triangles.
-        glFrontFace(GL_CW);
+        // ⚠️ **Deux miroirs, pas un : la face avant reste celle de glTF.**
+        //
+        // Le raisonnement qui a mené à `GL_CW` est juste à moitié : notre
+        // `sceneToProjection` retourne bien l'axe nord-sud, et une réflexion
+        // inverse le sens des triangles. Mais la matrice de MapLibre en porte une
+        // **seconde** — le mercator descend vers le sud, l'espace de découpe monte
+        // vers le haut — et deux réflexions se composent en une rotation. Le sens
+        // de glTF, direct, traverse donc les deux intact.
+        //
+        // Écarter `GL_BACK` sous la mauvaise convention, c'est écarter les faces
+        // **extérieures** et peindre l'intérieur de la caisse : le toit qu'on voit
+        // est alors sa doublure, normale vers le sol, éclairée à l'ambiante du
+        // bitume et sans un rayon de soleil. Un toit plus sombre que ses flancs,
+        // que l'œil lit comme un véhicule couché sur le dos — signalé le
+        // 16/09/2026, et mesuré à la sonde : la plus grande face visible d'un bus
+        // rendait `ndl = 0` et l'ambiante du sol.
+        glFrontFace(GL_CCW);
 
         glUseProgram(program_);
         glUniformMatrix4fv(viewProjectionUniform_, 1, GL_FALSE, viewProjection);
