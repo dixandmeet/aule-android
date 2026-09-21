@@ -6,7 +6,6 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,28 +14,22 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.R
-import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.reduceMotionEnabled
 import io.aule.android.core.designsystem.token.AuleBrand
-import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleMotion
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
@@ -52,12 +45,19 @@ import io.aule.android.core.designsystem.token.AuleStroke
  * produit, cela se voit à l'écran d'accueil. iOS a tranché avant nous, et
  * embarque ce même fichier (`../Native/Aule/DesignSystem/Components/AuleLogo.swift`).
  *
- * L'aplat n'est posé **que de jour**. Le dessin est clair sur transparent : sur
- * un fond sombre il se suffit, sur un fond clair il s'efface presque
- * entièrement. C'est la règle du web au mot près
- * (`dashboard/components/carte-immersive/next/hud/map-header.tsx`), et l'aplat
- * y est le teal de l'**identité**, jamais l'accent d'ambiance — le logo d'Aule
- * ne devient pas menthe à la nuit tombée.
+ * Il n'y a **pas d'aplat** sous la marque, et il y a **deux fichiers**. Le
+ * dessin est un dégradé teal sur transparent : il se lit sur un fond clair, et
+ * sur un fond sombre on pose sa contrepartie blanche — la « version
+ * monochrome » de la planche de marque. C'est la règle du web au mot près
+ * (`dashboard/components/carte-immersive/next/hud/map-header.tsx`) et celle
+ * d'iOS (`../Native/Aule/DesignSystem/Components/AuleLogo.swift`).
+ *
+ * ⚠️ Cette règle **s'est inversée** avec le logo de septembre 2026, et c'est
+ * pour cela qu'elle est écrite ici en toutes lettres. L'ancien dessin était
+ * clair : il ne se lisait que sur du sombre, et il lui fallait une pastille
+ * teal le jour. Le nouveau porte ses couleurs, donc il ne veut plus de
+ * pastille — il veut sa contrepartie. Poser encore l'aplat mettrait du teal
+ * sur du teal, et la marque disparaîtrait dans son propre fond.
  *
  * Le fichier porte sa propre réserve : le dessin n'occupe que 63 % du carré, le
  * reste est la marge qui l'écarte du bord de la tuile. Une marque de soixante-
@@ -85,7 +85,6 @@ fun AuleBrandMark(
         )
         animated
     }
-    val tile = RoundedCornerShape(TILE_RADIUS)
     Box(
         modifier = modifier
             .size(HALO_SIZE)
@@ -103,7 +102,7 @@ fun AuleBrandMark(
                 }
                 .border(AuleStroke.hairline, AuleBrand.teal.color, CircleShape),
         )
-        Box(modifier = Modifier.size(TILE_SIZE).brandGround(tile, lifted = true)) {
+        Box(modifier = Modifier.size(TILE_SIZE)) {
             Mark()
         }
     }
@@ -132,7 +131,6 @@ fun AuleWordmark(
     modifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    val tile = RoundedCornerShape(MARK_RADIUS)
     Row(
         modifier = modifier.semantics(mergeDescendants = true) {
             this.contentDescription = contentDescription
@@ -140,7 +138,7 @@ fun AuleWordmark(
         horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(modifier = Modifier.size(MARK_SIZE).brandGround(tile, lifted = false)) {
+        Box(modifier = Modifier.size(MARK_SIZE)) {
             Mark()
         }
         Column {
@@ -162,34 +160,24 @@ fun AuleWordmark(
 /**
  * Le dessin lui-même, décoratif : la phrase est portée par le conteneur, qui
  * dit « logo Aule Pro » une fois pour toute la marque.
+ *
+ * Deux fichiers pour un seul dessin : le blanc **est** la silhouette du teal,
+ * remplie d'un aplat, et non un second tracé. Voir la règle en tête de
+ * [AuleBrandMark].
  */
 @Composable
 private fun Mark() {
     Image(
-        painter = painterResource(R.drawable.aule_logo),
+        painter = painterResource(
+            if (AuleTheme.night) R.drawable.aule_logo_blanc else R.drawable.aule_logo,
+        ),
         contentDescription = null,
         modifier = Modifier.fillMaxSize(),
     )
 }
 
-/**
- * L'aplat sous la marque — et pourquoi il disparaît la nuit.
- *
- * Voir la règle en tête de [AuleBrandMark] : le dessin est clair, donc il lui
- * faut un fond sombre, et de nuit l'écran le lui donne déjà. Poser la tuile
- * quand même mettrait une pastille teal sur du presque noir, et l'ombre qui va
- * avec creuserait un relief là où il n'y a plus de relief à creuser.
- */
-@Composable
-private fun Modifier.brandGround(shape: Shape, lifted: Boolean): Modifier {
-    if (AuleTheme.night) return this
-    val raised = if (lifted) auleShadow(AuleElevation.LIFTED, shape, AuleShadowTint.ACCENT) else this
-    return raised.clip(shape).background(AuleBrand.teal.color)
-}
-
 /** La tuile de la marque en ligne. */
 private val MARK_SIZE = 34.dp
-private val MARK_RADIUS = 10.dp
 
 /**
  * L'espacement des capitales du sur-titre.
@@ -202,4 +190,3 @@ private val KICKER_TRACKING = 1.2.sp
 private val HALO_SIZE = 128.dp
 private val WAVE_SIZE = 88.dp
 private val TILE_SIZE = 76.dp
-private val TILE_RADIUS = 21.dp
