@@ -93,7 +93,7 @@ class SupabaseSavedPlaceRepository(
             places.forEach { place ->
                 add(
                     buildJsonObject {
-                        place.toRemoteRow().forEach { (key, value) ->
+                        place.toRemoteRow(session.user.id).forEach { (key, value) ->
                             put(
                                 key,
                                 when (value) {

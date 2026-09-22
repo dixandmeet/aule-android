@@ -17,6 +17,9 @@ import org.junit.jupiter.api.Test
  */
 class SavedPlaceTest {
 
+    private val PROPRIETAIRE = "00145d22-2359-4a66-a675-e37dba179f2c"
+
+
     private val t0: Instant = Instant.parse("2026-08-26T08:00:00Z")
 
     private fun place(
@@ -294,7 +297,7 @@ class SavedPlaceTest {
         val tombstone = removeSavedPlace("a", listOf(place("a", name = "Crèche")), t0.plusSeconds(60))
             .single()
 
-        val row = tombstone.toRemoteRow()
+        val row = tombstone.toRemoteRow(PROPRIETAIRE)
 
         // `name`, `label`, `lat` et `lng` sont NOT NULL dans
         // `user_saved_places`. Un nul ferait rejeter l'écriture en 400 — et
@@ -307,10 +310,20 @@ class SavedPlaceTest {
     }
 
     @Test
+    fun `le proprietaire part avec la ligne`() {
+        val row = place("a", name = "Commerce").toRemoteRow(PROPRIETAIRE)
+
+        // Sans lui, PostgREST insère une ligne sans propriétaire : la colonne est NOT NULL sans
+        // défaut, et `WITH CHECK (user_id = auth.uid())` la refuse en 42501. C'est le défaut
+        // qui a rendu la synchronisation des lieux muette et inopérante jusqu'au 22/09/2026.
+        assertEquals(PROPRIETAIRE, row["user_id"])
+    }
+
+    @Test
     fun `le mode d'arret part dans le vocabulaire de la colonne`() {
         val row = place("a", name = "Commerce")
             .copy(stopMode = TransportMode.TRAM)
-            .toRemoteRow()
+            .toRemoteRow(PROPRIETAIRE)
 
         // CHECK (stop_mode IN ('bus','tram','boat')). Envoyer le nom de la
         // constante Kotlin — « TRAM » — ferait rejeter la ligne entière.

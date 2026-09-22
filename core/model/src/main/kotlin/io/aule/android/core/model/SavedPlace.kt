@@ -428,10 +428,23 @@ fun decodeSavedPlaces(raw: String?): List<SavedPlace> {
  * Ce que la table `user_saved_places` attend, une ligne par favori.
  *
  * Les pierres tombales partent aussi : c'est par elles que l'autre appareil
- * apprendra la suppression. `user_id` n'y figure pas — la RLS n'accepte que
- * `auth.uid()`, et le laisser au client promettrait plus que la base ne permet.
+ * apprendra la suppression.
+ *
+ * ## ⚠️ `user_id` part avec la ligne, et il le faut
+ *
+ * Il n'y figurait pas, au motif que « la RLS n'accepte que `auth.uid()` ». C'est vrai, et c'est
+ * précisément pour cela qu'il doit partir : PostgREST **ne le remplit pas** à la place du
+ * client, et la colonne n'a pas de défaut. La ligne arrivait donc sans propriétaire, et la RLS
+ * la refusait — `42501, new row violates row-level security policy` à chaque poussée, depuis
+ * toujours, en silence. Relevé en recette le 22/09/2026 : la promesse « Lieux synchronisés d'un
+ * téléphone à l'autre » n'a jamais été tenue.
+ *
+ * Le laisser au client ne promet rien de plus : le `WITH CHECK (user_id = auth.uid())` refuse
+ * toujours une valeur qui n'est pas la sienne. Il rend seulement possible ce que la politique
+ * autorisait déjà.
  */
-fun SavedPlace.toRemoteRow(): Map<String, Any?> = linkedMapOf(
+fun SavedPlace.toRemoteRow(userId: String): Map<String, Any?> = linkedMapOf(
+    "user_id" to userId,
     "id" to id,
     "slot" to slot.wire,
     // La colonne s'appelle `symbol`, pas `icon` : c'est le schéma qui fait foi.
