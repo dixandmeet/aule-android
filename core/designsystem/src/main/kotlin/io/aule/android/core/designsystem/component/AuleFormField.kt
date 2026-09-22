@@ -8,6 +8,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -20,8 +22,17 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
@@ -30,6 +41,7 @@ import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.token.AuleSpacing
 
@@ -83,7 +95,44 @@ fun AuleFormField(
     fieldModifier: Modifier = Modifier,
 ) {
     val colors = MaterialTheme.colorScheme
-    Column(modifier = modifier.fillMaxWidth()) {
+    // ⚠️ **Un champ refusé ne se voyait pas se faire refuser.** Le message naît *sous* la boîte,
+    // c'est-à-dire du côté où le clavier mange l'écran : sur l'inscription du voyageur, il
+    // tombait quatre-vingt-dix points sous le bord du clavier, et il fallait refermer celui-ci
+    // pour le lire. L'écran rendait bien le refus — bordure rouge, `error()` dans l'arbre —, mais
+    // rien ne défilait, et l'appui se lisait comme un appui perdu (BUG-AND-213, S21, 22/09/2026).
+    //
+    // Rendre le focus au champ n'y pouvait rien : la soumission venait justement du champ où l'on
+    // tapait, `requestFocus()` portait donc sur un champ qui l'avait déjà, et un focus qui ne
+    // change pas ne fait rien bouger.
+    //
+    // L'ancre porte sur la colonne **entière**, message compris : ramener la seule boîte de
+    // saisie laisserait la ligne d'erreur un cran trop bas, c'est-à-dire exactement là où elle
+    // était. Et elle n'agit que sur le champ **qui a le focus**, donc sur celui que l'écran a
+    // désigné comme premier fautif : deux champs refusés d'un coup se disputeraient le
+    // défilement, et la file de `bringIntoView` donne la victoire au dernier arrivé — le plus
+    // bas, jamais le premier.
+    val anchor = remember { BringIntoViewRequester() }
+    var focused by remember { mutableStateOf(false) }
+    var champ by remember { mutableStateOf(IntSize.Zero) }
+    val density = LocalDensity.current
+    LaunchedEffect(error, focused) {
+        if (error == null || !focused) return@LaunchedEffect
+        // ⚠️ **Le strict nécessaire pose la dernière ligne contre le bord du clavier.**
+        // `bringIntoView` défile juste assez pour que le rectangle demandé tienne dans la vue :
+        // mesuré sur le S21, « caractères. » finissait à seize points du clavier, lisible mais
+        // collé. On demande donc le champ **plus une marge**, celle qui sépare déjà la boîte de
+        // son message.
+        val air = with(density) { AuleSpacing.sm.toPx() }
+        anchor.bringIntoView(
+            Rect(0f, 0f, champ.width.toFloat(), champ.height.toFloat() + air),
+        )
+    }
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .onSizeChanged { champ = it }
+            .bringIntoViewRequester(anchor),
+    ) {
         Text(
             text = fieldLabel(label, required, SpanStyle(color = colors.error)),
             style = MaterialTheme.typography.labelLarge,
@@ -110,6 +159,7 @@ fun AuleFormField(
             // simple libellé. Le message y est repris tel quel : c'est celui qui s'affiche.
             modifier = fieldModifier
                 .fillMaxWidth()
+                .onFocusChanged { focused = it.isFocused }
                 .then(
                     if (error != null) {
                         Modifier.semantics { error(error) }
