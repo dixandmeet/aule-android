@@ -2,8 +2,10 @@ package io.aule.android.core.location
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.location.Location
 import android.location.LocationManager
@@ -87,8 +89,43 @@ class FusedLocationProvider(
         }
     }
 
+    /**
+     * L'interrupteur de localisation du téléphone, écouté là où il change.
+     *
+     * ## ⚠️ Pourquoi `refreshAuthorization()` ne suffisait pas
+     *
+     * L'état n'était relu qu'à la demande de l'écran, c'est-à-dire à son retour au premier
+     * plan. Or on coupe et on rallume la localisation **depuis le volet des réglages rapides**,
+     * qui se tire par-dessus l'application sans jamais la mettre en pause : Aule continuait
+     * alors d'afficher « La localisation est éteinte » sur un téléphone qui l'avait rallumée,
+     * indéfiniment. Relevé en recette le 22/09/2026 : vingt secondes d'attente, le bandeau
+     * toujours là ; un aller-retour par l'écran d'accueil le faisait disparaître — mais rien
+     * à l'écran ne disait qu'il fallait en passer par là.
+     *
+     * `MODE_CHANGED_ACTION` est le signal que le système émet à chaque bascule, et il n'exige
+     * aucune autorisation. L'écoute est posée sur le **contexte applicatif** : ce fournisseur
+     * vit aussi longtemps que le processus, et une écoute attachée à un écran manquerait
+     * précisément les bascules faites pendant qu'il n'y en a pas.
+     *
+     * ⚠️ **Le rappel ne fait que relire.** Il ne démarre ni n'arrête le flux : c'est le palier
+     * en cours qui en décide, et rallumer la localisation pendant qu'aucun écran ne demande
+     * de position ne doit pas en réveiller un.
+     */
+    private val locationModeWatcher = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != LocationManager.MODE_CHANGED_ACTION) return
+            refreshAuthorization()
+        }
+    }
+
     init {
         logger.info(LogDomain.GPS, "Autorisation : ${_authorization.value}")
+        ContextCompat.registerReceiver(
+            appContext,
+            locationModeWatcher,
+            IntentFilter(LocationManager.MODE_CHANGED_ACTION),
+            ContextCompat.RECEIVER_NOT_EXPORTED,
+        )
     }
 
     override fun start(purpose: LocationPurpose) {
