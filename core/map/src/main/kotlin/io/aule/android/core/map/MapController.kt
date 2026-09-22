@@ -736,6 +736,38 @@ class MapController(
         reframeForSheet()
     }
 
+    /**
+     * Où la caméra se trouve, en cinq nombres — de quoi la remettre plus tard.
+     *
+     * ## ⚠️ Pourquoi l'écran doit garder ça, et pas le contrôleur
+     *
+     * Un contrôleur ne survit pas à un changement de configuration : il naît dans
+     * `MainActivity.onCreate`, et basculer la navigation d'Android entre trois touches et
+     * gestes en fabrique un neuf — vérifié en recette le 22/09/2026, trois instances en huit
+     * secondes. Tout relevé qu'il garderait mourrait donc avec lui, au moment précis où il
+     * servirait.
+     *
+     * L'écran, lui, a ce qu'il faut : ses `rememberSaveable` traversent la reconstruction.
+     * C'est d'ailleurs ce qui crée le défaut — le drapeau « déjà cadré » survit, la carte non,
+     * et plus personne ne repose la caméra. La carte repartait à **l'échelle du monde**, puck
+     * compris, et n'en revenait jamais.
+     *
+     * Cinq `Double` plutôt qu'un `CameraPosition` : ce qui entre dans un `rememberSaveable`
+     * doit tenir dans un `Bundle` sans cérémonie, et c'est exactement ce que [moveTo] reprend.
+     * L'ordre est celui de [moveTo] : latitude, longitude, zoom, inclinaison, cap.
+     */
+    fun cameraSnapshot(): DoubleArray? {
+        val position = map?.cameraPosition ?: return null
+        val target = position.target ?: return null
+        return doubleArrayOf(
+            target.latitude,
+            target.longitude,
+            position.zoom,
+            position.tilt,
+            position.bearing,
+        )
+    }
+
     fun moveTo(center: Coordinate, zoom: Double, pitch: Double = 0.0, bearing: Double = 0.0) {
         val view = mapView ?: return
 
