@@ -80,7 +80,7 @@ class FusedLocationProvider(
 
     private var purpose: LocationPurpose = LocationPurpose.READY
     private var isUpdating = false
-    private var foregroundActive = false
+    private val foreground = ForegroundServiceGate()
 
     private val callback = object : LocationCallback() {
         override fun onLocationResult(result: LocationResult) {
@@ -310,28 +310,31 @@ class FusedLocationProvider(
     }
 
     private fun startForegroundService() {
+        val onDuty = purpose == LocationPurpose.ON_DUTY
+        // ⚠️ **On ne redemande pas un service qui porte déjà le bon libellé.** L'arrêt avait
+        // cette garde depuis toujours, le démarrage non : un retour au premier plan pendant un
+        // guidage en lançait trois d'affilée. Voir [ForegroundServiceGate], qui dit pourquoi le
+        // libellé entre dans la décision et pas seulement le fait de tourner.
+        if (!foreground.needsStart(onDuty)) return
         try {
-            NavigatingForegroundService.start(
-                appContext,
-                onDuty = purpose == LocationPurpose.ON_DUTY,
-            )
-            foregroundActive = true
+            NavigatingForegroundService.start(appContext, onDuty = onDuty)
+            foreground.started(onDuty)
             logger.info(LogDomain.GPS, "Service de premier plan démarré.")
         } catch (failure: Throwable) {
-            foregroundActive = false
+            foreground.stopped()
             logger.warn(LogDomain.GPS, "Service de premier plan impossible.", failure)
         }
     }
 
     private fun stopForegroundService() {
-        if (!foregroundActive) {
+        if (!foreground.isActive) {
             // Arrêter quand même : un processus tué puis relancé peut laisser
             // le service orphelin avec notre drapeau à false.
             runCatching { NavigatingForegroundService.stop(appContext) }
             return
         }
         runCatching { NavigatingForegroundService.stop(appContext) }
-        foregroundActive = false
+        foreground.stopped()
         logger.info(LogDomain.GPS, "Service de premier plan arrêté.")
     }
 
