@@ -154,9 +154,28 @@ internal data class ServingLineDto(
 @Serializable
 internal data class GeocodePayloadDto(val results: List<GeocodeResultDto> = emptyList())
 
+/**
+ * Un résultat d'autocomplétion : **un nom et une clé, jamais un point**.
+ *
+ * ⚠️ `lat`/`lng` restent déclarés, et restent vides en production. `/api/geocode?q=`
+ * rend `{placeId, label, details}` — le fournisseur facture la position à part, et le
+ * BFF ne la demande que sur `?placeId=`. Les garder ici coûte deux champs et évite de
+ * casser un appelant qui, lui, recevrait un jour la position d'un autre fournisseur.
+ *
+ * Le champ qui compte est [placeId] : sans lui, un résultat n'est qu'un libellé qu'on
+ * ne peut poser nulle part, et c'est très exactement ce qui arrivait avant le 22/09/2026
+ * — `AulePlaceSearchRepository` écartait chaque résultat faute de coordonnées, et
+ * « Château des ducs » comme « rue de Strasbourg » répondaient « Aucun lieu à ce nom ».
+ */
 @Serializable
 internal data class GeocodeResultDto(
+    val placeId: String? = null,
     val label: String? = null,
+    val details: String? = null,
     val lng: Double? = null,
     val lat: Double? = null,
 )
+
+/** La réponse de `/api/geocode?placeId=` : le point que l'autocomplétion ne donne pas. */
+@Serializable
+internal data class GeocodeLookupDto(val result: GeocodeResultDto? = null)

@@ -313,6 +313,30 @@ class MapController(
     /** L'ordre de ces appels n'est pas commutatif. */
     private fun onStyleLoaded(loaded: Style, ambiance: MapAmbiance) {
         val map = map ?: return
+
+        // ⚠️ **Un style qui arrive après qu'on a changé d'avis n'est plus le bon.**
+        //
+        // `attach` charge le décor que l'écran connaît à l'instant où la carte naît, et
+        // l'écran change d'avis juste après : le réglage d'apparence se lit sur le disque,
+        // donc la première composition passe « Jour » et la suivante « Nuit ». Deux
+        // `setStyle` partent alors à quelques images d'intervalle, et rien ne garantit
+        // l'ordre de leurs retours — MapLibre les rend quand chacun a fini de bâtir ses
+        // couches, pas dans l'ordre où on les a demandés. Quand le clair rendait la main
+        // en dernier, il écrasait le sombre : la carte s'ouvrait en plein jour à deux
+        // heures du matin, pendant que le volet et la barre de recherche, eux, étaient
+        // passés en nuit. Relevé en recette le 22/09/2026, à chaque lancement.
+        //
+        // Le remède tient à la comparaison : ce retour ne vaut que s'il porte encore le
+        // décor courant. Sinon on le laisse tomber — le chargement qui l'a périmé est
+        // déjà en route, et c'est lui qui posera les couches.
+        if (ambiance != _ambiance.value) {
+            logger.info(
+                LogDomain.MAP,
+                "Style $ambiance ignoré : le décor est passé à ${_ambiance.value}.",
+            )
+            return
+        }
+
         style = loaded
 
         MapIcons.register(loaded, night = ambiance == MapAmbiance.DARK)

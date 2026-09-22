@@ -130,6 +130,32 @@ class BffRepositoryTest {
     }
 
     /**
+     * Le défaut relevé en recette le 22/09/2026, et ce qu'il coûtait : le BFF rend
+     * `"trajectory": null` pour un véhicule dont il ne connaît pas la course, le DTO
+     * attend une liste non nullable, et le décodeur emportait la **flotte entière** —
+     * toutes les quinze secondes, sous un « Réponse inattendue du serveur ».
+     *
+     * Un `null` explicite n'est pas une clé absente : seul `coerceInputValues` les
+     * traite pareil, et c'est ce que cette épreuve garde.
+     */
+    @Test
+    fun `une trajectoire nulle ne fait pas perdre la flotte`() = runTest {
+        respond(fixture("vehicles-null-trajectory.json"))
+        val snapshot = AuleVehicleRepository(endpoints, client, clock)
+            .vehicles(Coordinate.NANTES, radiusMeters = 2500.0, limit = 250)
+
+        assertEquals(
+            listOf("live-sans-course", "th-D003871"),
+            snapshot.vehicles.map { it.id }.sorted(),
+            "le véhicule sans trajectoire entre, et n'emporte pas son voisin",
+        )
+        assertTrue(
+            snapshot.vehicles.first { it.id == "live-sans-course" }.trajectory.isEmpty(),
+            "une trajectoire nulle se lit comme une trajectoire vide",
+        )
+    }
+
+    /**
      * Le défaut qu'on cherche à rendre impossible : une carte d'apparence
      * normale, sans véhicules et sans message, pendant une panne.
      */
@@ -227,14 +253,40 @@ class BffRepositoryTest {
 
     // ------------------------------------------------------------------- lieux
 
+    /**
+     * ⚠️ **Deux réponses, parce que le serveur répond en deux temps.**
+     *
+     * `?q=` rend `{placeId, label}` sans position, `?placeId=` rend la position. Tant que
+     * la fixture de cette épreuve portait un `lat`/`lng` que la production ne renvoie pas,
+     * l'épreuve passait au vert sur un dépôt qui, en vrai, rendait une liste vide à chaque
+     * frappe — recette du 22/09/2026, BUG-AND-202.
+     */
     @Test
-    fun `le geocodeur rend des lieux exploitables`() = runTest {
+    fun `le geocodeur resout la place avant de la rendre`() = runTest {
         respond(fixture("geocode.json"))
+        respond(fixture("geocode-lookup.json"))
         val place = AulePlaceSearchRepository(endpoints, client).search("Beaujoire").firstOrNull()
         assertNotNull(place)
 
-        assertEquals("Beaujoire, 44000 Nantes", place.label)
+        assertEquals("Beaujoire, 44000 Nantes, France", place.label)
         assertTrue(place.coordinate.isValid)
+        assertEquals(47.258828, place.coordinate.latitude, 1e-6)
+
+        // La première requête cherche, la seconde résout : c'est le contrat du BFF.
+        assertTrue(server.takeRequest().target.contains("q=Beaujoire"))
+        assertTrue(server.takeRequest().target.contains("placeId=ChIJ7RSHIqXuBUgRlp3HB22MjZc"))
+    }
+
+    /**
+     * Une résolution qui échoue écarte **ce** lieu, jamais la recherche : un quota
+     * atteint sur la cinquième suggestion ne doit pas effacer les quatre premières.
+     */
+    @Test
+    fun `une resolution en echec n emporte pas la recherche`() = runTest {
+        respond(fixture("geocode.json"))
+        respond("""{"error":"quota"}""", status = 429)
+        val places = AulePlaceSearchRepository(endpoints, client).search("Beaujoire")
+        assertEquals(emptyList(), places, "le lieu non résolu est écarté, sans lever")
     }
 
     /**

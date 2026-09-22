@@ -1,0 +1,11 @@
+{"vehicles":[{"id":"live-sans-course","type":"bus","mode":"live","lat":47.21913,
+"lng":-1.53549,"heading":74,"aheadLat":null,"aheadLng":null,
+"trajectory":null,"stopProgress":null,"dwellSeconds":null,"speedMps":0,
+"recordedAt":"2026-09-22T03:14:35+00:00","routeId":"16","destination":null,
+"nextStop":null,"etaSeconds":null,"twinId":null},
+{"id":"th-D003871","type":"tram","mode":"scheduled","lat":47.21927,
+"lng":-1.53474,"heading":74,"aheadLat":null,"aheadLng":null,
+"trajectory":[{"lat":47.21913,"lng":-1.53549},{"lat":47.21927,"lng":-1.53474}],
+"stopProgress":null,"dwellSeconds":5,"speedMps":5.9,"recordedAt":null,"routeId":"1",
+"destination":"Beaujoire / Babinière","nextStop":"Moutonnerie","etaSeconds":38,
+"twinId":null}],"generatedAt":"2026-09-22T03:14:40.000Z","horizonSeconds":10,"degraded":null}

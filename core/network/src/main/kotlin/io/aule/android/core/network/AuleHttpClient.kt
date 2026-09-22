@@ -320,6 +320,28 @@ class AuleHttpClient(
             ignoreUnknownKeys = true
             isLenient = false
             explicitNulls = false
+
+            /**
+             * ⚠️ **Un `null` reçu sur un champ qui a une valeur par défaut prend cette
+             * valeur, au lieu de faire échouer toute la réponse.**
+             *
+             * `explicitNulls = false` ne suffit pas : il règle l'écriture, et la lecture
+             * d'un champ **nullable** absent. Il ne dit rien d'un champ non nullable à qui
+             * le serveur envoie `null` — là, le décodeur lève, et c'est la charge utile
+             * **entière** qui est perdue, pas le seul champ fautif.
+             *
+             * Le cas s'est produit en recette le 22/09/2026 : `/api/carte-immersive/vehicles`
+             * rend `"trajectory": null` pour un véhicule dont la course est inconnue
+             * (`dashboard/app/api/carte-immersive/vehicles/route.ts` la type `… | null`),
+             * alors que `VehicleDto.trajectory` est une `List` non nullable à défaut vide.
+             * Un seul véhicule sans trajectoire effaçait **toute la flotte**, toutes les
+             * quinze secondes, et le voyageur lisait « Réponse inattendue du serveur ».
+             *
+             * Le réglage vaut pour tous les dépôts d'un coup, et c'est le point : vingt et un
+             * champs de liste portent le même défaut latent, chacun n'attendant que le jour
+             * où le BFF renverra `null` plutôt que d'omettre la clé.
+             */
+            coerceInputValues = true
         }
 
         /**
