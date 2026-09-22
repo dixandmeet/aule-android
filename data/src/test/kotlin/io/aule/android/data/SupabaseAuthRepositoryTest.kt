@@ -96,6 +96,45 @@ class SupabaseAuthRepositoryTest {
     }
 
     /**
+     * ⚠️ **Un compte déjà pris revient en `200`, avec `identities` vide.**
+     *
+     * GoTrue ne dit jamais « cette adresse est prise » : il rend un utilisateur d'apparence
+     * normale, dont l'`id` est tiré au hasard et dont la liste d'identités est vide. Sans lire
+     * ce signal, l'écran annonçait « Regardez vos e-mails » à quelqu'un qui avait déjà un
+     * compte — et le lien promis n'arrive jamais, GoTrue n'en envoyant pas pour une adresse
+     * déjà confirmée. Recette du 22/09/2026, BUG-AND-218.
+     */
+    @Test
+    fun `une adresse deja inscrite est refusee plutot que promise par e-mail`() = runTest {
+        respond(
+            """{"id":"e5d2bebc-4693-4906-9d3f-225fda139200","aud":"authenticated",""" +
+                """"email":"a@b.fr","identities":[],"created_at":"2026-09-22T00:27:07Z"}""",
+        )
+
+        val failure = assertThrows<AuthException> {
+            repository.signUpPassenger("a@b.fr", "motdepasse123", null)
+        }
+        assertEquals(AuthFailureKind.USER_ALREADY_EXISTS, failure.kind)
+    }
+
+    /**
+     * Le contrôle négatif : un compte réellement neuf porte au moins une identité, et
+     * l'inscription doit passer. Une version de GoTrue qui n'enverrait pas le champ du tout
+     * ne doit pas davantage faire refuser l'inscription.
+     */
+    @Test
+    fun `une adresse neuve passe, champ absent compris`() = runTest {
+        respond(
+            """{"id":"11111111-2222-3333-4444-555555555555","email":"neuf@b.fr",""" +
+                """"identities":[{"id":"x","provider":"email"}]}""",
+        )
+        repository.signUpPassenger("neuf@b.fr", "motdepasse123", null)
+
+        respond("""{"id":"66666666-7777-8888-9999-000000000000","email":"autre@b.fr"}""")
+        repository.signUpPassenger("autre@b.fr", "motdepasse123", null)
+    }
+
+    /**
      * ⚠️ **GoTrue renvoie `code` en nombre, et c'est tout l'objet de ce test.**
      *
      * Le corps réel d'un refus porte `"code": 400` à côté de `error_code` — le

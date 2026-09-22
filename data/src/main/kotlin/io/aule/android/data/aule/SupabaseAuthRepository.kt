@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -323,11 +324,15 @@ class SupabaseAuthRepository(
                 put("data", buildJsonObject { put("display_name", name) })
             }
         }.toString()
-        postAuth(
+        val response = postAuth(
             path = "/signup",
             jsonBody = body,
             query = mapOf("redirect_to" to emailRedirect),
         )
+        if (response.describesExistingAccount()) {
+            logger.info(LogDomain.AUTH, "Inscription refusée : l'adresse a déjà un compte.")
+            throw AuthException(AuthFailureKind.USER_ALREADY_EXISTS)
+        }
         logger.info(LogDomain.AUTH, "Inscription voyageur envoyée.")
     }
 
@@ -683,6 +688,41 @@ class SupabaseAuthRepository(
     }
 
     /**
+     * `/signup` a-t-il rendu un compte **factice** ?
+     *
+     * ## ⚠️ GoTrue ne dit jamais « cette adresse est prise »
+     *
+     * Il rend `200` avec un utilisateur d'apparence normale — mais dont `identities` est
+     * **vide**, et dont l'`id` est tiré au hasard à chaque appel. C'est délibéré : répondre
+     * franchement livrerait la liste des inscrits à qui prend le temps de deviner des adresses.
+     * Le signal est documenté, et c'est au client de décider s'il le lit.
+     *
+     * ## Pourquoi on le lit ici
+     *
+     * Sans lui, quelqu'un qui a déjà un compte et le recrée par mégarde voit « Regardez vos
+     * e-mails », attend un lien de confirmation qui n'arrivera jamais — GoTrue n'en envoie pas
+     * pour un compte déjà confirmé — et reste devant un écran qui ne mène nulle part. Relevé en
+     * recette le 22/09/2026, BUG-AND-218.
+     *
+     * ⚠️ **Et l'énumération que ce silence protège est déjà percée ailleurs, dans cette même
+     * application.** L'écran de connexion distingue « Adresse e-mail ou mot de passe incorrect »
+     * d'un compte inconnu, mais répond « Votre adresse n'est pas encore confirmée » quand
+     * l'adresse existe — ce qui révèle exactement la même chose, à qui la cherche. Taire ici ce
+     * qu'on dit là ne protège personne ; ça n'égare que le voyageur de bonne foi.
+     */
+    private fun RawHttpResponse.describesExistingAccount(): Boolean {
+        if (code !in 200..299) return false
+        return runCatching {
+            val root = Json.parseToJsonElement(body) as? JsonObject ?: return false
+            // Un compte neuf porte au moins une identité. Le champ absent n'est pas un compte
+            // pris : les versions de GoTrue qui ne l'envoient pas ne doivent pas faire refuser
+            // toutes les inscriptions.
+            val identities = root["identities"] as? JsonArray ?: return false
+            identities.isEmpty()
+        }.getOrDefault(false)
+    }
+
+    /**
      * POST GoTrue qui n'ouvre pas de session — inscription, renvoi d'e-mail.
      *
      * Un 2xx suffit : GoTrue peut renvoyer l'utilisateur sans jetons tant que
@@ -769,6 +809,8 @@ class MemoryRegistrationDraftStore : RegistrationDraftStore {
         draft = null
         step = null
     }
+
+
 }
 
 internal const val EMAIL_CONFIRMATION_REDIRECT = "io.aule.pro://login-callback/"

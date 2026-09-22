@@ -276,8 +276,14 @@ fun Place.contextLabel(): String = placeContext(label)
 /**
  * Un lieu desservi par un tram et par un car reste une station de tram.
  * Un lieu desservi par un Navibus et par un bus reste une escale.
+ *
+ * ⚠️ **Publique, parce que la recherche n'est pas seule à nommer un pôle.** « Autour de vous »
+ * fusionne lui aussi les quais d'un même lieu, et gardait le mode du seul quai retenu : Ranzay
+ * s'y annonçait « Arrêt de bus » là où la recherche disait « Station de tram », pour le même
+ * nom et le même lieu. Deux chemins ne doivent pas donner deux natures — recette du
+ * 22/09/2026, BUG-AND-214. La règle est de réseau, pas de recherche.
  */
-internal fun TransportMode.mergePreferringRail(other: TransportMode): TransportMode = when {
+fun TransportMode.mergePreferringRail(other: TransportMode): TransportMode = when {
     this == TransportMode.TRAM || other == TransportMode.TRAM -> TransportMode.TRAM
     this == TransportMode.BOAT || other == TransportMode.BOAT -> TransportMode.BOAT
     else -> TransportMode.BUS

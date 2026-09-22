@@ -97,13 +97,32 @@ object NearbyDigestBuilder {
         limit: Int,
     ): List<NearbyDigest.StopEntry> {
         val closestByPlace = LinkedHashMap<String, NearbyDigest.StopEntry>()
+        // ⚠️ **On garde le quai le plus proche, mais la nature du *pôle*.**
+        //
+        // Un lieu mêle les modes : à Ranzay, l'autobus est à 180 m et le tram à 250. Garder le
+        // mode du seul quai retenu faisait annoncer « Arrêt de bus » un lieu que la recherche
+        // appelait « Station de tram » — elle fusionne ses quais, elle, avec
+        // [mergePreferringRail]. Deux chemins, deux natures pour le même nom ; et la fiche
+        // ouverte depuis « Autour de vous » listait ensuite le tram 1 sous un en-tête
+        // « ARRÊT DE BUS ». Relevé en recette le 22/09/2026, BUG-AND-214.
+        //
+        // La distance et l'identité restent celles du quai le plus proche : c'est là qu'on
+        // envoie le voyageur, et c'est son `departuresKey` qu'on interrogera. Seul le mode
+        // parle du lieu.
+        val modeByPlace = LinkedHashMap<String, TransportMode>()
         for (stop in stops) {
+            val key = stop.departuresKey
+            modeByPlace[key] = modeByPlace[key]?.mergePreferringRail(stop.mode) ?: stop.mode
             val entry = NearbyDigest.StopEntry(stop, GeoMath.distance(around, stop.coordinate))
-            val existing = closestByPlace[stop.departuresKey]
+            val existing = closestByPlace[key]
             if (existing != null && existing.distanceMeters <= entry.distanceMeters) continue
-            closestByPlace[stop.departuresKey] = entry
+            closestByPlace[key] = entry
         }
-        return closestByPlace.values
+        return closestByPlace.entries
+            .map { (key, entry) ->
+                val mode = modeByPlace[key] ?: entry.stop.mode
+                if (mode == entry.stop.mode) entry else entry.copy(stop = entry.stop.copy(mode = mode))
+            }
             .sortedWith(compareBy({ it.distanceMeters }, { it.stop.id }))
             .take(limit)
     }
