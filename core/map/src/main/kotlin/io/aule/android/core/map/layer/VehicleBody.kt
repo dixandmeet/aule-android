@@ -1,6 +1,7 @@
 package io.aule.android.core.map.layer
 
 import io.aule.android.core.geo.GeoMath
+import io.aule.android.core.map.MapScale
 import io.aule.android.core.model.TransportMode
 import kotlin.math.cos
 import kotlin.math.min
@@ -68,20 +69,47 @@ internal object VehicleBody {
     }
 
     /**
-     * Le grossissement appliqué aux cotes, selon le zoom.
+     * Le grossissement appliqué aux cotes : de quoi tenir une **longueur à
+     * l'écran**, jamais moins que la vraie.
      *
-     * À l'échelle exacte, un bus de onze mètres fait quelques pixels au seuil
-     * d'apparition : on le devine sans le lire. On l'exagère donc là où la carte
-     * est large, et on rend les proportions vraies dès qu'on descend dans la rue
-     * — même parti que le web, et que les figurants du décor.
+     * À l'échelle exacte, un bus de onze mètres fait une dizaine de points au
+     * cadre du quartier : on le devine sans le lire. On l'agrandit donc jusqu'à
+     * [floorPoints] points de long, et on rend les proportions vraies dès que la
+     * carte descend assez pour qu'il les atteigne seul — vers z17,4 pour un bus,
+     * z16,6 pour un tram. Même parti que le web, et que les figurants du décor.
      *
-     * Le tram, déjà long de vingt-huit mètres, est moins grossi : au même facteur
-     * il avalerait les carrefours.
+     * ⚠️ **Un plancher en points, pas un facteur par zoom.** L'ancienne rampe
+     * plafonnait à ×1,6 à z15,5 : un bus y mesurait **quinze points**, et
+     * comme le facteur ne suivait pas l'échelle, chaque cran de dézoom le
+     * divisait par deux. Signalé à l'écran (« beaucoup trop petits ») le
+     * 23/09/2026, au moment où l'ouverture reculait au quartier.
+     *
+     * Le tram, déjà long de vingt-huit mètres, a un plancher plus long mais un
+     * grossissement moindre : au facteur d'un bus, il avalerait les carrefours.
+     *
+     * @param latitude celle du véhicule. Web Mercator étire les distances vers
+     *   les pôles : le même zoom ne donne pas le même nombre de mètres par
+     *   point à Nantes et à Lille.
      */
-    fun emphasis(mode: TransportMode, zoom: Double): Double {
-        val base = min(MAX_EMPHASIS, MAX_EMPHASIS - (zoom - EMPHASIS_FROM) * EMPHASIS_DECAY)
-            .coerceAtLeast(1.0)
-        return if (mode == TransportMode.TRAM) 1 + (base - 1) * TRAM_EMPHASIS_SHARE else base
+    fun emphasis(mode: TransportMode, zoom: Double, latitude: Double): Double {
+        if (!zoom.isFinite() || !latitude.isFinite()) return 1.0
+        val metersPerPoint = MapScale.metersPerPixel(latitude, zoom)
+        val floorMeters = floorPoints(mode) * metersPerPoint
+        return (floorMeters / gauge(mode).lengthMeters).coerceIn(1.0, MAX_EMPHASIS)
+    }
+
+    /**
+     * La longueur d'écran, en points, sous laquelle un véhicule ne descend pas.
+     *
+     * Celle d'un bus est celle d'un doigt posé : à peu près le bouton de
+     * position, de quoi lire le sens de marche et viser la caisse. Le tram
+     * garde sa silhouette de rame, nettement plus longue qu'un bus sans
+     * l'être trois fois comme dans la rue.
+     */
+    fun floorPoints(mode: TransportMode): Double = when (mode) {
+        TransportMode.BUS -> BUS_FLOOR_POINTS
+        TransportMode.TRAM -> TRAM_FLOOR_POINTS
+        TransportMode.BOAT -> BOAT_FLOOR_POINTS
     }
 
     /**
@@ -155,15 +183,16 @@ internal object VehicleBody {
         put(5, halfLength - nose, -halfWidth)
     }
 
-    /** Le seuil de zoom où le grossissement est à son maximum. */
-    private const val EMPHASIS_FROM = 15.5
+    private const val BUS_FLOOR_POINTS = 36.0
+    private const val TRAM_FLOOR_POINTS = 60.0
+    private const val BOAT_FLOOR_POINTS = 44.0
 
-    private const val MAX_EMPHASIS = 1.6
-
-    /** De sorte que les proportions redeviennent vraies vers z17,4. */
-    private const val EMPHASIS_DECAY = 0.32
-
-    private const val TRAM_EMPHASIS_SHARE = 0.55
+    /**
+     * Le plafond, pour les zooms où le volume ne se voit déjà plus : le fondu
+     * éteint les caisses sous z14,9, mais la scène 3D les calcule encore, et un
+     * bus de cent mètres de haut traversant le fondu se verrait.
+     */
+    private const val MAX_EMPHASIS = 6.0
 
     /** Longueur du nez : une part de la caisse, plafonnée pour les longs véhicules. */
     private const val NOSE_SHARE = 0.18

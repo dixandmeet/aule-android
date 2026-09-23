@@ -2,6 +2,7 @@ package io.aule.android.core.map.layer
 
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.geo.GeoMath
+import io.aule.android.core.map.MapScale
 import io.aule.android.core.map.MapZoom
 import io.aule.android.core.model.TransportMode
 import kotlin.math.abs
@@ -103,14 +104,67 @@ class VehicleBodyTest {
 
     @Test
     fun `le grossissement s eteint quand on descend dans la rue`() {
-        val far = VehicleBody.emphasis(TransportMode.BUS, MapZoom.VEHICLE_BODIES_FROM)
-        val near = VehicleBody.emphasis(TransportMode.BUS, 18.0)
-        assertTrue(far > 1.4, "au seuil, un bus à l'échelle exacte se devine à peine : $far")
+        val lat = commerce.latitude
+        val near = VehicleBody.emphasis(TransportMode.BUS, 18.0, lat)
         assertEquals(1.0, near, 1e-9)
 
         // Le tram, déjà long de vingt-huit mètres, avalerait les carrefours au
         // même facteur.
-        assertTrue(VehicleBody.emphasis(TransportMode.TRAM, MapZoom.VEHICLE_BODIES_FROM) < far)
+        val far = VehicleBody.emphasis(TransportMode.BUS, MapZoom.NEIGHBOURHOOD, lat)
+        assertTrue(VehicleBody.emphasis(TransportMode.TRAM, MapZoom.NEIGHBOURHOOD, lat) < far)
+    }
+
+    /**
+     * Le contrat qui a remplacé la rampe : **une longueur à l'écran**.
+     *
+     * L'ancienne rampe rendait ×1,6 à z15,5 — un bus de quinze points au cadre
+     * du quartier, « beaucoup trop petit ». On vérifie en points, pas en
+     * facteur : c'est ce que l'œil voit.
+     */
+    @Test
+    fun `au cadre du quartier un vehicule garde sa longueur a l ecran`() {
+        val lat = commerce.latitude
+        for (zoom in listOf(MapZoom.VEHICLE_BODIES_FROM, MapZoom.NEIGHBOURHOOD, 16.0)) {
+            for (mode in TransportMode.entries) {
+                val meters = VehicleBody.gauge(mode).lengthMeters * VehicleBody.emphasis(mode, zoom, lat)
+                val points = meters / MapScale.metersPerPixel(lat, zoom)
+                assertEquals(VehicleBody.floorPoints(mode), points, 0.5, "$mode à z$zoom")
+            }
+        }
+        val bus = VehicleBody.gauge(TransportMode.BUS).lengthMeters *
+            VehicleBody.emphasis(TransportMode.BUS, MapZoom.NEIGHBOURHOOD, lat) /
+            MapScale.metersPerPixel(lat, MapZoom.NEIGHBOURHOOD)
+        assertTrue(bus >= 30.0, "un bus se lit d'un regard, pas en le cherchant : $bus pt")
+    }
+
+    @Test
+    fun `le grossissement ne recule jamais quand on s eloigne`() {
+        val lat = commerce.latitude
+        for (mode in TransportMode.entries) {
+            var previous = Double.MAX_VALUE
+            var zoom = 12.0
+            while (zoom <= 19.0) {
+                val value = VehicleBody.emphasis(mode, zoom, lat)
+                assertTrue(value <= previous + 1e-12, "$mode grossit en approchant à z$zoom")
+                assertTrue(value >= 1.0, "$mode passe sous l'échelle vraie à z$zoom")
+                previous = value
+                zoom += 0.1
+            }
+        }
+    }
+
+    @Test
+    fun `une donnee non finie rend l echelle vraie`() {
+        assertEquals(1.0, VehicleBody.emphasis(TransportMode.BUS, Double.NaN, 47.2), 1e-9)
+        assertEquals(1.0, VehicleBody.emphasis(TransportMode.BUS, 15.5, Double.NaN), 1e-9)
+    }
+
+    /**
+     * Les caisses sont pleines au cadre du quartier, pas à mi-fondu.
+     */
+    @Test
+    fun `le quartier s ouvre sur des volumes pleins`() {
+        assertEquals(1.0, VehicleBody.bodyFade(MapZoom.NEIGHBOURHOOD, 0.3, MapZoom.VEHICLE_BODIES_FROM), 1e-9)
     }
 
     @Test

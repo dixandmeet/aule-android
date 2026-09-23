@@ -593,13 +593,21 @@ class MapController(
      * demandé. La borne, elle, ne corrige que ce qui est vraiment trop loin
      * ou vraiment trop près — et l'objet sélectionné garde son quartier
      * autour de lui.
+     *
+     * @param minZoom la borne la plus large. Celle d'une sélection par défaut ;
+     *   un recentrage sur soi la descend au cadre du quartier, sans quoi
+     *   « Me localiser » plongerait depuis l'ouverture même du Voyageur.
      */
-    fun focusOn(center: Coordinate, pitch: Double = MapZoom.PITCH_3D) {
+    fun focusOn(
+        center: Coordinate,
+        pitch: Double = MapZoom.PITCH_3D,
+        minZoom: Double = MapZoom.SELECTION_MIN,
+    ) {
         flyTo(
             center = center,
             zoom = NavigationCamera.selectionZoom(
                 currentZoom = cameraZoom,
-                minZoom = MapZoom.SELECTION_MIN,
+                minZoom = minZoom,
                 maxZoom = MapZoom.SELECTION_MAX,
             ),
             pitch = pitch,

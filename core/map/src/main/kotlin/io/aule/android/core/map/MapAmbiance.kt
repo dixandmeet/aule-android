@@ -99,14 +99,19 @@ object MapZoom {
     const val VEHICLE_ICONS_FROM = 14.0
 
     /**
-     * Le volume des véhicules, au même seuil que celui des bâtiments.
+     * Le volume des véhicules, sur la même rampe que celle des bâtiments.
      *
      * Le style lève le relief de la ville à quinze et le rend plein à quinze et
      * demi ; un bus en volume au-dessus d'une ville encore plate flotterait sans
-     * sol. Les deux montent donc ensemble — c'est aussi le seuil du web, pour que
-     * les deux cartes basculent au même moment.
+     * sol. Les deux montent donc ensemble : c'est le **milieu** du fondu, qui
+     * court d'un `BODY_FADE` de part et d'autre (14,9 → 15,5), si bien que les
+     * caisses sont pleines exactement quand les bâtiments le sont.
+     *
+     * ⚠️ Il valait quinze et demi — le seuil du web — et le fondu se terminait
+     * donc à 15,8. Au cadre du quartier ([NEIGHBOURHOOD], 15,5), la flotte
+     * s'ouvrait **à moitié transparente**, mi-glyphe mi-volume.
      */
-    const val VEHICLE_BODIES_FROM = 15.5
+    const val VEHICLE_BODIES_FROM = 15.2
 
     /**
      * L'ouverture : ce que la carte montre au premier regard.
@@ -124,6 +129,23 @@ object MapZoom {
      * carte tient.
      */
     const val OPENING = 16.5
+
+    /**
+     * Le cadre du quartier : l'ouverture du Voyageur.
+     *
+     * Un niveau sous [OPENING], soit **deux fois plus large** — un peu moins
+     * d'un demi-kilomètre au premier plan à Nantes, et bien davantage vers
+     * l'horizon avec l'inclinaison. Aule Pro garde [OPENING] : un conducteur
+     * regarde sa rue ; un voyageur qui ouvre la carte demande d'abord ce qui
+     * passe autour de lui, les arrêts d'à côté et les véhicules qui y vont.
+     * « Beaucoup trop proche », signalé à l'écran le 23/09/2026.
+     *
+     * C'est le plus bas qu'on puisse descendre sans perdre l'identité de la
+     * carte : les bâtiments y sont pleins, les caisses aussi
+     * ([VEHICLE_BODIES_FROM]), et l'inclinaison est entière
+     * (`PITCH_FULL_ZOOM`). Un cran plus bas, la ville s'aplatit.
+     */
+    const val NEIGHBOURHOOD = 15.5
 
     /**
      * L'inclinaison de la maison.

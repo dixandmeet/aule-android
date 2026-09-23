@@ -542,7 +542,7 @@ class VehiclesLayer(
 
         val east = WebMercator.eastOffsetMeters(pose.coordinate.longitude, anchorMercX, anchorLat)
         val north = WebMercator.northOffsetMeters(pose.coordinate.latitude, anchorMercY, anchorLat)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom).toFloat()
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude).toFloat()
 
         val paint = bodyPaint(mesh)
         val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade
@@ -575,7 +575,7 @@ class VehiclesLayer(
         props: JsonObject,
     ): Feature {
         val gauge = VehicleBody.gauge(vehicle.mode)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom)
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude)
         VehicleBody.footprint(
             latitude = pose.coordinate.latitude,
             longitude = pose.coordinate.longitude,
