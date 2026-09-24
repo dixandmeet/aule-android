@@ -16,6 +16,8 @@ import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.NetworkLineRepository
+import io.aule.android.core.model.PlaceSearchSession
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.StopRepository
 import io.aule.android.core.model.repository.VehicleRepository
@@ -309,7 +311,9 @@ class MapNetworkLinesViewModelTest {
     }
 
     private class FakePlaces : PlaceSearchRepository {
-        override suspend fun search(query: String): List<Place> = emptyList()
+        override suspend fun search(query: String, session: PlaceSearchSession?) = emptyList<PlaceSuggestion>()
+        override suspend fun resolve(prediction: PlaceSuggestion.Prediction, session: PlaceSearchSession?): Place =
+            error("aucune adresse n'est proposée ici")
     }
 
     private class FakeRoutingStub : io.aule.android.core.model.repository.RoutingRepository {

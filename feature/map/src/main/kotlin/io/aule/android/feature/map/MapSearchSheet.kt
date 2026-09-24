@@ -23,6 +23,7 @@ import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
 import androidx.compose.material3.BottomSheetDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -50,6 +51,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -57,22 +59,26 @@ import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.auleShadow
+import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleLoadingState
+import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.token.AuleAlpha
 import io.aule.android.core.designsystem.token.AuleChrome
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleElevation
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.location.LocationFix
 import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
 import io.aule.android.core.model.NearbyDigest
 import io.aule.android.core.model.NearbyDigestBuilder
 import io.aule.android.core.model.Place
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.SavedPlace
 import io.aule.android.core.model.SavedPlaceSlot
 import io.aule.android.core.model.ServingLine
@@ -208,7 +214,14 @@ internal fun MapSearchSheet(
     onFocusConsumed: () -> Unit,
     onSocleHeightPx: (Float) -> Unit,
     onSelectStop: (StopSearchHit) -> Unit,
+    /** Une destination récente : elle est déjà située, et part telle quelle. */
     onSelectPlace: (Place) -> Unit,
+    /**
+     * Une adresse trouvée par la frappe. Elle peut ne pas être située encore —
+     * voir [PlaceSuggestion] — : c'est à l'appelant de la faire situer, par
+     * `MapViewModel.choose`, avant d'en faire quoi que ce soit.
+     */
+    onSelectSuggestion: (PlaceSuggestion) -> Unit,
     onSelectNearbyStop: (TransitStop) -> Unit,
     /**
      * Les adresses favorites, et les trois gestes qu'elles portent : partir,
@@ -466,6 +479,7 @@ internal fun MapSearchSheet(
                 dispatchers = dispatchers,
                 onSelectStop = onSelectStop,
                 onSelectPlace = onSelectPlace,
+                onSelectSuggestion = onSelectSuggestion,
                 onSelectNearbyStop = onSelectNearbyStop,
                 savedPlaces = savedPlaces,
                 onSelectSaved = onSelectSaved,
@@ -531,6 +545,7 @@ internal fun SearchResults(
     dispatchers: AuleDispatchers,
     onSelectStop: (StopSearchHit) -> Unit,
     onSelectPlace: (Place) -> Unit,
+    onSelectSuggestion: (PlaceSuggestion) -> Unit,
     onSelectNearbyStop: (TransitStop) -> Unit,
     savedPlaces: List<SavedPlace> = emptyList(),
     onSelectSaved: (SavedPlace) -> Unit = {},
@@ -628,7 +643,7 @@ internal fun SearchResults(
                 SearchSection(title = stringResource(R.string.search_section_history)) {
                     search.history.forEachIndexed { index, place ->
                         SearchPlaceCard(
-                            place = place,
+                            suggestion = PlaceSuggestion.Located(place),
                             distanceMeters = around?.let {
                                 GeoMath.distance(it, place.coordinate)
                             },
@@ -705,15 +720,33 @@ internal fun SearchResults(
                         modifier = Modifier.padding(horizontal = AuleSpacing.lg),
                     )
                 }
-                search.places.forEachIndexed { index, place ->
+                // ⚠️ **Une adresse qu'on n'a pas pu situer se dit ici, et la liste
+                // reste.** La recherche a répondu : remplacer ses adresses par une
+                // panne effacerait quatre lieux bons à cause d'un cinquième.
+                // « Réessayer » refait exactement le même geste.
+                search.unlocated?.let { missed ->
+                    AuleBanner(
+                        message = stringResource(R.string.search_place_unlocated, missed.shortLabel()),
+                        tone = AuleTone.ALERT,
+                        action = stringResource(R.string.search_place_retry),
+                        onAction = { onSelectSuggestion(missed) },
+                        modifier = Modifier.padding(horizontal = AuleSpacing.lg),
+                    )
+                }
+                search.places.forEachIndexed { index, suggestion ->
                     SearchPlaceCard(
-                        place = place,
-                        distanceMeters = around?.let { GeoMath.distance(it, place.coordinate) },
+                        suggestion = suggestion,
+                        // Une adresse proposée n'a pas encore de point : pas de
+                        // distance, plutôt qu'une distance comptée depuis nulle part.
+                        distanceMeters = around?.let { from ->
+                            suggestion.coordinate?.let { GeoMath.distance(from, it) }
+                        },
                         rank = index,
+                        locating = search.locating == suggestion,
                         onSelect = {
                             keyboard?.hide()
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                            onSelectPlace(place)
+                            onSelectSuggestion(suggestion)
                         },
                     )
                 }
@@ -1037,21 +1070,27 @@ private fun SearchStopCard(
  * Pas de badge de ligne, pas de temps de marche : une adresse n'a ni desserte
  * ni quai, et lui en dessiner l'emplacement ferait attendre une information qui
  * n'existe pas.
+ *
+ * @param locating on est en train de situer ce lieu : la roue prend la place du
+ *   chevron le temps d'un aller-retour, et TalkBack le dit. Le reste de la
+ *   liste ne bouge pas — c'est un détail de ce rang, pas un état de l'écran.
  */
 @Composable
 private fun SearchPlaceCard(
-    place: Place,
+    suggestion: PlaceSuggestion,
     distanceMeters: Double?,
     rank: Int,
     onSelect: () -> Unit,
+    locating: Boolean = false,
 ) {
     val colors = MaterialTheme.colorScheme
-    val title = place.shortLabel()
-    val context = place.contextLabel().ifEmpty { stringResource(R.string.search_place_generic) }
+    val title = suggestion.shortLabel()
+    val context = suggestion.contextLabel().ifEmpty { stringResource(R.string.search_place_generic) }
     val distance = distanceMeters?.let { formatDistance(it) }
     val hint = stringResource(R.string.search_place_hint)
+    val locatingLabel = stringResource(R.string.search_place_locating)
     val label = buildString {
-        append(place.label)
+        append(suggestion.label)
         if (distance != null) {
             append(", ")
             append(stringResource(R.string.nearby_at_distance, distance))
@@ -1067,6 +1106,7 @@ private fun SearchPlaceCard(
             .semantics(mergeDescendants = true) {
                 contentDescription = label
                 onClick(label = hint, action = null)
+                if (locating) stateDescription = locatingLabel
             },
         shape = MaterialTheme.shapes.large,
         colors = CardDefaults.cardColors(
@@ -1081,7 +1121,7 @@ private fun SearchPlaceCard(
             horizontalArrangement = Arrangement.spacedBy(AuleSpacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ModeAvatar(mode = place.stopMode)
+            ModeAvatar(mode = suggestion.stopMode)
             Column(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
@@ -1124,12 +1164,21 @@ private fun SearchPlaceCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Icon(
-                imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
-                contentDescription = null,
-                tint = colors.onSurfaceVariant.copy(alpha = AuleAlpha.DISABLED),
-                modifier = Modifier.size(AuleControl.icon),
-            )
+            if (locating) {
+                // La roue d'`AuleLoadingState`, à la taille du chevron qu'elle
+                // remplace : le rang ne change pas de hauteur sous le doigt.
+                CircularProgressIndicator(
+                    modifier = Modifier.size(AuleControl.icon),
+                    strokeWidth = AuleStroke.glyph,
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Outlined.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = colors.onSurfaceVariant.copy(alpha = AuleAlpha.DISABLED),
+                    modifier = Modifier.size(AuleControl.icon),
+                )
+            }
         }
     }
 }

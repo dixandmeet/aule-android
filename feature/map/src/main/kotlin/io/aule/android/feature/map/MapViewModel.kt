@@ -17,6 +17,8 @@ import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
 import io.aule.android.core.model.NearbyDigest
 import io.aule.android.core.model.NearbyDigestBuilder
 import io.aule.android.core.model.Place
+import io.aule.android.core.model.PlaceSearchSession
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.RouteCandidate
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlace
@@ -46,6 +48,7 @@ import io.aule.android.core.model.nextAction
 import io.aule.android.core.model.pinManeuvers
 import io.aule.android.core.model.roadRouteDescribesLeg
 import io.aule.android.core.model.tripSummary
+import io.aule.android.core.model.withoutStopTwins
 import io.aule.android.core.model.Timetable
 import io.aule.android.core.model.TimetableException
 import io.aule.android.core.model.TimetableFailureKind
@@ -68,6 +71,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -95,8 +99,26 @@ data class MapSearchState(
     val query: String = "",
     val isActive: Boolean = false,
     val stops: List<StopSearchHit> = emptyList(),
-    val places: List<Place> = emptyList(),
+    /**
+     * Les adresses, **situées ou seulement nommées** — voir [PlaceSuggestion]. Une prédiction
+     * du géocodeur n'a pas de point : elle se situe au toucher, par [MapViewModel.choose], et
+     * jamais avant.
+     */
+    val places: List<PlaceSuggestion> = emptyList(),
     val isGeocoding: Boolean = false,
+    /**
+     * L'adresse touchée qu'on est en train de situer. Sa rangée le montre ; la liste, elle,
+     * reste en place — c'est un aller-retour, pas une nouvelle recherche.
+     */
+    val locating: PlaceSuggestion.Prediction? = null,
+    /**
+     * La dernière adresse touchée qu'on n'a pas pu situer.
+     *
+     * ⚠️ **Ce n'est pas une panne de la recherche.** Elle a répondu, et ses autres adresses
+     * restent bonnes : vider la liste effacerait quatre lieux à cause d'un cinquième. Le volet
+     * le dit au-dessus des adresses, et le lieu se retouche.
+     */
+    val unlocated: PlaceSuggestion.Prediction? = null,
     /**
      * Les destinations déjà demandées, la plus récente en tête.
      *
@@ -440,6 +462,22 @@ class MapViewModel(
 
     private var pollJob: Job? = null
     private var geocodeJob: Job? = null
+
+    /** La résolution en vol — une seule à la fois, et la dernière touchée gagne. Voir [choose]. */
+    private var resolveJob: Job? = null
+
+    /**
+     * La recherche en cours, pour le fournisseur : de la première frappe au lieu retenu.
+     *
+     * Elle naît avec la première requête qui part au géocodeur, et meurt au choix — ou quand la
+     * recherche finit sans choix : champ vidé, volet remplacé. C'est ce modèle qui sait quand
+     * une recherche commence et finit, et c'est tout ce que le jeton a à dire — voir
+     * [PlaceSearchSession].
+     *
+     * Replier le volet ne la tue pas : le champ garde sa frappe, et la rouvrir reprend la même
+     * recherche — voir [collapseSearch].
+     */
+    private var placeSession: PlaceSearchSession? = null
     private var routeJob: Job? = null
     private var previewJob: Job? = null
     private var routeToken = 0
@@ -506,16 +544,20 @@ class MapViewModel(
             }.onSuccess { stops ->
                 logger.info(LogDomain.MAP, "${stops.size} arrêts chargés.")
                 val current = _state.value
+                val found = if (current.search.query.isBlank()) {
+                    emptyList()
+                } else {
+                    StopSearch.search(stops, current.search.query)
+                }
                 _state.value = current.copy(
                     stops = stops,
                     isLoadingStops = false,
                     stopsFailure = null,
                     search = current.search.copy(
-                        stops = if (current.search.query.isBlank()) {
-                            emptyList()
-                        } else {
-                            StopSearch.search(stops, current.search.query)
-                        },
+                        stops = found,
+                        // Les adresses ont pu répondre avant le catalogue : leurs jumeaux
+                        // d'arrêts n'avaient alors rien contre quoi se reconnaître.
+                        places = current.search.places.withoutStopTwins(found.flatMap { it.spellings }),
                     ),
                 )
             }.onFailure { failure ->
@@ -652,7 +694,7 @@ class MapViewModel(
     fun openNetworkLines() {
         if (_state.value.showingNetworkLines) return
         releaseLine()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         abandonRoute()
         _state.value = _state.value.copy(
             showingNetworkLines = true,
@@ -765,7 +807,7 @@ class MapViewModel(
 
     fun select(stop: TransitStop) {
         releaseLine()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         abandonRoute()
         _state.value = _state.value.copy(
             selectedStop = stop,
@@ -781,7 +823,7 @@ class MapViewModel(
 
     fun select(vehicle: TransportVehicle) {
         releaseLine()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         abandonRoute()
         _state.value = _state.value.copy(
             selectedStop = null,
@@ -797,7 +839,7 @@ class MapViewModel(
 
     fun select(place: Place) {
         releaseLine()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         abandonRoute()
         searchHistory?.remember(place)
         _state.value = _state.value.copy(
@@ -969,7 +1011,7 @@ class MapViewModel(
 
     fun showNearby() {
         releaseLine()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         abandonRoute()
         _state.value = _state.value.copy(
             selectedStop = null,
@@ -1089,12 +1131,22 @@ class MapViewModel(
      * Les arrêts répondent tout de suite : le catalogue est déjà en mémoire.
      * Les adresses attendent [PLACE_DEBOUNCE_MS] — elles coûtent un
      * aller-retour là où l'index répond de mémoire.
+     *
+     * Elles reviennent **sans point** quand c'est Google qui répond — voir
+     * [PlaceSuggestion] —, et restent ainsi : rien n'est situé tant qu'on n'a
+     * rien touché, c'est [choose] qui s'en charge.
      */
     fun setSearchQuery(query: String) {
         val current = _state.value
         abandonRoute()
+        // Taper, c'est changer d'avis : une adresse touchée juste avant ne doit
+        // plus ouvrir de trajet.
+        abandonChoice()
         val stops = StopSearch.search(current.stops, query)
         val trimmed = query.trim()
+        // Un champ vidé, c'est une recherche qu'on recommence : la suivante
+        // aura son jeton.
+        if (trimmed.isEmpty()) placeSession = null
         val willGeocode = trimmed.length >= MIN_PLACE_QUERY_LENGTH
         _state.value = current.copy(
             search = current.search.copy(
@@ -1103,6 +1155,8 @@ class MapViewModel(
                 stops = stops,
                 places = if (willGeocode) current.search.places else emptyList(),
                 isGeocoding = willGeocode,
+                locating = null,
+                unlocated = null,
             ),
             selectedStop = null,
             selectedVehicle = null,
@@ -1116,9 +1170,16 @@ class MapViewModel(
         val issued = query
         geocodeJob = viewModelScope.launch {
             delay(PLACE_DEBOUNCE_MS)
+            // La session naît avec la première requête qui part, pas à la
+            // première lettre : une frappe restée sous le seuil n'a rien à
+            // relier.
+            val session = placeSession ?: PlaceSearchSession.start().also { placeSession = it }
             val found = runCatching {
-                withContext(dispatchers.io) { placeRepository.search(trimmed) }
+                withContext(dispatchers.io) { placeRepository.search(trimmed, session) }
             }.getOrElse { failure ->
+                // Coupé par la frappe suivante ou par le volet replié : ce n'est
+                // pas le géocodeur qui s'est tu, et il n'y a rien à écrire.
+                ensureActive()
                 if (failure is CancellationException) throw failure
                 // Un géocodeur muet n'est pas une panne de la recherche : elle
                 // a déjà répondu sur le réseau, et c'est le résultat le plus
@@ -1129,9 +1190,101 @@ class MapViewModel(
             val latest = _state.value
             if (latest.search.query != issued) return@launch
             _state.value = latest.copy(
-                search = latest.search.copy(places = found, isGeocoding = false),
+                search = latest.search.copy(
+                    // Les stations que la liste montre déjà ne reviennent pas en
+                    // adresse : voir [withoutStopTwins].
+                    places = found.withoutStopTwins(latest.search.stops.flatMap { it.spellings }),
+                    isGeocoding = false,
+                ),
             )
         }
+    }
+
+    /**
+     * Une adresse touchée dans la recherche, rendue à [conclude] une fois située.
+     *
+     * Un lieu déjà situé — un résultat du géocodeur de repli, qui rend le point
+     * d'emblée — passe **tout de suite** : rien ne change pour lui. Une
+     * prédiction se situe d'abord, par le seul appel facturé du parcours, dans
+     * la session des frappes qui l'ont proposée ; la session s'achève sur ce
+     * choix, et la frappe suivante en ouvrira une autre.
+     *
+     * ⚠️ **[conclude] n'est jamais appelé pour un choix dépassé.** Une frappe,
+     * un autre toucher, le volet replié ou remplacé abandonnent la résolution en
+     * vol : sans ça, un itinéraire s'ouvrirait après coup, sur une carte qu'on
+     * vient de dégager ou pendant qu'on tape autre chose.
+     *
+     * ⚠️ **Une résolution manquée ne vide pas la liste.** La recherche a
+     * répondu, et ses autres adresses restent bonnes : le lieu passe dans
+     * [MapSearchState.unlocated], le volet le dit, et il se retouche.
+     */
+    fun choose(suggestion: PlaceSuggestion, conclude: (Place) -> Unit) {
+        // Retoucher le rang qu'on situe déjà ne relance rien : la requête en vol
+        // est peut-être déjà arrivée chez le fournisseur, et la couper pour la
+        // refaire ferait facturer le même lieu deux fois.
+        if (suggestion == _state.value.search.locating && resolveJob?.isActive == true) return
+        abandonChoice()
+        when (suggestion) {
+            is PlaceSuggestion.Located -> {
+                updateSearch { it.copy(locating = null, unlocated = null) }
+                conclude(suggestion.place)
+            }
+            is PlaceSuggestion.Prediction -> {
+                updateSearch { it.copy(locating = suggestion, unlocated = null) }
+                val session = placeSession
+                resolveJob = viewModelScope.launch {
+                    val outcome = runCatching {
+                        withContext(dispatchers.io) { placeRepository.resolve(suggestion, session) }
+                    }
+                    // Abandonné entre-temps : ni trajet, ni message.
+                    ensureActive()
+                    // Détachée **avant** de conclure : ce qui suit le choix —
+                    // [routeTo] — referme la recherche, et ne doit pas annuler
+                    // la tâche même qui le lui demande.
+                    resolveJob = null
+                    outcome.onSuccess { place ->
+                        // Le fournisseur a clos la session sur cette résolution.
+                        placeSession = null
+                        updateSearch { it.copy(locating = null) }
+                        conclude(place)
+                    }.onFailure { failure ->
+                        logger.warn(LogDomain.NET, "Lieu impossible à situer.", failure)
+                        updateSearch { it.copy(locating = null, unlocated = suggestion) }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Abandonne la résolution en vol. L'état qui suit est celui que publie
+     * l'appelant : une frappe, un volet replié, une recherche remise à zéro.
+     */
+    private fun abandonChoice() {
+        resolveJob?.cancel()
+        resolveJob = null
+    }
+
+    /**
+     * La recherche d'adresse s'achève, sans choix : le géocodeur se tait, la
+     * résolution en vol s'abandonne, et la prochaine frappe ouvrira une session
+     * neuve.
+     *
+     * À appeler partout où l'état remet la recherche à zéro — un autre volet
+     * qui prend la place, un itinéraire qui part. Sans elle, une adresse touchée
+     * juste avant ouvrirait son trajet après coup, par-dessus ce qu'on vient de
+     * choisir.
+     */
+    private fun endPlaceSearch() {
+        geocodeJob?.cancel()
+        geocodeJob = null
+        abandonChoice()
+        placeSession = null
+    }
+
+    private inline fun updateSearch(change: (MapSearchState) -> MapSearchState) {
+        val current = _state.value
+        _state.value = current.copy(search = change(current.search))
     }
 
     /**
@@ -1148,10 +1301,16 @@ class MapViewModel(
      * volet fermé. Elles reviennent à la réouverture — voir [activateSearch].
      *
      * Pour effacer, il y a la croix du champ, qui repasse par [setSearchQuery].
+     *
+     * ⚠️ **Une adresse qu'on situait encore s'abandonne avec le volet.** Sans
+     * cela, son itinéraire s'ouvrirait tout seul, un aller-retour plus tard,
+     * sur la carte qu'on vient de dégager. La session, elle, reste : la frappe
+     * gardée reprend la même recherche à la réouverture.
      */
     fun collapseSearch() {
         geocodeJob?.cancel()
         geocodeJob = null
+        abandonChoice()
         val current = _state.value
         if (!current.search.isActive) return
         _state.value = current.copy(
@@ -1160,6 +1319,8 @@ class MapViewModel(
                 stops = emptyList(),
                 places = emptyList(),
                 isGeocoding = false,
+                locating = null,
+                unlocated = null,
             ),
         )
     }
@@ -1182,7 +1343,7 @@ class MapViewModel(
          */
         keepDurations: Boolean = false,
     ) {
-        geocodeJob?.cancel()
+        endPlaceSearch()
         routeJob?.cancel()
         if (!keepDurations) previewJob?.cancel()
         val known = if (keepDurations) _state.value.route?.durations.orEmpty() else emptyMap()
@@ -1702,7 +1863,7 @@ class MapViewModel(
         departureWatch.clear()
         timetable.close()
         vehicleTrip.close()
-        geocodeJob?.cancel()
+        endPlaceSearch()
         routeJob?.cancel()
         cancelRecalculation()
         trace?.close()

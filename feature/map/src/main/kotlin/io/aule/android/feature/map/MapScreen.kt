@@ -1253,6 +1253,20 @@ fun MapScreen(
                                             originMine, originMap,
                                         )
                                     },
+                                    // Une adresse proposée n'a pas encore de
+                                    // point : le modèle la situe, et rend la
+                                    // main au trajet une fois situé — jamais
+                                    // pour un choix qu'une frappe ou le volet
+                                    // replié ont abandonné entre-temps.
+                                    onSelectSuggestion = { suggestion ->
+                                        viewModel.choose(suggestion) { place ->
+                                            startRoute(
+                                                view, viewModel, controller, location,
+                                                RoutePlace(place.coordinate, place.shortLabel()),
+                                                originMine, originMap,
+                                            )
+                                        }
+                                    },
                                     onSelectNearbyStop = { stop ->
                                         selectStopFromSearch(view, viewModel, controller, stop)
                                     },

@@ -155,17 +155,18 @@ internal data class ServingLineDto(
 internal data class GeocodePayloadDto(val results: List<GeocodeResultDto> = emptyList())
 
 /**
- * Un résultat d'autocomplétion : **un nom et une clé, jamais un point**.
+ * Une suggestion, sous l'une ou l'autre des deux formes que le BFF rend.
  *
- * ⚠️ `lat`/`lng` restent déclarés, et restent vides en production. `/api/geocode?q=`
- * rend `{placeId, label, details}` — le fournisseur facture la position à part, et le
- * BFF ne la demande que sur `?placeId=`. Les garder ici coûte deux champs et évite de
- * casser un appelant qui, lui, recevrait un jour la position d'un autre fournisseur.
+ * Google : `{placeId, label, details, kind}` — **un nom et une clé, jamais un point** ; le
+ * fournisseur facture la position à part, et le BFF ne la demande que sur `?placeId=`. L'IGN,
+ * en repli quand Google refuse : `{label, lat, lng, kind}`, sans clé. Tout est donc facultatif,
+ * et c'est l'appelant qui décide de ce qu'est le résultat — un lieu situé, une prédiction à
+ * situer, ou rien du tout.
  *
- * Le champ qui compte est [placeId] : sans lui, un résultat n'est qu'un libellé qu'on
- * ne peut poser nulle part, et c'est très exactement ce qui arrivait avant le 22/09/2026
- * — `AulePlaceSearchRepository` écartait chaque résultat faute de coordonnées, et
- * « Château des ducs » comme « rue de Strasbourg » répondaient « Aucun lieu à ce nom ».
+ * Le champ qui compte est [placeId] : sans lui, une prédiction n'est qu'un libellé qu'on ne peut
+ * poser nulle part, et c'est très exactement ce qui arrivait avant le 22/09/2026 —
+ * `AulePlaceSearchRepository` écartait chaque résultat faute de coordonnées, et « Château des
+ * ducs » comme « rue de Strasbourg » répondaient « Aucun lieu à ce nom ».
  */
 @Serializable
 internal data class GeocodeResultDto(
@@ -174,8 +175,32 @@ internal data class GeocodeResultDto(
     val details: String? = null,
     val lng: Double? = null,
     val lat: Double? = null,
+    val kind: GeocodeKindDto? = null,
 )
 
-/** La réponse de `/api/geocode?placeId=` : le point que l'autocomplétion ne donne pas. */
+/**
+ * Ce qu'est le lieu, selon le fournisseur : `{"category":"stop","icon":"tram"}`.
+ *
+ * Seule la catégorie est lue, et pour une seule valeur : `stop`, qui reconnaît le jumeau d'un
+ * arrêt du catalogue — voir `withoutStopTwins`. Le pictogramme reste au web.
+ */
 @Serializable
-internal data class GeocodeLookupDto(val result: GeocodeResultDto? = null)
+internal data class GeocodeKindDto(val category: String? = null)
+
+/**
+ * La réponse de `/api/geocode?placeId=` : `{"result":{"label","lat","lng","address"}}`.
+ *
+ * ⚠️ [GeocodeLocationDto.label] est décodé et **n'est pas lu**. C'est le nom de la fiche Google,
+ * qui n'est pas toujours celui qu'on a touché — voir `PlaceSuggestion.Prediction.locatedLabel`.
+ */
+@Serializable
+internal data class GeocodeLookupDto(val result: GeocodeLocationDto? = null)
+
+@Serializable
+internal data class GeocodeLocationDto(
+    val label: String? = null,
+    val lat: Double? = null,
+    val lng: Double? = null,
+    /** L'adresse postale seule, sans le nom du lieu. Absente quand Google n'en a pas. */
+    val address: String? = null,
+)

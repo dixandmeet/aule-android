@@ -51,6 +51,13 @@ data class StopSearchHit(
 ) {
     val label: String get() = representative.departuresKey
     val coordinate: Coordinate get() = representative.coordinate
+
+    /**
+     * Toutes les façons dont le référentiel écrit ce lieu : son nom de lieu, et celui de chacun
+     * de ses quais. C'est contre elles qu'une prédiction du géocodeur se reconnaît pour le jumeau
+     * de cet arrêt — voir [withoutStopTwins].
+     */
+    val spellings: List<String> get() = (listOf(label) + names).distinct()
 }
 
 /**

@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,18 +37,22 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import io.aule.android.core.common.AuleDispatchers
 import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleEmptyState
 import io.aule.android.core.designsystem.component.AuleFormField
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleLoadingState
+import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
+import io.aule.android.core.designsystem.token.AuleStroke
 import io.aule.android.core.designsystem.token.AuleTouch
 import io.aule.android.core.model.MIN_PLACE_QUERY_LENGTH
 import io.aule.android.core.model.Place
@@ -356,15 +361,28 @@ private fun PickerResults(picker: PlacePickerModel, onPick: (Place) -> Unit) {
         }
 
         if (picker.places.isNotEmpty()) {
+            // Une adresse qu'on n'a pas pu situer se dit au-dessus des autres, qui restent : la
+            // recherche a répondu, et c'est ce seul lieu qui se retouche.
+            picker.unlocated?.let { missed ->
+                AuleBanner(
+                    message = stringResource(R.string.search_place_unlocated, missed.shortLabel()),
+                    tone = AuleTone.ALERT,
+                    action = stringResource(R.string.search_place_retry),
+                    onAction = { picker.choose(missed, onPick) },
+                )
+            }
             SheetCard(modifier = Modifier.fillMaxWidth()) {
-                picker.places.forEachIndexed { index, place ->
+                picker.places.forEachIndexed { index, suggestion ->
                     if (index > 0) SheetRowDivider()
                     PickerRow(
-                        title = place.shortLabel(),
-                        detail = place.contextLabel().ifEmpty {
+                        title = suggestion.shortLabel(),
+                        detail = suggestion.contextLabel().ifEmpty {
                             stringResource(R.string.search_place_generic)
                         },
-                        onClick = { onPick(place) },
+                        locating = picker.locating == suggestion,
+                        // Une adresse proposée se situe d'abord : un favori sans point ne
+                        // mènerait nulle part. Voir [PlacePickerModel.choose].
+                        onClick = { picker.choose(suggestion, onPick) },
                     )
                 }
             }
@@ -390,15 +408,24 @@ private fun PickerResults(picker: PlacePickerModel, onPick: (Place) -> Unit) {
     }
 }
 
+/**
+ * Un rang de la recherche de l'éditeur.
+ *
+ * @param locating on est en train de situer ce lieu : la roue le dit à droite du nom, et
+ *   TalkBack aussi. Le rang garde sa place — c'est un aller-retour, pas un autre écran.
+ */
 @Composable
-private fun PickerRow(title: String, detail: String, onClick: () -> Unit) {
+private fun PickerRow(title: String, detail: String, onClick: () -> Unit, locating: Boolean = false) {
     val colors = MaterialTheme.colorScheme
+    val locatingLabel = stringResource(R.string.search_place_locating)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .defaultMinSize(minHeight = AuleTouch.minimum)
             .selectable(selected = false, onClick = onClick)
+            .semantics { if (locating) stateDescription = locatingLabel }
             .padding(AuleSpacing.md),
+        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(
@@ -417,6 +444,12 @@ private fun PickerRow(title: String, detail: String, onClick: () -> Unit) {
                 color = colors.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (locating) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(AuleControl.icon),
+                strokeWidth = AuleStroke.glyph,
             )
         }
     }

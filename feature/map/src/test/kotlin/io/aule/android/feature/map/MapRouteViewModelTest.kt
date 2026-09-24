@@ -18,6 +18,8 @@ import io.aule.android.core.model.repository.GpsTraceCatalog
 import io.aule.android.core.model.repository.GpsTraceFile
 import io.aule.android.core.model.repository.GpsTraceRecorder
 import io.aule.android.core.model.repository.LinePaletteRepository
+import io.aule.android.core.model.PlaceSearchSession
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadRouter
 import io.aule.android.core.model.repository.RoutingRepository
@@ -304,7 +306,9 @@ class MapRouteViewModelTest {
     }
 
     private class FakePlaces : PlaceSearchRepository {
-        override suspend fun search(query: String) = emptyList<Place>()
+        override suspend fun search(query: String, session: PlaceSearchSession?) = emptyList<PlaceSuggestion>()
+        override suspend fun resolve(prediction: PlaceSuggestion.Prediction, session: PlaceSearchSession?): Place =
+            error("aucune adresse n'est proposée ici")
     }
 
     @Test

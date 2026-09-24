@@ -149,6 +149,9 @@
     <string name="search_places_from">Les adresses sont cherchées à partir de %1$d lettres.</string>
     <string name="search_place_generic">Adresse</string>
     <string name="search_lines">lignes %1$s</string>
+    <string name="search_place_locating">Localisation en cours</string>
+    <string name="search_place_unlocated">Impossible de situer « %1$s ». Vérifiez votre connexion, puis réessayez.</string>
+    <string name="search_place_retry">Réessayer</string>
 
     <string name="vehicle_unknown_destination">Destination inconnue</string>
     <string name="vehicle_live">Position en temps réel</string>

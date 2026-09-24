@@ -15,6 +15,8 @@ import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.model.VehicleFeed
 import io.aule.android.core.model.repository.LinePaletteRepository
+import io.aule.android.core.model.PlaceSearchSession
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.repository.PlaceSearchRepository
 import io.aule.android.core.model.repository.RoadProfile
 import io.aule.android.core.model.repository.RoadRouter
@@ -253,7 +255,9 @@ class MapLineSheetViewModelTest {
     }
 
     private class FakePlaces : PlaceSearchRepository {
-        override suspend fun search(query: String): List<Place> = emptyList()
+        override suspend fun search(query: String, session: PlaceSearchSession?) = emptyList<PlaceSuggestion>()
+        override suspend fun resolve(prediction: PlaceSuggestion.Prediction, session: PlaceSearchSession?): Place =
+            error("aucune adresse n'est proposée ici")
     }
 
     private class FakeRouting : RoutingRepository {

@@ -10,7 +10,6 @@ import io.aule.android.core.model.VehicleFeed
 import io.aule.android.core.network.ApiException
 import io.aule.android.core.network.AuleEndpoints
 import io.aule.android.core.network.AuleHttpClient
-import io.aule.android.data.aule.AulePlaceSearchRepository
 import io.aule.android.data.aule.AuleRoutingRepository
 import io.aule.android.data.aule.AuleStopRepository
 import io.aule.android.data.aule.AuleVehicleRepository
@@ -253,53 +252,8 @@ class BffRepositoryTest {
 
     // ------------------------------------------------------------------- lieux
 
-    /**
-     * ⚠️ **Deux réponses, parce que le serveur répond en deux temps.**
-     *
-     * `?q=` rend `{placeId, label}` sans position, `?placeId=` rend la position. Tant que
-     * la fixture de cette épreuve portait un `lat`/`lng` que la production ne renvoie pas,
-     * l'épreuve passait au vert sur un dépôt qui, en vrai, rendait une liste vide à chaque
-     * frappe — recette du 22/09/2026, BUG-AND-202.
-     */
-    @Test
-    fun `le geocodeur resout la place avant de la rendre`() = runTest {
-        respond(fixture("geocode.json"))
-        respond(fixture("geocode-lookup.json"))
-        val place = AulePlaceSearchRepository(endpoints, client).search("Beaujoire").firstOrNull()
-        assertNotNull(place)
-
-        assertEquals("Beaujoire, 44000 Nantes, France", place.label)
-        assertTrue(place.coordinate.isValid)
-        assertEquals(47.258828, place.coordinate.latitude, 1e-6)
-
-        // La première requête cherche, la seconde résout : c'est le contrat du BFF.
-        assertTrue(server.takeRequest().target.contains("q=Beaujoire"))
-        assertTrue(server.takeRequest().target.contains("placeId=ChIJ7RSHIqXuBUgRlp3HB22MjZc"))
-    }
-
-    /**
-     * Une résolution qui échoue écarte **ce** lieu, jamais la recherche : un quota
-     * atteint sur la cinquième suggestion ne doit pas effacer les quatre premières.
-     */
-    @Test
-    fun `une resolution en echec n emporte pas la recherche`() = runTest {
-        respond(fixture("geocode.json"))
-        respond("""{"error":"quota"}""", status = 429)
-        val places = AulePlaceSearchRepository(endpoints, client).search("Beaujoire")
-        assertEquals(emptyList(), places, "le lieu non résolu est écarté, sans lever")
-    }
-
-    /**
-     * Deux lettres ne cherchent rien d'utile et coûteraient une requête par
-     * frappe. Le test vérifie qu'**aucune requête n'est partie**, pas seulement
-     * que le résultat est vide.
-     */
-    @Test
-    fun `une requete trop courte ne part pas sur le reseau`() = runTest {
-        val places = AulePlaceSearchRepository(endpoints, client).search("na")
-        assertTrue(places.isEmpty())
-        assertEquals(0, server.requestCount)
-    }
+    // Le géocodeur a sa propre suite : il répond en deux temps sur un même chemin, et ses
+    // épreuves ne portent que sur ça — voir `PlaceSearchRepositoryTest`.
 
     // ------------------------------------------------------------- itinéraires
 

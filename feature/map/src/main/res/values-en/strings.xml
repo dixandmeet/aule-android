@@ -149,6 +149,9 @@
     <string name="search_places_from">Addresses are searched from %1$d letters on.</string>
     <string name="search_place_generic">Address</string>
     <string name="search_lines">lines %1$s</string>
+    <string name="search_place_locating">Locating</string>
+    <string name="search_place_unlocated">Couldn\'t locate “%1$s”. Check your connection, then try again.</string>
+    <string name="search_place_retry">Try again</string>
 
     <string name="vehicle_unknown_destination">Unknown destination</string>
     <string name="vehicle_live">Live position</string>

@@ -31,6 +31,8 @@ import io.aule.android.core.model.HandoverTarget
 import io.aule.android.core.model.HandoverTrack
 import io.aule.android.core.model.LineJourney
 import io.aule.android.core.model.LinePalette
+import io.aule.android.core.model.PlaceSearchSession
+import io.aule.android.core.model.PlaceSuggestion
 import io.aule.android.core.model.PositionPublishRequest
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.ScheduledTrip
@@ -149,8 +151,34 @@ interface LinePaletteRepository {
     suspend fun palette(): LinePalette
 }
 
+/**
+ * La recherche de lieux, **en deux temps** : proposer, puis situer ce qu'on a retenu.
+ *
+ * Le fournisseur ne rend pas de point à la frappe, et en demander un par suggestion coûterait
+ * une résolution facturée par rangée affichée — voir [PlaceSuggestion].
+ */
 interface PlaceSearchRepository {
-    suspend fun search(query: String): List<Place>
+    /**
+     * Les lieux qui répondent à la frappe, situés ou seulement nommés.
+     *
+     * @param session la recherche en cours, que le fournisseur relie au lieu qu'on finira par
+     *   situer — voir [PlaceSearchSession]. `null` pour une requête isolée.
+     */
+    suspend fun search(query: String, session: PlaceSearchSession? = null): List<PlaceSuggestion>
+
+    /**
+     * Situe une prédiction retenue. **Un appel, au choix**, et jamais pour une suggestion qu'on
+     * n'a pas touchée.
+     *
+     * **Lève** quand le lieu ne se situe pas : un point approché mènerait l'itinéraire ailleurs
+     * sans rien dire.
+     *
+     * @param session celle des frappes qui l'ont proposée.
+     */
+    suspend fun resolve(
+        prediction: PlaceSuggestion.Prediction,
+        session: PlaceSearchSession? = null,
+    ): Place
 }
 
 interface RoutingRepository {
