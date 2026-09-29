@@ -101,6 +101,7 @@ internal fun TransportMode?.avatarGlyph(): ImageVector = when (this) {
     TransportMode.BUS -> AuleGlyph.BUS.asImageVector()
     TransportMode.TRAM -> AuleGlyph.TRAM.asImageVector()
     TransportMode.BOAT -> Icons.Outlined.DirectionsBoat
+    TransportMode.TER -> AuleGlyph.TRAM.asImageVector()
     null -> AuleGlyph.PIN.asImageVector()
 }
 

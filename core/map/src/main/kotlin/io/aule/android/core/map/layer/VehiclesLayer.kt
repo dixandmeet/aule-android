@@ -515,6 +515,7 @@ class VehiclesLayer(
     private fun meshIndex(mode: TransportMode): Int? = when (mode) {
         TransportMode.BUS -> MESH_BUS
         TransportMode.TRAM -> MESH_TRAM
+        TransportMode.TER -> MESH_TRAM
         TransportMode.BOAT -> null
     }
 

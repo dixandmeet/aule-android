@@ -1170,6 +1170,7 @@ internal fun TransportMode.stationLabel(): String = when (this) {
     TransportMode.BUS -> stringResource(R.string.search_mode_bus)
     TransportMode.TRAM -> stringResource(R.string.search_mode_tram)
     TransportMode.BOAT -> stringResource(R.string.search_mode_boat)
+    TransportMode.TER -> stringResource(R.string.search_mode_ter)
 }
 
 /**

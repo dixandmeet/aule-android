@@ -1,9 +1,11 @@
 package io.aule.android.data
 
+import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.TransitLineFamily
 import io.aule.android.core.model.TransitNetwork
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.repository.AssetBytes
+import io.aule.android.data.caching.CachedNetworkLineRepository
 import io.aule.android.data.tiles.AssetNetworkLineRepository
 import io.aule.android.data.tiles.TRANSIT_LINES_INDEX_ASSET
 import java.io.File
@@ -43,12 +45,19 @@ class AssetNetworkLineRepositoryTest {
     @Test
     fun `l index est present et se decode entierement`() = runTest {
         val lines = repository.allLines()
+        val trains = lines.count { it.mode == TransportMode.TER }
 
-        // Le compte exact : si le fichier maigrit d'un build de tuiles à l'autre,
-        // on veut le voir ici plutôt que dans un volet à moitié vide.
-        assertEquals(138, lines.size, "138 lignes dans l'index livré")
+        // Un plancher, et non plus un compte exact : l'index grandit d'un build de tuiles à
+        // l'autre — 138 lignes au 28/09, 163 avec les 23 TER et deux lignes Naolib de plus.
+        // Ce qui se garde ici, c'est qu'il ne **maigrisse** pas : un fichier tronqué se verrait
+        // ici plutôt que dans un volet à moitié vide.
+        assertTrue(lines.size - trains >= 138, "au moins 138 lignes de bus, tram et Navibus")
+        // Les TER arrivent tous ensemble, ou pas du tout — jamais une moitié d'import.
+        assertTrue(trains == 0 || trains == 23, "0 ou 23 lignes TER, et non $trains")
         // Aucune entrée perdue au décodage : chaque ligne a au moins son indice.
         assertTrue(lines.all { it.name.isNotBlank() })
+        // Et aucune clé en double : c'est elle, et non plus l'indice, qui désigne une ligne.
+        assertEquals(lines.size, lines.map { it.key }.toSet().size, "une clé par ligne")
     }
 
     @Test
@@ -73,7 +82,19 @@ class AssetNetworkLineRepositoryTest {
         // voir — à Nantes, les deux valeurs restent dans les bornes une fois
         // échangées. Ici, un cadre transposé tomberait à une longitude de +47,
         // quelque part en Somalie, et l'enveloppe le refuse.
-        val bounds = repository.allLines().mapNotNull { it.bounds }
+        //
+        // Les TER sortent du département — Quimper, Orléans, Rennes : ils ont leur propre
+        // enveloppe, celle du Grand Ouest, qui refuse tout autant une transposition.
+        val lines = repository.allLines()
+        val bounds = lines.filter { it.mode != TransportMode.TER }.mapNotNull { it.bounds }
+        val railBounds = lines.filter { it.mode == TransportMode.TER }.mapNotNull { it.bounds }
+        assertTrue(
+            railBounds.all {
+                it.southWest.latitude in 45.0..49.5 && it.northEast.latitude in 45.0..49.5 &&
+                    it.southWest.longitude in -5.0..2.5 && it.northEast.longitude in -5.0..2.5
+            },
+            "les TER restent dans le Grand Ouest",
+        )
 
         assertTrue(bounds.isNotEmpty())
         assertTrue(
@@ -106,8 +127,13 @@ class AssetNetworkLineRepositoryTest {
         assertEquals(29, byFamily[TransitLineFamily.INTERURBAN])
         assertEquals(
             29,
-            lines.count { it.network == TransitNetwork.ALEOP },
+            lines.count { it.network == TransitNetwork.ALEOP && it.mode != TransportMode.TER },
         )
+        // Les trains à part des cars, bien que rangés dans le même réseau : la famille TER les
+        // prend tous, et rien d'autre.
+        val trains = lines.filter { it.mode == TransportMode.TER }
+        assertEquals(trains.size, byFamily[TransitLineFamily.TER] ?: 0)
+        assertTrue(trains.all { it.network == TransitNetwork.ALEOP }, "les TER sont rangés chez Aléop")
         assertEquals(lines.size, byFamily.values.sum(), "aucune ligne sans famille")
     }
 
@@ -125,6 +151,9 @@ class AssetNetworkLineRepositoryTest {
     fun `une ligne se retrouve quelle que soit la casse`() = runTest {
         val direct = assertNotNull(repository.line("C6"))
         assertEquals("C6", direct.name)
+        // Le numéro nu désigne le Chronobus, même quand l'index porte aussi le tram-train C6.
+        assertEquals(TransitNetwork.NAOLIB, direct.network)
+        assertEquals(direct, repository.line("naolib:c6"))
         assertEquals(direct, repository.line("c6"))
         assertEquals(direct, repository.line("  c6  "))
         // Une ligne absente rend `null`, et c'est une réponse : le badge garde
@@ -144,6 +173,81 @@ class AssetNetworkLineRepositoryTest {
         // carte au premier véhicule peint.
         assertTrue(empty.allLines().isEmpty())
         assertNull(empty.line("C6"))
+    }
+
+    // --- Les homonymes, sur un index fabriqué ---
+    //
+    // L'asset change à chaque build des tuiles ; les cas qui suivent doivent tenir quel que soit
+    // son contenu. Ils lisent donc un extrait écrit ici, dans l'ordre du vrai fichier : les
+    // bus avant les trains.
+
+    private val fixture = AssetNetworkLineRepository(
+        assets = object : AssetBytes {
+            override fun readText(path: String): String = """
+                [
+                  {"line":"C2","color":"#ee7402","mode":"bus","network":"naolib"},
+                  {"line":"C6","color":"#a877b2","mode":"bus","network":"naolib"},
+                  {"line":"P2","color":"#006600","mode":"rail","network":"aleop","match":"P2 RENNES - VANNES",
+                   "headsigns":["Rennes","Vannes"],"routes":["ALEOP:TER:FR:Line::4BBFA233-37AB-432A-BCCF-FB90719B1F8A:"]},
+                  {"line":"P2","color":"#006600","mode":"rail","network":"aleop",
+                   "headsigns":["Saint-Nazaire","Nantes"],"routes":["ALEOP:TER:FR:Line::7D71200B-CBB4-462C-8975-6C8910BAD84F:"]},
+                  {"line":"C2","color":"#0749FF","mode":"rail","network":"aleop",
+                   "routes":["ALEOP:TER:FR:Line::B92CEF62-3A1B-402A-9FB6-5293AD81B06E:"]},
+                  {"line":"C6","color":"#007F78","mode":"rail","network":"aleop",
+                   "routes":["ALEOP:TER:FR:Line::359f7c82-fdec-4791-ae91-926c5827e59e:"]}
+                ]
+            """.trimIndent()
+        },
+    )
+
+    @Test
+    fun `naolib C6 n est pas aleop C6`() = runTest {
+        val chronobus = assertNotNull(fixture.line("naolib:C6"))
+        val tramTrain = assertNotNull(fixture.line("aleop:C6"))
+
+        assertEquals(TransportMode.BUS, chronobus.mode)
+        assertEquals(TransportMode.TER, tramTrain.mode)
+        assertTrue(chronobus != tramTrain)
+        // Le numéro nu : Naolib, sauf si l'on sait que c'est un train.
+        assertEquals(chronobus, fixture.line("C6"))
+        assertEquals(tramTrain, fixture.line("c6", TransportMode.TER))
+    }
+
+    @Test
+    fun `deux P2 aleop restent deux lignes`() = runTest {
+        val saintNazaire = assertNotNull(fixture.line("aleop:P2"))
+        val rennesVannes = assertNotNull(fixture.line("aleop:P2 RENNES - VANNES"))
+
+        assertEquals(listOf("Saint-Nazaire", "Nantes"), saintNazaire.headsigns)
+        assertEquals(listOf("Rennes", "Vannes"), rennesVannes.headsigns)
+        assertEquals("P2", rennesVannes.name, "le badge garde l'indice public")
+        assertEquals(4, fixture.allLines().count { it.network == TransitNetwork.ALEOP })
+    }
+
+    @Test
+    fun `un route_id TER se retrouve en majuscules comme en minuscules`() = runTest {
+        val tramTrain = assertNotNull(fixture.line("aleop:C6"))
+
+        assertEquals(tramTrain, fixture.line("ALEOP:TER:FR:Line::359f7c82-fdec-4791-ae91-926c5827e59e:"))
+        assertEquals(tramTrain, fixture.line("ALEOP:TER:FR:LINE::359F7C82-FDEC-4791-AE91-926C5827E59E:"))
+        assertEquals(
+            fixture.line("aleop:C2"),
+            fixture.line("aleop:ter:fr:line::b92cef62-3a1b-402a-9fb6-5293ad81b06e:"),
+        )
+    }
+
+    @Test
+    fun `le numero nu C2 garde la couleur du Chronobus`() = runTest {
+        val palette = LinePalette.of(fixture.allLines())
+
+        assertEquals("#ee7402", palette.colorOf("C2"))
+        assertEquals("#0749FF", palette.colorOf("aleop:C2"))
+        assertEquals("#0749FF", palette.colorOf("C2", TransportMode.TER))
+        // Le décorateur en mémoire répond comme le dépôt qu'il enveloppe.
+        val cached = CachedNetworkLineRepository(fixture)
+        assertEquals("#ee7402", cached.line("C2")?.colorHex)
+        assertEquals("#0749FF", cached.line("C2", TransportMode.TER)?.colorHex)
+        assertEquals("#006600", cached.line("aleop:p2 rennes - vannes")?.colorHex)
     }
 
     @Test

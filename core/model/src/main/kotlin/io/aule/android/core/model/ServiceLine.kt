@@ -48,3 +48,33 @@ fun compareServiceLines(a: ServiceLine, b: ServiceLine): Int {
     if (bn != null) return 1
     return a.label.compareTo(b.label)
 }
+
+/**
+ * Le réseau Naolib dans la base : `networks.id` de la migration 066, sur lequel toutes les
+ * lignes historiques ont été rattachées.
+ */
+const val NAOLIB_NETWORK_ID = "00000000-0000-4000-8000-000000000001"
+
+/**
+ * Les lignes qu'un conducteur peut choisir à sa prise de service.
+ *
+ * ## ⚠️ Pourquoi un filtre, et pourquoi Naolib par défaut
+ *
+ * `gtfs_routes` porte désormais les cars Aléop **et** les TER (réseau `aleop-pdl`) : sans
+ * filtre, un conducteur sans réseau déclaré voyait cinquante lignes de plus, dont deux
+ * « C6 » — le Chronobus et le tram-train — que rien ne distinguait dans la liste.
+ *
+ * - réseau connu : ses lignes, et elles seules ;
+ * - réseau inconnu : **Naolib** — les lignes rattachées au réseau urbain, ou à aucun
+ *   (les imports d'avant la migration 066) ;
+ * - dans tous les cas, **jamais un train** : on ne prend pas son service sur un TER
+ *   dans cette application.
+ */
+fun List<ServiceLine>.forDriverNetwork(networkId: String?): List<ServiceLine> = filter { line ->
+    if (line.mode == TransportMode.TER) return@filter false
+    if (networkId != null) {
+        line.networkId == networkId
+    } else {
+        line.networkId == null || line.networkId == NAOLIB_NETWORK_ID
+    }
+}

@@ -14,6 +14,7 @@ import io.aule.android.core.model.TransitLineFamily
 import io.aule.android.core.model.TransitNetwork
 import io.aule.android.core.model.TransitStop
 import io.aule.android.core.model.TransportMode
+import io.aule.android.core.model.canonicalLineName
 import io.aule.android.core.model.repository.LinePaletteRepository
 import io.aule.android.core.model.repository.NetworkLineRepository
 import io.aule.android.core.model.repository.PlaceSearchRepository
@@ -73,10 +74,13 @@ class MapNetworkLinesViewModelTest {
         ),
     )
 
-    private fun withMain(block: suspend TestScope.(MapViewModel, FakeLines) -> Unit) = runTest {
+    private fun withMain(
+        inventory: List<TransitLine> = lines,
+        block: suspend TestScope.(MapViewModel, FakeLines) -> Unit,
+    ) = runTest {
         Dispatchers.setMain(StandardTestDispatcher(testScheduler))
         try {
-            val repository = FakeLines(lines)
+            val repository = FakeLines(inventory)
             val dispatcher = StandardTestDispatcher(testScheduler)
             val viewModel = MapViewModel(
                 stopRepository = FakeStops(),
@@ -134,7 +138,7 @@ class MapNetworkLinesViewModelTest {
         viewModel.openNetworkLines()
         advanceUntilIdle()
         viewModel.focusNetworkLine("C6")
-        assertEquals("C6", viewModel.state.value.focusedNetworkLine)
+        assertEquals("naolib:C6", viewModel.state.value.focusedNetworkLine)
 
         viewModel.closeNetworkLines()
 
@@ -163,9 +167,10 @@ class MapNetworkLinesViewModelTest {
         advanceUntilIdle()
 
         viewModel.focusNetworkLine("C6")
-        assertEquals("C6", viewModel.state.value.focusedNetworkLine)
-        // Le geste qu'on fait sans réfléchir pour revenir en arrière.
-        viewModel.focusNetworkLine("C6")
+        assertEquals("naolib:C6", viewModel.state.value.focusedNetworkLine)
+        // Le geste qu'on fait sans réfléchir pour revenir en arrière — sous la clé
+        // comme sous l'indice.
+        viewModel.focusNetworkLine("naolib:C6")
         assertNull(viewModel.state.value.focusedNetworkLine)
     }
 
@@ -176,9 +181,86 @@ class MapNetworkLinesViewModelTest {
 
         viewModel.focusNetworkLine("c6")
 
-        // Les tuiles connaissent « C6 » : minuscule, le filtre ne retiendrait rien.
-        assertEquals("C6", viewModel.state.value.focusedNetworkLine)
+        // Les tuiles connaissent `network` = « naolib » et `match` = « C6 » : en
+        // minuscule, ou sans réseau, le filtre ne retiendrait rien — ou trop.
+        assertEquals("naolib:C6", viewModel.state.value.focusedNetworkLine)
     }
+
+    // --- Les homonymes : C6 est un Chronobus **et** un tram-train ---
+
+    private val tramTrainC6 = TransitLine(
+        name = "C6",
+        colorHex = "#007F78",
+        mode = TransportMode.TER,
+        network = TransitNetwork.ALEOP,
+        headsigns = listOf("Nantes", "Clisson"),
+        bounds = TransitLineBounds(
+            southWest = Coordinate(latitude = 47.08, longitude = -1.55),
+            northEast = Coordinate(latitude = 47.22, longitude = -1.27),
+        ),
+        routeIds = listOf("ALEOP:TER:FR:Line::359f7c82-fdec-4791-ae91-926c5827e59e:"),
+    )
+
+    @Test
+    fun `le tram-train C6 se designe sans allumer le Chronobus`() =
+        withMain(inventory = lines + tramTrainC6) { viewModel, _ ->
+            viewModel.openNetworkLines()
+            advanceUntilIdle()
+
+            viewModel.focusNetworkLine(tramTrainC6.key)
+
+            assertEquals("aleop:C6", viewModel.state.value.focusedNetworkLine)
+            // Le cadre est celui du train, pas du bus : c'est la clé qui a parlé.
+            assertEquals(tramTrainC6.bounds, viewModel.focusedLine()?.bounds)
+            assertEquals(TransportMode.TER, viewModel.focusedLine()?.mode)
+        }
+
+    @Test
+    fun `ouvrir le TER C6 ouvre sa fiche et non celle du Chronobus`() =
+        withMain(inventory = lines + tramTrainC6) { viewModel, _ ->
+            viewModel.openNetworkLines()
+            advanceUntilIdle()
+
+            viewModel.openNetworkLine("aleop:C6")
+
+            assertEquals("aleop:C6", viewModel.state.value.openedNetworkLine)
+            assertEquals(TransitNetwork.ALEOP, viewModel.openedLine()?.network)
+            // La desserte se demande par le `route_id` du train : par son indice, le
+            // référentiel rendrait celle du Chronobus.
+            assertEquals(
+                canonicalLineName(tramTrainC6.routeIds.first()),
+                viewModel.lineStops.state.value.line,
+            )
+
+            // Le numéro nu, lui, désigne toujours le Chronobus.
+            viewModel.closeNetworkLine()
+            viewModel.openNetworkLine("C6")
+            assertEquals("naolib:C6", viewModel.state.value.openedNetworkLine)
+            assertEquals(TransitNetwork.NAOLIB, viewModel.openedLine()?.network)
+        }
+
+    @Test
+    fun `le volet range le tram-train avec les TER et garde les deux C6`() =
+        withMain(inventory = lines + tramTrainC6) { viewModel, _ ->
+            viewModel.openNetworkLines()
+            advanceUntilIdle()
+
+            val sections = viewModel.networkDigest.value.sections
+            assertEquals(
+                listOf(
+                    TransitLineFamily.TRAM,
+                    TransitLineFamily.CHRONOBUS,
+                    TransitLineFamily.TER,
+                    TransitLineFamily.INTERURBAN,
+                ),
+                sections.map { it.family },
+            )
+            // Deux rangs, deux clés : aucune liste ne les confond.
+            assertEquals(
+                setOf("naolib:C6", "aleop:C6"),
+                sections.flatMap { it.lines }.filter { it.name == "C6" }.map { it.key }.toSet(),
+            )
+        }
 
     @Test
     fun `la ligne designee rend son cadre pour emmener la carte`() = withMain { viewModel, _ ->

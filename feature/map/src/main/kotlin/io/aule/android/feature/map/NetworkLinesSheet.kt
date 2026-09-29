@@ -153,14 +153,16 @@ internal fun NetworkLinesSheet(
                         if (row > 0) SheetRowDivider()
                         NetworkLineRow(
                             line = line,
-                            shown = line.match == focused,
+                            // La clé, pas l'indice : le Chronobus C6 et le tram-train C6
+                            // sont deux rangs, et désigner l'un ne doit pas allumer l'autre.
+                            shown = line.key == focused,
                             onOpen = {
                                 view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
-                                onOpen(line.name)
+                                onOpen(line.key)
                             },
                             onToggleShown = {
                                 view.performHapticFeedback(HapticFeedbackConstants.CONTEXT_CLICK)
-                                onFocus(line.name)
+                                onFocus(line.key)
                             },
                         )
                     }
@@ -343,6 +345,7 @@ private fun TransitLineFamily.labelRes(): Int = when (this) {
     TransitLineFamily.CHRONOBUS -> R.string.network_family_chronobus
     TransitLineFamily.EXPRESS -> R.string.network_family_express
     TransitLineFamily.BUS -> R.string.network_family_bus
+    TransitLineFamily.TER -> R.string.network_family_ter
     TransitLineFamily.INTERURBAN -> R.string.network_family_interurban
 }
 

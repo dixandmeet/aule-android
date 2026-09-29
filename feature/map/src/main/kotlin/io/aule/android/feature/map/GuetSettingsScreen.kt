@@ -47,6 +47,7 @@ import io.aule.android.core.guet.AlertPreferences
 import io.aule.android.core.guet.GuetPreferences
 import io.aule.android.core.guet.WalkingPace
 import io.aule.android.core.model.TransitLine
+import io.aule.android.core.model.TransitNetwork
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.repository.GuetPreferencesStore
 import io.aule.android.core.model.repository.NetworkLineRepository
@@ -200,7 +201,9 @@ internal fun GuetSettingsScreen(
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
                     ) {
-                        TransportMode.entries.forEach { mode ->
+                        // Les modes du réseau urbain seulement : `entries` porte aussi le TER,
+                        // qu'aucun conducteur Naolib ne guette — comme sur l'iPhone.
+                        GUET_MODES.forEach { mode ->
                             FilterChip(
                                 selected = mode in prefs.modes,
                                 onClick = { model.toggleMode(mode) },
@@ -462,10 +465,14 @@ private fun GuetFollowedLines(
     }
 }
 
+/** Les modes qu'un conducteur Naolib peut guetter — ceux du réseau urbain. */
+private val GUET_MODES = listOf(TransportMode.BUS, TransportMode.TRAM, TransportMode.BOAT)
+
 private fun TransportMode.guetLabelRes(): Int = when (this) {
     TransportMode.BUS -> R.string.guet_mode_bus
     TransportMode.TRAM -> R.string.guet_mode_tram
     TransportMode.BOAT -> R.string.guet_mode_boat
+    TransportMode.TER -> R.string.guet_mode_ter
 }
 
 private fun WalkingPace.labelRes(): Int = when (this) {
@@ -507,7 +514,11 @@ fun GuetSettingsHost(
     val model = remember(store) { GuetSettingsModel(store) }
     val lines by produceState(initialValue = emptyList<TransitLine>(), networkLines) {
         value = withContext(Dispatchers.IO) {
+            // ⚠️ **Naolib seul.** Le conducteur suit les lignes qu'il conduit : l'index porte
+            // aussi les cars Aléop et les TER, dont quatre numéros (C2, C4, C6, C7) sont ceux
+            // de Chronobus — les proposer ferait deux puces « C6 » indiscernables.
             runCatching { networkLines.allLines() }.getOrDefault(emptyList())
+                .filter { it.network == TransitNetwork.NAOLIB }
         }
     }
     GuetSettingsScreen(

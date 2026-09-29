@@ -188,9 +188,9 @@ internal object MapIcons {
             // L'unité du canvas web, dont les coordonnées sont reprises telles
             // quelles pour que les deux silhouettes restent la même.
             val u = size / 48f
-            val nose = if (mode == TransportMode.BOAT) 14f * u else 16f * u
+            val nose = if (mode == TransportMode.BOAT) 14f * u else if (mode == TransportMode.TER) 18f * u else 16f * u
             val tail = 12f * u
-            val wing = if (mode == TransportMode.BOAT) 12f * u else 11f * u
+            val wing = if (mode == TransportMode.BOAT) 12f * u else if (mode == TransportMode.TER) 10f * u else 11f * u
 
             val hull = Path().apply {
                 moveTo(center, center - nose)
@@ -428,7 +428,7 @@ internal object MapIcons {
             return
         }
 
-        val tram = mode == TransportMode.TRAM
+        val tram = mode == TransportMode.TRAM || mode == TransportMode.TER
         val halfWidth = if (tram) 5.5f * u else 6.5f * u
         val top = center - (if (tram) 8f else 6.5f) * u
         val bottom = center + 5f * u

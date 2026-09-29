@@ -526,7 +526,7 @@ private fun NearbyVehicleCard(
     val colors = MaterialTheme.colorScheme
     val vehicle = entry.vehicle
     val distance = formatDistance(entry.distanceMeters)
-    val modeLabel = vehicle.mode.label()
+    val modeLabel = vehicle.mode.label(line = vehicle.lineName)
     val destination = vehicle.destination
         ?: stringResource(R.string.vehicle_unknown_destination)
     val towards = vehicle.destination?.let { stringResource(R.string.nearby_towards, it) }

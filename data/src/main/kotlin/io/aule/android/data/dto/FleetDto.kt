@@ -1,6 +1,7 @@
 package io.aule.android.data.dto
 
 import io.aule.android.core.geo.Coordinate
+import io.aule.android.core.model.normalizeTransitLineKey
 import io.aule.android.core.model.CrowdingLevel
 import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.TransportMode
@@ -55,6 +56,8 @@ internal data class VehicleDto(
     @Serializable(with = InstantIso8601Serializer::class)
     val recordedAt: Instant? = null,
     val routeId: String? = null,
+    /** La clé `réseau:MATCH` de la ligne (« aleop:C7 »), quand le BFF l'envoie. */
+    val lineKey: String? = null,
     val destination: String? = null,
     val nextStop: String? = null,
     val etaSeconds: Double? = null,
@@ -97,6 +100,7 @@ internal data class VehicleDto(
             etaSeconds = etaSeconds,
             twinId = twinId,
             crowding = crowding?.toDomain(),
+            lineKey = normalizeTransitLineKey(lineKey)?.takeIf { ':' in it },
         )
     }
 }

@@ -485,7 +485,11 @@ internal class LineStopsModel(
     ): List<LineDesserte> {
         val repository = this.repository ?: throw UnknownLine()
         val catalog = serviceLines ?: repository.fetchLines(current).also { serviceLines = it }
-        val line = catalog.firstOrNull { canonicalLineName(it.label) == canonical }
+        // Le `route_id` exact d'abord, sans casse : c'est ainsi que s'ouvre un train,
+        // dont l'indice (C6, P2…) est aussi celui d'un Chronobus ou d'un autre TER.
+        // L'indice ensuite, pour tout le reste.
+        val line = catalog.firstOrNull { canonicalLineName(it.id) == canonical }
+            ?: catalog.firstOrNull { canonicalLineName(it.label) == canonical }
             ?: throw UnknownLine()
 
         // Les deux sens partent ensemble : les enchaîner doublerait l'attente

@@ -6,7 +6,8 @@ import io.aule.android.core.common.log.NoopLogger
 import io.aule.android.core.map.MapLayer
 import io.aule.android.core.map.MapStyleAnchors
 import io.aule.android.core.map.TransitTiles
-import io.aule.android.core.model.canonicalLineName
+import io.aule.android.core.model.normalizeTransitLineKey
+import io.aule.android.core.model.splitTransitLineKey
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -71,7 +72,11 @@ class TransitLinesLayer(
         private set
 
     /**
-     * La ligne mise en avant, sous sa forme canonique — ou `null`.
+     * La ligne mise en avant, sous sa **clé** canonique (`naolib:C6`, `aleop:C6`) — ou `null`.
+     *
+     * ⚠️ **La clé, pas l'indice.** C6 est un Chronobus et un tram-train : désigner
+     * « C6 » seul allumait les deux tracés. Une clé nue reste acceptée — elle
+     * allume toutes les lignes qui portent ce `match`, comme sur le web.
      *
      * **Séparée de la visibilité du réseau**, et ce n'est pas un raffinement :
      * les deux répondent à deux questions différentes — « où passent les lignes
@@ -99,7 +104,7 @@ class TransitLinesLayer(
     }
 
     fun setFocus(line: String?) {
-        val canonical = line?.let(::canonicalLineName)
+        val canonical = normalizeTransitLineKey(line)
         if (canonical == focusedLine) return
         focusedLine = canonical
         applyFocus()
@@ -244,13 +249,26 @@ class TransitLinesLayer(
     /**
      * Le filtre d'une ligne désignée — ou celui qui ne retient rien.
      *
+     * Une clé qualifiée compare **les deux** propriétés du tronçon :
+     * `network == "aleop" && match == "C6"`. Comparer `match` seul allumait le
+     * Chronobus C6 avec le tram-train — les tuiles portent l'un et l'autre sous le
+     * même `match`, et c'est `network` qui les sépare. Une clé nue compare `match`
+     * seul.
+     *
      * ⚠️ **Le filtre « rien » désigne une espace**, comme sur le web
      * (`MATCHES_NOTHING`) : `match` porte toujours un nom de ligne, donc jamais
      * une espace. Un filtre constamment faux serait plus direct et n'a pas de
      * traduction garantie en expression de style.
      */
-    private fun matchFilter(line: String?): Expression =
-        Expression.eq(Expression.get(PROP_MATCH), Expression.literal(line ?: " "))
+    private fun matchFilter(line: String?): Expression {
+        val (network, match) = splitTransitLineKey(line) ?: (null to " ")
+        val sameMatch = Expression.eq(Expression.get(PROP_MATCH), Expression.literal(match))
+        if (network == null) return sameMatch
+        return Expression.all(
+            Expression.eq(Expression.get(PROP_NETWORK), Expression.literal(network)),
+            sameMatch,
+        )
+    }
 
     /**
      * Un palier de densité du réseau.
@@ -366,6 +384,9 @@ class TransitLinesLayer(
         internal const val PROP_COLOR = "color"
         internal const val PROP_RANK = "rank"
         internal const val PROP_MATCH = "match"
+
+        /** Le réseau du tronçon, en minuscules — `naolib`, `aleop`. */
+        internal const val PROP_NETWORK = "network"
 
         /** La place signée d'un tronçon dans son faisceau, calculée au build. */
         internal const val PROP_BUNDLE_SLOT = "bs"

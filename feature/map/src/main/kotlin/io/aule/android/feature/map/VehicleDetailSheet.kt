@@ -199,7 +199,7 @@ private fun VehicleIdentity(
             )
             TransportBadge(
                 mode = vehicle.mode,
-                label = vehicle.mode.label(),
+                label = vehicle.mode.label(line = vehicle.lineName),
                 tint = vehicle.mode.markerColor(AuleTheme.night).color,
             )
         }

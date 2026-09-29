@@ -130,6 +130,30 @@ class BffRepositoryTest {
     }
 
     /**
+     * Le BFF annoncera la clé de ligne (`lineKey`) à côté du numéro : c'est elle qui sépare le
+     * tram-train C7 du Chronobus C7. Absente — le cas de la production aujourd'hui —, rien ne
+     * change.
+     */
+    @Test
+    fun `la cle de ligne d un vehicule se decode quand le BFF l envoie`() = runTest {
+        respond(
+            """
+            {"vehicles":[
+              {"id":"t1","type":"ter","mode":"scheduled","lat":47.2,"lng":-1.55,"routeId":"C7","lineKey":"ALEOP:c7"},
+              {"id":"b1","type":"bus","mode":"live","lat":47.21,"lng":-1.56,"routeId":"C7"}
+            ]}
+            """.trimIndent(),
+        )
+        val snapshot = AuleVehicleRepository(endpoints, client, clock)
+            .vehicles(Coordinate.NANTES, radiusMeters = 2500.0, limit = 250)
+        val byId = snapshot.vehicles.associateBy { it.id }
+
+        assertEquals("aleop:C7", byId.getValue("t1").lineKey)
+        assertEquals(io.aule.android.core.model.TransportMode.TER, byId.getValue("t1").mode)
+        assertEquals(null, byId.getValue("b1").lineKey)
+    }
+
+    /**
      * Le défaut relevé en recette le 22/09/2026, et ce qu'il coûtait : le BFF rend
      * `"trajectory": null` pour un véhicule dont il ne connaît pas la course, le DTO
      * attend une liste non nullable, et le décodeur emportait la **flotte entière** —

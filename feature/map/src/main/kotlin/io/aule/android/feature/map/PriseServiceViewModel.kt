@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import io.aule.android.core.common.log.AuleLogger
 import io.aule.android.core.common.log.LogDomain
+import io.aule.android.core.model.forDriverNetwork
 import io.aule.android.core.model.ActiveDriverService
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.DriverServiceException
@@ -100,7 +101,8 @@ class PriseServiceViewModel(
         viewModelScope.launch {
             try {
                 val all = services.fetchLines(session)
-                val visible = if (networkId == null) all else all.filter { it.networkId == networkId }
+                // Le réseau du conducteur, Naolib s'il n'en a pas déclaré — jamais un TER.
+                val visible = all.forDriverNetwork(networkId)
                 _state.value = _state.value.copy(
                     lines = visible,
                     isLoadingLines = false,

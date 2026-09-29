@@ -284,6 +284,7 @@ fun Place.contextLabel(): String = placeContext(label)
  * 22/09/2026, BUG-AND-214. La règle est de réseau, pas de recherche.
  */
 fun TransportMode.mergePreferringRail(other: TransportMode): TransportMode = when {
+    this == TransportMode.TER || other == TransportMode.TER -> TransportMode.TER
     this == TransportMode.TRAM || other == TransportMode.TRAM -> TransportMode.TRAM
     this == TransportMode.BOAT || other == TransportMode.BOAT -> TransportMode.BOAT
     else -> TransportMode.BUS

@@ -26,8 +26,10 @@ import io.aule.android.core.model.StopSearch
 import io.aule.android.core.model.StopSearchHit
 import io.aule.android.core.model.NetworkLinesDigest
 import io.aule.android.core.model.TransitLine
+import io.aule.android.core.model.TransitLineLookup
+import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransitStop
-import io.aule.android.core.model.canonicalLineName
+import io.aule.android.core.model.qualifyTransitLineKey
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.geo.RouteProgress
 import io.aule.android.core.location.LocationFix
@@ -646,6 +648,20 @@ class MapViewModel(
      */
     private var networkLines: List<TransitLine> = emptyList()
 
+    /**
+     * L'inventaire indexé par clé. C'est lui qui dit de quelle ligne parle un rang
+     * touché : l'indice seul ne le dit plus — le TER C6 ouvrait la fiche du
+     * Chronobus C6.
+     */
+    private var networkLookup: TransitLineLookup = TransitLineLookup.EMPTY
+
+    /**
+     * La clé `réseau:MATCH` d'une référence de ligne — clé, numéro nu ou `route_id`.
+     * Résolue dans l'inventaire quand il est lu ; qualifiée comme sur le web sinon.
+     */
+    private fun networkLineKey(reference: String): String? =
+        networkLookup.resolve(reference)?.key ?: qualifyTransitLineKey(reference)
+
     private val _networkDigest = MutableStateFlow(NetworkLinesDigest(emptyList()))
     val networkDigest: StateFlow<NetworkLinesDigest> = _networkDigest.asStateFlow()
 
@@ -695,13 +711,22 @@ class MapViewModel(
      * sur la carte demanderait de faire deux gestes pour une seule intention.
      */
     fun openNetworkLine(name: String) {
-        val canonical = canonicalLineName(name)
-        if (_state.value.openedNetworkLine == canonical) return
+        val line = networkLookup.resolve(name)
+        val key = line?.key ?: qualifyTransitLineKey(name) ?: return
+        if (_state.value.openedNetworkLine == key) return
         _state.value = _state.value.copy(
-            openedNetworkLine = canonical,
-            focusedNetworkLine = canonical,
+            openedNetworkLine = key,
+            focusedNetworkLine = key,
         )
-        lineStops.open(canonical)
+        // Le référentiel des services connaît les lignes par indice **et** par
+        // `route_id`. Un train s'y cherche par le second : par son indice, le TER C6
+        // rendrait la desserte du Chronobus C6, rangé avant lui.
+        val reference = when {
+            line == null -> name
+            line.mode == TransportMode.TER -> line.routeIds.firstOrNull() ?: line.key
+            else -> line.name
+        }
+        lineStops.open(reference)
     }
 
     /** Referme la fiche et **garde l'inventaire ouvert** : c'est d'où l'on vient. */
@@ -713,8 +738,8 @@ class MapViewModel(
 
     /** La ligne dont la fiche est ouverte, avec tout ce que l'index en sait. */
     fun openedLine(): TransitLine? {
-        val name = _state.value.openedNetworkLine ?: return null
-        return networkLines.firstOrNull { it.match == name }
+        val key = _state.value.openedNetworkLine ?: return null
+        return networkLookup.resolve(key)
     }
 
     fun setNetworkLineQuery(query: String) {
@@ -731,7 +756,7 @@ class MapViewModel(
      * ailleurs où aller.
      */
     fun focusNetworkLine(name: String?) {
-        val canonical = name?.let(::canonicalLineName)
+        val canonical = name?.let(::networkLineKey)
         val next = if (canonical != null && canonical == _state.value.focusedNetworkLine) {
             null
         } else {
@@ -743,8 +768,8 @@ class MapViewModel(
 
     /** La ligne désignée, avec son cadre — ce qu'il faut pour l'emmener à l'écran. */
     fun focusedLine(): TransitLine? {
-        val name = _state.value.focusedNetworkLine ?: return null
-        return networkLines.firstOrNull { it.match == name }
+        val key = _state.value.focusedNetworkLine ?: return null
+        return networkLookup.resolve(key)
     }
 
     private suspend fun loadNetworkLines() {
@@ -756,6 +781,7 @@ class MapViewModel(
                 logger.warn(LogDomain.MAP, "Inventaire des lignes illisible.", failure)
                 emptyList()
             }
+            networkLookup = TransitLineLookup(networkLines)
             logger.info(LogDomain.MAP, "Inventaire du réseau : ${networkLines.size} ligne(s).")
         }
         _networkDigest.value = NetworkLinesDigest.build(networkLines, _state.value.networkLineQuery)

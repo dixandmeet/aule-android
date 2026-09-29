@@ -37,6 +37,21 @@ data class LinePalette(val colors: Map<String, String> = emptyMap()) {
     /** La couleur d'une ligne, ou rien — jamais une couleur inventée. */
     fun colorOf(lineId: String?): String? = normalize(lineId)?.let { index[it] }
 
+    /**
+     * La couleur d'une ligne dont on connaît le mode.
+     *
+     * ⚠️ **Un train n'emprunte pas la couleur du bus qui porte son numéro.** Le TER C2
+     * et le Chronobus C2 s'écrivent pareil ; un numéro nu donne le Chronobus
+     * (voir [of]), et c'est le mode qui fait chercher d'abord la clé `aleop:`.
+     */
+    fun colorOf(lineId: String?, mode: TransportMode?): String? {
+        val id = lineId?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        if (mode == TransportMode.TER && ':' !in id) {
+            colorOf(transitLineKey(TransitNetwork.ALEOP, id))?.let { return it }
+        }
+        return colorOf(id)
+    }
+
     val isEmpty: Boolean get() = index.isEmpty()
 
     private fun normalize(lineId: String?): String? =
@@ -45,5 +60,32 @@ data class LinePalette(val colors: Map<String, String> = emptyMap()) {
     companion object {
         /** Aucune couleur connue : les badges gardent leur gris. */
         val EMPTY = LinePalette()
+
+        /**
+         * Le nuancier de l'index des lignes, **indexé par clé** `réseau:MATCH`.
+         *
+         * ## ⚠️ Pourquoi pas `name to color`
+         *
+         * C2, C4, C6 et C7 sont à la fois des Chronobus et des TER, et l'index range
+         * les trains **après** les bus : une table par indice, où la dernière entrée
+         * l'emporte, peignait le Chronobus C2 du bleu TER. Chaque ligne est donc
+         * rangée sous sa clé, sous ses `route_id` — ce que porte une position
+         * théorique —, et sous son numéro nu **Naolib d'abord** : un numéro sans
+         * réseau est celui du réseau urbain.
+         */
+        fun of(lines: List<TransitLine>): LinePalette {
+            val colors = LinkedHashMap<String, String>()
+            val seen = HashSet<String>()
+            fun keep(id: String, color: String) {
+                // La première couleur d'une clé l'emporte, sans casse : c'est la règle
+                // de l'index, et `LinePalette` compare sans casse.
+                if (seen.add(id.trim().lowercase())) colors[id] = color
+            }
+            lines.forEach { line -> line.colorHex?.let { keep(line.key, it) } }
+            lines.forEach { line -> line.colorHex?.let { color -> line.routeIds.forEach { keep(it, color) } } }
+            lines.sortedBy { if (it.network == TransitNetwork.NAOLIB) 0 else 1 }
+                .forEach { line -> line.colorHex?.let { keep(canonicalLineName(line.name), it) } }
+            return LinePalette(colors)
+        }
     }
 }

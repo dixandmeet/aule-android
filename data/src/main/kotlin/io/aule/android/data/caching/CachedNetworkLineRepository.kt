@@ -1,7 +1,8 @@
 package io.aule.android.data.caching
 
 import io.aule.android.core.model.TransitLine
-import io.aule.android.core.model.canonicalLineName
+import io.aule.android.core.model.TransitLineLookup
+import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.repository.NetworkLineRepository
 
 /**
@@ -29,13 +30,20 @@ class CachedNetworkLineRepository(
 ) : NetworkLineRepository {
 
     @Volatile private var lines: List<TransitLine>? = null
-    @Volatile private var byName: Map<String, TransitLine> = emptyMap()
+
+    /**
+     * La même résolution que le dépôt embarqué — clé, `route_id`, numéro nu Naolib
+     * d'abord. Un index par nom rendait ici le Chronobus C6 à qui demandait le TER.
+     */
+    @Volatile private var lookup: TransitLineLookup = TransitLineLookup.EMPTY
 
     override suspend fun allLines(): List<TransitLine> = loaded()
 
-    override suspend fun line(named: String): TransitLine? {
+    override suspend fun line(named: String): TransitLine? = line(named, mode = null)
+
+    override suspend fun line(named: String, mode: TransportMode?): TransitLine? {
         loaded()
-        return byName[canonicalLineName(named)]
+        return lookup.resolve(named, mode)
     }
 
     private suspend fun loaded(): List<TransitLine> {
@@ -44,7 +52,7 @@ class CachedNetworkLineRepository(
         // Un inventaire vide ne se garde pas : ce serait figer une panne pour
         // toute la durée du processus, là où un second essai peut réussir.
         if (fresh.isEmpty()) return fresh
-        byName = buildMap { fresh.forEach { putIfAbsent(it.match, it) } }
+        lookup = TransitLineLookup(fresh)
         lines = fresh
         return fresh
     }

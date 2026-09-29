@@ -28,8 +28,14 @@ import kotlinx.serialization.json.jsonPrimitive
  */
 data class TransitLine(
     /**
-     * L'indice public — « C6 », « 1 », « E311 ». C'est l'identité : le réseau ne
-     * publie pas deux lignes du même nom, et c'est aussi ce que porte un badge.
+     * L'indice public — « C6 », « 1 », « E311 ». C'est ce que porte un badge.
+     *
+     * ## ⚠️ Ce n'est plus l'identité
+     *
+     * Deux réseaux publient le même indice : C2, C4, C6 et C7 sont des Chronobus
+     * Naolib **et** des lignes TER, et P2 comme P5 désignent chacun deux lignes
+     * TER distinctes. L'identité est [key] — `réseau:MATCH` —, comme sur le web
+     * (`lineIndexKey`, `transit-selection.ts`) et dans les tuiles.
      */
     val name: String,
 
@@ -79,17 +85,50 @@ data class TransitLine(
      * 18/09/2026, BUG-AND-009).
      *
      * Vide sur les lignes dont l'identifiant **est** l'indice : il n'y a alors rien à traduire.
+     *
+     * Gardés **dans leur casse d'origine** : c'est sous cette forme que le BFF les cherche en
+     * base. La comparaison, elle, se fait sans casse — l'UUID d'une ligne TER arrive tantôt en
+     * majuscules, tantôt en minuscules.
      */
     val routeIds: List<String> = emptyList(),
+
+    /**
+     * Le champ `match` de l'index, quand il diffère de l'indice — « P2 RENNES - VANNES ».
+     *
+     * `null` sur presque toutes les lignes : leur clé de jointure **est** l'indice. Il n'existe
+     * que pour les homonymes d'un même réseau (deux P2 et deux P5 TER), qui ne se
+     * distingueraient autrement ni dans les tuiles ni dans une sélection.
+     */
+    val tileMatch: String? = null,
 ) {
     /**
      * Le nom sous lequel les **tuiles** connaissent cette ligne.
      *
-     * `build-transit.mjs` pose sur chaque tronçon une propriété `match`, qui est
-     * l'indice en majuscules. C'est la clé de jointure entre cet index et la
-     * géométrie : sans elle, une ligne désignée ici ne désignerait rien là-bas.
+     * `build-transit.mjs` pose sur chaque tronçon une propriété `match` : l'indice
+     * en majuscules, sauf pour les homonymes qui ont la leur ([tileMatch]). C'est
+     * la clé de jointure entre cet index et la géométrie : sans elle, une ligne
+     * désignée ici ne désignerait rien là-bas.
      */
-    val match: String get() = canonicalLineName(name)
+    val match: String get() = canonicalLineName(tileMatch?.takeIf { it.isNotBlank() } ?: name)
+
+    /**
+     * **L'identité de la ligne** : `réseau:MATCH` — « naolib:C6 », « aleop:C6 »,
+     * « aleop:P2 RENNES - VANNES ». Sans réseau connu, MATCH seul.
+     *
+     * C'est la forme du web (`lineIndexKey`) et celle que la carte compare à
+     * `network` + `match` des tuiles : l'indice seul ne suffit pas, C6 est à la
+     * fois un Chronobus et un tram-train. À employer partout où une ligne se
+     * désigne — clé de liste, sélection, mise en avant, nuancier.
+     */
+    val key: String get() = transitLineKey(network, match)
+
+    /**
+     * Vrai pour les tram-trains de l'étoile nantaise — C6 (Nantes – Clisson) et C7
+     * (Nantes – Châteaubriant) **côté ferré** : la source les range parmi les TER,
+     * le voyageur les connaît sous ce nom (`formatTransitLineTitle`, web).
+     */
+    val isTramTrain: Boolean
+        get() = network == TransitNetwork.ALEOP && isTramTrainLine(name, mode)
 
     /**
      * La famille de cette ligne.
@@ -102,12 +141,16 @@ data class TransitLine(
      */
     val family: TransitLineFamily
         get() {
+            // Le train d'abord : les TER sont rangés dans le réseau Aléop, mais un
+            // voyageur ne cherche pas un Nantes – Rennes parmi les cars.
+            if (mode == TransportMode.TER) return TransitLineFamily.TER
             // Le réseau décide avant l'indice : « E311 » est un car Aléop, « E1 »
             // une ligne express urbaine, et les deux commencent par la même lettre.
             if (network == TransitNetwork.ALEOP) return TransitLineFamily.INTERURBAN
             return when (mode) {
                 TransportMode.TRAM -> TransitLineFamily.TRAM
                 TransportMode.BOAT -> TransitLineFamily.NAVIBUS
+                TransportMode.TER -> TransitLineFamily.TER
                 TransportMode.BUS, null -> when {
                     isLettered('C') -> TransitLineFamily.CHRONOBUS
                     isLettered('E') -> TransitLineFamily.EXPRESS
@@ -143,15 +186,49 @@ data class TransitLine(
     fun matches(query: String): Boolean {
         val needle = query.trim()
         if (needle.isEmpty()) return true
-        if (match.startsWith(canonicalLineName(needle))) return true
+        // L'indice public, pas `match` : « P2 » doit trouver les deux P2 TER, y
+        // compris celle dont la clé de tuile est « P2 RENNES - VANNES ».
+        if (canonicalLineName(name).startsWith(canonicalLineName(needle))) return true
         // Le repli d'accents est celui de la recherche d'arrêts, et il vient du
         // même endroit : « Gétigné » se trouve en tapant « getigne », et deux
         // règles de repli différentes dans la même application finiraient par
         // rendre des résultats différents pour la même frappe.
         val folded = normalizeStopName(needle)
+        // Les mots du voyageur pour le train : aucun indice ne s'appelle « TER »,
+        // et c'est pourtant ce qu'on tape pour les trouver.
+        if (answersModeWord(folded)) return true
         return headsigns.any { normalizeStopName(it).contains(folded) }
     }
+
+    /**
+     * Vrai quand ce mot, déjà replié ([normalizeStopName]), désigne le mode de
+     * cette ligne : « train », « ter » ou « sncf » pour un TER, « tram-train »
+     * pour C6 et C7 côté ferré.
+     */
+    fun answersModeWord(folded: String): Boolean = when {
+        mode == TransportMode.TER && folded in TER_WORDS -> true
+        isTramTrain && folded in TRAM_TRAIN_WORDS -> true
+        else -> false
+    }
 }
+
+/** Ce qu'on tape pour trouver un train — déjà repliés par [normalizeStopName]. */
+val TER_WORDS: Set<String> = setOf("train", "trains", "ter", "sncf")
+
+/** Et pour un tram-train : le trait d'union devient une espace au repli. */
+val TRAM_TRAIN_WORDS: Set<String> = setOf("tram train", "tram trains", "tramtrain")
+
+/** Les indices des tram-trains de l'étoile nantaise, côté ferré. */
+private val TRAM_TRAIN_LINES = setOf("C6", "C7")
+
+/**
+ * Vrai quand cet indice, porté par un train, est un tram-train — C6 ou C7.
+ *
+ * Sans le mode, la réponse est non : C6 et C7 sont **aussi** des Chronobus, et
+ * un bus ne devient pas un tram-train parce qu'il en partage le numéro.
+ */
+fun isTramTrainLine(name: String?, mode: TransportMode?): Boolean =
+    mode == TransportMode.TER && name != null && canonicalLineName(name) in TRAM_TRAIN_LINES
 
 /**
  * La forme canonique d'un indice de ligne, et **la même que celle du web**
@@ -159,6 +236,134 @@ data class TransitLine(
  * désigneraient deux lignes différentes.
  */
 fun canonicalLineName(raw: String): String = raw.trim().uppercase()
+
+/**
+ * La clé d'une ligne : `réseau:MATCH`, ou MATCH seul sans réseau connu.
+ *
+ * Port de `lineIndexKey` (`transit-selection.ts`) : le réseau en minuscules, la
+ * clé de tuile en majuscules. C'est la forme que les tuiles donnent par
+ * `network` + `match`.
+ */
+fun transitLineKey(network: TransitNetwork?, match: String): String {
+    val canonical = canonicalLineName(match)
+    return if (network == null) canonical else "${network.apiValue}:$canonical"
+}
+
+/**
+ * La forme canonique d'une référence de ligne — qualifiée ou nue.
+ *
+ * Port de `normalizeLineId` : « NAOLIB:c6 » devient « naolib:C6 », « c6 » devient
+ * « C6 ». Tout ce qui suit le premier deux-points est la clé de tuile — elle peut
+ * en contenir d'autres, comme un `route_id` Aléop. `null` sur une chaîne vide.
+ */
+fun normalizeTransitLineKey(raw: String?): String? {
+    val value = raw?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    val separator = value.indexOf(':')
+    if (separator < 0) return value.uppercase()
+    val network = value.substring(0, separator).trim().lowercase()
+    val match = value.substring(separator + 1).trim().uppercase()
+    return "$network:$match"
+}
+
+/**
+ * Les deux moitiés d'une clé : le réseau (`null` sur une clé nue) et la clé de
+ * tuile. C'est ce que le filtre de la carte compare à `network` et `match`.
+ *
+ * `null` sur une référence vide.
+ */
+fun splitTransitLineKey(raw: String?): Pair<String?, String>? {
+    val key = normalizeTransitLineKey(raw) ?: return null
+    val separator = key.indexOf(':')
+    if (separator < 0) return null to key
+    return key.substring(0, separator) to key.substring(separator + 1)
+}
+
+/**
+ * La clé d'une ligne connue par son seul numéro, qualifiée par ce qu'on sait
+ * d'elle.
+ *
+ * Port de `qualifyLineId` (`transit-selection.ts`). Le numéro nu désigne toutes
+ * les lignes qui le portent, tous réseaux confondus : c'est sans danger partout
+ * sauf pour C2, C4, C6 et C7, Chronobus Naolib **et** TER. Un train y est donc
+ * qualifié `aleop:`, un bus `naolib:` — les cars Aléop ne partagent aucun numéro.
+ */
+fun qualifyTransitLineKey(
+    line: String?,
+    network: TransitNetwork? = null,
+    mode: TransportMode? = null,
+): String? {
+    val value = line?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+    if (':' in value) return normalizeTransitLineKey(value)
+    if (network != null) return transitLineKey(network, value)
+    if (mode == TransportMode.TER) return transitLineKey(TransitNetwork.ALEOP, value)
+    if (canonicalLineName(value) in SHARED_WITH_TER) return transitLineKey(TransitNetwork.NAOLIB, value)
+    return canonicalLineName(value)
+}
+
+/** Numéros portés à la fois par un Chronobus Naolib et une ligne TER. */
+private val SHARED_WITH_TER = setOf("C2", "C4", "C6", "C7")
+
+/**
+ * L'inventaire des lignes, indexé pour répondre à « de quelle ligne parle-t-on ? ».
+ *
+ * ## Pourquoi une règle unique, et pourquoi ici
+ *
+ * Une référence de ligne arrive sous trois formes : un `route_id` GTFS
+ * (« ALEOP:309 », « ALEOP:TER:FR:Line::…: »), une clé qualifiée (« aleop:C6 ») ou
+ * un numéro nu (« C6 »). Le dépôt embarqué, son décorateur et les écrans
+ * répondaient chacun à leur façon — et le TER C6 ouvrait la fiche du Chronobus.
+ * La règle vit donc une fois, ici, pure et éprouvée.
+ *
+ * ## L'ordre de résolution (le même que l'iPhone)
+ *
+ * 1. le `route_id` exact, **sans casse** — l'UUID d'un TER arrive dans les deux ;
+ * 2. la clé qualifiée `réseau:MATCH` ;
+ * 3. le numéro nu : `aleop:` d'abord si l'on sait que c'est un train, `naolib:`
+ *    d'abord sinon, puis l'autre réseau, puis la **première** entrée du fichier
+ *    qui porte ce nom.
+ *
+ * Aucun repli d'une clé qualifiée vers le numéro nu : « aleop:C6 » inconnu ne
+ * doit jamais rendre le Chronobus.
+ *
+ * Une clé en double garde **la première** occurrence : une couleur ou une fiche
+ * ne doit pas changer d'un build à l'autre au gré de l'ordre du fichier.
+ */
+class TransitLineLookup(val lines: List<TransitLine>) {
+
+    private val byKey: Map<String, TransitLine> =
+        buildMap { lines.forEach { putIfAbsent(it.key, it) } }
+
+    private val byRouteId: Map<String, TransitLine> = buildMap {
+        lines.forEach { line -> line.routeIds.forEach { putIfAbsent(canonicalLineName(it), line) } }
+    }
+
+    private val byName: Map<String, TransitLine> =
+        buildMap { lines.forEach { putIfAbsent(canonicalLineName(it.name), it) } }
+
+    /**
+     * La ligne que cette référence désigne, ou `null`.
+     *
+     * @param mode le mode connu du demandeur, quand il en connaît un : c'est lui
+     *   qui départage un numéro nu porté par un bus et par un train.
+     */
+    fun resolve(reference: String?, mode: TransportMode? = null): TransitLine? {
+        val raw = reference?.trim()?.takeIf { it.isNotEmpty() } ?: return null
+        byRouteId[canonicalLineName(raw)]?.let { return it }
+        val key = normalizeTransitLineKey(raw) ?: return null
+        if (':' in key) return byKey[key]
+        val networks = if (mode == TransportMode.TER) {
+            listOf(TransitNetwork.ALEOP, TransitNetwork.NAOLIB)
+        } else {
+            listOf(TransitNetwork.NAOLIB, TransitNetwork.ALEOP)
+        }
+        networks.forEach { network -> byKey[transitLineKey(network, key)]?.let { return it } }
+        return byName[key] ?: byKey[key]
+    }
+
+    companion object {
+        val EMPTY = TransitLineLookup(emptyList())
+    }
+}
 
 /** Le cadre d'un tracé, en coordonnées. */
 data class TransitLineBounds(
@@ -240,6 +445,13 @@ enum class TransitLineFamily {
     CHRONOBUS,
     EXPRESS,
     BUS,
+
+    /**
+     * Les trains régionaux — TER et tram-trains. Rangés par la source dans le
+     * réseau Aléop, mais à part des cars : « Aléop — interurbain » ne garde que
+     * les cars, comme sur l'iPhone.
+     */
+    TER,
     INTERURBAN,
 }
 
@@ -295,7 +507,9 @@ data class NetworkLinesDigest(
  * le reste comme du texte. « C1 » < « C6 » < « C20 », « E1 » avant « E311 ».
  */
 private val TRANSIT_LINE_ORDER = Comparator<TransitLine> { left, right ->
-    compareNatural(left.name, right.name)
+    // Deux homonymes (les deux P2 TER) se départagent par leur clé : sans elle,
+    // leur ordre dépendrait de celui du fichier.
+    compareNatural(left.name, right.name).takeIf { it != 0 } ?: compareNatural(left.key, right.key)
 }
 
 internal fun compareNatural(left: String, right: String): Int {
@@ -369,6 +583,8 @@ fun decodeTransitLineIndex(raw: String?): List<TransitLine> {
                     ?.mapNotNull { it.jsonPrimitive.contentOrNull?.trim()?.takeIf(String::isNotBlank) }
                     .orEmpty()
             }.getOrDefault(emptyList()),
+            // Absent sur presque toutes les lignes : la clé de tuile est alors l'indice.
+            tileMatch = obj.text("match")?.takeIf { it.isNotBlank() },
         )
     }
 }

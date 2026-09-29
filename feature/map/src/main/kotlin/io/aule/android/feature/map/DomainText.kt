@@ -14,6 +14,7 @@ import io.aule.android.core.model.SummaryMetricKind
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.VehicleLoad
 import io.aule.android.core.model.Wait
+import io.aule.android.core.model.isTramTrainLine
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
@@ -83,11 +84,21 @@ fun DeparturesOutcome.detail(): String? = when (this) {
     DeparturesOutcome.PROVIDER_SILENT -> stringResource(R.string.departures_silent_detail)
 }
 
+/**
+ * Le mot du mode. Avec la ligne, C6 et C7 **ferrés** se disent « Tram-train » : la
+ * source les range parmi les TER, le voyageur les connaît sous ce nom. Partout
+ * ailleurs — et sans ligne connue —, c'est le mot du mode.
+ */
 @Composable
-fun TransportMode.label(): String = when (this) {
+fun TransportMode.label(line: String? = null): String = when (this) {
     TransportMode.BUS -> stringResource(R.string.mode_bus)
     TransportMode.TRAM -> stringResource(R.string.mode_tram)
     TransportMode.BOAT -> stringResource(R.string.mode_boat)
+    TransportMode.TER -> if (isTramTrainLine(line, this)) {
+        stringResource(R.string.mode_tram_train)
+    } else {
+        stringResource(R.string.mode_ter)
+    }
 }
 
 @Composable

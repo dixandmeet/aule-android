@@ -212,4 +212,12 @@ class VehicleBodyTest {
             zoom += 0.05
         }
     }
+
+    @Test
+    fun `le TER se distingue du tram par son gabarit plus long`() {
+        val ter = VehicleBody.gauge(TransportMode.TER)
+        val tram = VehicleBody.gauge(TransportMode.TRAM)
+        assertTrue(ter.lengthMeters > tram.lengthMeters)
+        assertTrue(ter.heightMeters > tram.heightMeters)
+    }
 }

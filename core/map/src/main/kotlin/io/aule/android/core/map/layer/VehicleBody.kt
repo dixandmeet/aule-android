@@ -66,6 +66,7 @@ internal object VehicleBody {
         TransportMode.BUS -> Gauge(lengthMeters = 11.0, widthMeters = 2.55, heightMeters = 3.2)
         TransportMode.TRAM -> Gauge(lengthMeters = 28.0, widthMeters = 2.65, heightMeters = 3.35)
         TransportMode.BOAT -> Gauge(lengthMeters = 19.0, widthMeters = 6.0, heightMeters = 3.6)
+        TransportMode.TER -> Gauge(lengthMeters = 42.0, widthMeters = 2.9, heightMeters = 4.0)
     }
 
     /**
@@ -110,6 +111,7 @@ internal object VehicleBody {
         TransportMode.BUS -> BUS_FLOOR_POINTS
         TransportMode.TRAM -> TRAM_FLOOR_POINTS
         TransportMode.BOAT -> BOAT_FLOOR_POINTS
+        TransportMode.TER -> TER_FLOOR_POINTS
     }
 
     /**
@@ -186,6 +188,7 @@ internal object VehicleBody {
     private const val BUS_FLOOR_POINTS = 36.0
     private const val TRAM_FLOOR_POINTS = 60.0
     private const val BOAT_FLOOR_POINTS = 44.0
+    private const val TER_FLOOR_POINTS = 72.0
 
     /**
      * Le plafond, pour les zooms où le volume ne se voit déjà plus : le fondu

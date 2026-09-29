@@ -47,6 +47,7 @@ import io.aule.android.core.model.StopDepartures
 import io.aule.android.core.model.Timetable
 import io.aule.android.core.model.TransitLine
 import io.aule.android.core.model.TransitStop
+import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.RoadManeuver
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RoutePlan
@@ -513,10 +514,23 @@ interface NetworkLineRepository {
     suspend fun allLines(): List<TransitLine>
 
     /**
-     * La ligne portant cet indice, ou `null`. La recherche est canonique — « c6 »
-     * et « C6 » désignent la même ligne.
+     * La ligne que cette référence désigne, ou `null`. La recherche est canonique —
+     * « c6 » et « C6 » désignent la même ligne.
+     *
+     * La référence peut être un `route_id` (« ALEOP:309 »), une clé qualifiée
+     * (« aleop:C6 ») ou un numéro nu (« C6 ») ; un numéro nu désigne **d'abord la
+     * ligne Naolib**. Voir [io.aule.android.core.model.TransitLineLookup].
      */
     suspend fun line(named: String): TransitLine?
+
+    /**
+     * Même chose, quand le demandeur connaît le mode : un numéro nu porté par un
+     * **train** désigne d'abord la ligne Aléop — le TER C6, pas le Chronobus.
+     *
+     * L'implémentation par défaut ignore le mode : elle garde compilables les
+     * doublures d'épreuve qui n'implémentent que [line].
+     */
+    suspend fun line(named: String, mode: TransportMode?): TransitLine? = line(named)
 }
 
 /**

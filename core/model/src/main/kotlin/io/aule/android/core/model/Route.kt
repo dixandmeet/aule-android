@@ -167,8 +167,14 @@ enum class CrowdingLevel {
     }
 }
 
-/** Le signe d'une étape, nommé par son sens et non par son dessin. */
-enum class RouteStepKind { WALK, CAR, TRAM, BUS, NAVIBUS }
+/**
+ * Le signe d'une étape, nommé par son sens et non par son dessin.
+ *
+ * [TRAIN] couvre le TER et les tram-trains : sans lui, une étape « train » retombait
+ * en [WALK], et l'appariement des libellés aux tronçons (`titlesFor`) comptait une
+ * marche de trop — tout l'itinéraire perdait ses phrases.
+ */
+enum class RouteStepKind { WALK, CAR, TRAM, BUS, NAVIBUS, TRAIN }
 
 /** Un point nommé : origine ou destination. */
 data class RoutePlace(
@@ -321,11 +327,14 @@ object RouteApi {
     }
 }
 
-fun routeStepKindFromId(raw: String?): RouteStepKind = when (raw) {
+fun routeStepKindFromId(raw: String?): RouteStepKind = when (raw?.trim()?.lowercase()) {
     "car" -> RouteStepKind.CAR
     "tram" -> RouteStepKind.TRAM
     "bus" -> RouteStepKind.BUS
     "navibus" -> RouteStepKind.NAVIBUS
+    // Le moteur écrit le mode ferré de trois façons selon la source ; les trois sont
+    // un tronçon en véhicule, jamais de la marche.
+    "train", "rail", "ter" -> RouteStepKind.TRAIN
     else -> RouteStepKind.WALK
 }
 

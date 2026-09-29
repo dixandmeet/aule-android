@@ -11,11 +11,12 @@ package io.aule.android.core.model
 enum class TransportMode {
     BUS,
     TRAM,
-    BOAT;
+    BOAT,
+    TER;
 
     companion object {
         /**
-         * Le vocabulaire de l'API, y compris le nom local du bateau.
+         * Le vocabulaire de l'API, y compris le nom local du bateau et du train régional.
          *
          * « Navibus » est le nom nantais des navettes fluviales ; il arrive tel
          * quel dans les données et ne se devine pas.
@@ -25,15 +26,20 @@ enum class TransportMode {
                 "bus" -> BUS
                 "tram", "tramway" -> TRAM
                 "boat", "navibus", "ferry" -> BOAT
+                "ter", "train", "rail" -> TER
                 else -> null
             }
 
         /**
-         * Le `route_type` GTFS. 0 = tram, 4 = ferry ; tout le reste
-         * (bus, métro, train) se lit comme un bus sur ce réseau.
+         * Le `route_type` GTFS :
+         * 0 = tram
+         * 2 = rail / TER
+         * 4 = ferry
+         * tout le reste (bus, car) se lit comme un bus.
          */
         fun fromGtfsRouteType(type: Int): TransportMode = when (type) {
             0 -> TRAM
+            2 -> TER
             4 -> BOAT
             else -> BUS
         }

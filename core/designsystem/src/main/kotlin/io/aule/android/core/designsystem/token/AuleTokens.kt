@@ -202,4 +202,5 @@ fun TransportMode.markerColor(night: Boolean): AuleRgba = when (this) {
     TransportMode.TRAM -> if (night) AulePalette.Hud.nightOnSurface else AulePalette.Teal.T30
     TransportMode.BOAT -> if (night) AuleRgba(0x5FA8C4) else AuleRgba(0x2E7D9A)
     TransportMode.BUS -> if (night) AuleRgba(0x97A6A7) else AuleRgba(0x55665F)
+    TransportMode.TER -> if (night) AuleRgba(0x38BDF8) else AuleRgba(0x0088CE)
 }

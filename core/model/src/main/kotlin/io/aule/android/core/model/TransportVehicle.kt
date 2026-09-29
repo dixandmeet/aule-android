@@ -96,6 +96,16 @@ data class TransportVehicle(
      * personne ne contribue.
      */
     val crowding: VehicleCrowding? = null,
+
+    /**
+     * La clé `réseau:MATCH` de sa ligne — « aleop:C7 » —, quand l'API la donne.
+     *
+     * ⚠️ **C'est elle qu'on lit d'abord pour savoir de quelle ligne parle un véhicule**, puis
+     * le `route_id` brut ([lineId]) avec le [mode], et jamais le nom montré ([lineName]) en
+     * premier : le TER C7 et le Chronobus C7 s'affichent pareil. `null` tant que le BFF ne
+     * l'envoie pas (la production rend encore le `route_id` brut).
+     */
+    val lineKey: String? = null,
 ) {
     val isLive: Boolean get() = feed == VehicleFeed.LIVE
 

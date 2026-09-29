@@ -355,7 +355,7 @@ private fun LineStopsHeader(
         if (mode != null) {
             TransportBadge(
                 mode = mode,
-                label = mode.label(),
+                label = mode.label(line = line.name),
                 tint = mode.markerColor(AuleTheme.night).color,
             )
         }

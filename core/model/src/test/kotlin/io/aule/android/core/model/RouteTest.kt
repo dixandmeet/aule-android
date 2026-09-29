@@ -186,4 +186,19 @@ class RouteTest {
         assertEquals(null, RouteProfile.fromApiValue("invente"))
         assertEquals(null, RouteReliability.fromApiValue("theoretical"))
     }
+
+    /**
+     * Une étape de train est un tronçon en véhicule. Retombée en marche, elle faisait compter à
+     * `titlesFor` une marche de trop : l'appariement échouait, et l'itinéraire entier perdait
+     * ses phrases.
+     */
+    @Test
+    fun `une etape train rail ou ter est un troncon en vehicule`() {
+        listOf("train", "rail", "ter", "TER", " Train ").forEach { icon ->
+            assertEquals(RouteStepKind.TRAIN, routeStepKindFromId(icon), "« $icon »")
+        }
+        assertEquals(RouteStepKind.TRAM, routeStepKindFromId("tram"))
+        assertEquals(RouteStepKind.WALK, routeStepKindFromId("walk"))
+        assertEquals(RouteStepKind.WALK, routeStepKindFromId(null))
+    }
 }
