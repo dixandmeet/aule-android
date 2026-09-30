@@ -5,31 +5,35 @@ import java.io.File
 /**
  * D'où viennent les tracés du réseau, et comment ils s'appellent dans l'archive.
  *
- * **Une archive embarquée, pas une requête.** Les tronçons du réseau tiennent
- * dans 3,4 Mo de tuiles vectorielles produites une fois pour toutes
- * (`dashboard/tools/tiles/build-transit.sh`) : géométrie, couleur et rang de
- * densité y sont calculés au build, jamais à l'exécution. C'est le même fichier
- * que la carte web et l'application iOS, **au bit près** — voir
- * `app/src/main/assets/tiles/README.md`.
+ * **Une archive embarquée, pas une requête.** Les tracés tiennent dans 2,8 Mo de
+ * tuiles vectorielles produites une fois pour toutes : c'est la **géométrie
+ * Aule** (`dashboard/tools/geometry/`, chapitre 14 de la carte web) — un axe par
+ * ligne jusqu'à z15, le tracé exact de chaque sens au-delà, couleurs normalisées
+ * pour le jour et la nuit. C'est le même fichier que la carte web et
+ * l'application iOS, **au bit près** — voir `app/src/main/assets/tiles/README.md`.
  *
  * L'embarquer plutôt que d'aller le chercher tient la même promesse que les deux
  * styles : le réseau s'affiche dans un tunnel comme en zone blanche, et un
- * premier affichage ne commence pas par attendre 3,4 Mo.
+ * premier affichage ne commence pas par attendre 2,8 Mo.
  */
 object TransitTiles {
 
     /**
-     * Le nom de la couche des tracés dans l'archive (`--named-layer` de
-     * tippecanoe). Il est partagé avec le web (`TRANSIT_SOURCE_LAYER` de
-     * `style/tile-source.ts`) et l'iOS : il change des deux côtés ou d'aucun.
+     * Le nom de la couche des tracés dans l'archive. Il est partagé avec le web
+     * (`TRANSIT_ROUTES_LAYER` de `style/tile-source.ts`) et l'iOS : il change des
+     * trois côtés ou d'aucun.
      */
-    const val LINES_SOURCE_LAYER = "transit_lines"
+    const val ROUTES_SOURCE_LAYER = "transit_routes"
 
     /** Le chemin de l'archive dans les assets. */
-    const val ASSET_PATH = "tiles/transit.pmtiles"
+    const val ASSET_PATH = "tiles/transit-v2.pmtiles"
 
-    /** Le nom sous lequel elle est recopiée — le même, pour qu'on la reconnaisse. */
-    const val CACHED_FILE_NAME = "transit.pmtiles"
+    /**
+     * Le nom sous lequel elle est recopiée — le même, pour qu'on la reconnaisse.
+     * Changé avec l'archive : une copie de l'ancienne `transit.pmtiles`, restée
+     * dans `filesDir`, ne peut pas être prise pour la nouvelle.
+     */
+    const val CACHED_FILE_NAME = "transit-v2.pmtiles"
 
     /**
      * L'URL que MapLibre attend — et **la seule qui peigne quoi que ce soit**.
@@ -51,7 +55,7 @@ object TransitTiles {
      * `PMTilesFileSource` et `AssetManagerFileSource`, mais rien dans ses
      * symboles ne dit que le premier passe par le second. La forme `file://`,
      * elle, est celle que l'iOS a prouvée et que le lecteur de fichiers local
-     * garantit. La copie coûte 3,4 Mo une fois, au premier lancement.
+     * garantit. La copie coûte 2,8 Mo une fois, au premier lancement.
      *
      * C'est une optimisation à reprendre le jour où quelqu'un peut essayer
      * l'autre forme sur un appareil — voir le § Lot 2 du plan de rattrapage.

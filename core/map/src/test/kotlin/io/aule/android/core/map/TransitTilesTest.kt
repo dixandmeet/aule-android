@@ -80,7 +80,10 @@ class TransitTilesTest {
     fun `le nom de la couche source est celui que partagent les trois cartes`() {
         // Il change des deux côtés ou d'aucun : c'est la clé de jointure avec
         // l'archive, et une faute ici rend une couche vide sans le dire.
-        assertEquals("transit_lines", TransitTiles.LINES_SOURCE_LAYER)
-        assertEquals("tiles/transit.pmtiles", TransitTiles.ASSET_PATH)
+        assertEquals("transit_routes", TransitTiles.ROUTES_SOURCE_LAYER)
+        assertEquals("tiles/transit-v2.pmtiles", TransitTiles.ASSET_PATH)
+        // Nom de copie changé avec l'archive : l'ancienne `transit.pmtiles`
+        // restée dans `filesDir` ne peut pas être prise pour la nouvelle.
+        assertEquals("transit-v2.pmtiles", TransitTiles.CACHED_FILE_NAME)
     }
 }
