@@ -1182,6 +1182,17 @@ class MapController(
         }
     }
 
+    /**
+     * Émet la région visible **maintenant**, comme si la caméra venait de se poser.
+     *
+     * Les gestes et le suivi émettent la leur ; une caméra **posée** par l'écran — [moveTo],
+     * [glide] — ne le faisait pas, et la flotte restait interrogée là où elle l'était avant. Sur
+     * la porte du Voyageur, la caméra part sur l'utilisateur pendant que la flotte reste celle du
+     * centre-ville par défaut : à cinq kilomètres de là, pas un véhicule dans le champ (S21,
+     * 30/09/2026). L'écran appelle ceci après avoir posé sa caméra.
+     */
+    fun emitRegion() = settleRegion()
+
     private fun settleRegion() {
         val map = map ?: return
         lastRegionEmitElapsed = SystemClock.elapsedRealtime()

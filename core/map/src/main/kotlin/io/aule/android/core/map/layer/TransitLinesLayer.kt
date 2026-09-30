@@ -86,6 +86,18 @@ class TransitLinesLayer(
     var focusedLine: String? = null
         private set
 
+    /**
+     * L'atténuation du réseau entier, de 0 (éteint) à 1 (tel que ses paliers le peignent).
+     *
+     * C'est ce qui permet d'**allumer et d'éteindre le réseau en fondu** : la visibilité d'une
+     * couche MapLibre bascule d'une image à l'autre, l'opacité, elle, transite
+     * (`lineOpacityTransition`). La porte du Voyageur allume le réseau pour le décor et le rend
+     * à la sortie ; sans fondu, cent trente-huit tracés disparaissaient d'un coup sous une
+     * caméra en train de glisser.
+     */
+    var fade: Float = 1f
+        private set
+
     private var source: VectorSource? = null
     private var tiers: List<PaintedTier> = emptyList()
     private var halo: LineLayer? = null
@@ -111,6 +123,25 @@ class TransitLinesLayer(
         logger.info(LogDomain.MAP, "Ligne mise en avant : ${canonical ?: "aucune"}.")
     }
 
+    /**
+     * Atténue le réseau entier, en fondu. Voir [fade].
+     *
+     * Sans effet sur la ligne mise en avant, qui n'est pas du décor. Sans effet avant le montage
+     * non plus : [mount] relit la valeur.
+     */
+    fun setFade(value: Float) {
+        val next = value.coerceIn(0f, 1f)
+        if (next == fade) return
+        fade = next
+        if (focusedLine == null) {
+            tiers.forEach { it.layer.setProperties(PropertyFactory.lineOpacity(faded(it.tier.opacity()))) }
+        }
+    }
+
+    /** L'opacité d'un palier, atténuée par [fade] — l'expression telle quelle quand rien n'atténue. */
+    private fun faded(opacity: Expression): Expression =
+        if (fade >= 1f) opacity else Expression.product(Expression.literal(fade), opacity)
+
     override fun mount(style: Style, map: MapLibreMap) {
         val posed = VectorSource(SOURCE, archiveUrl)
         style.addSource(posed)
@@ -126,7 +157,7 @@ class TransitLinesLayer(
                     // La couleur voyage **dans la donnée** : chaque tronçon porte
                     // celle de sa ligne.
                     PropertyFactory.lineColor(Expression.get(PROP_COLOR)),
-                    PropertyFactory.lineOpacity(tier.opacity()),
+                    PropertyFactory.lineOpacity(faded(tier.opacity())),
                     PropertyFactory.lineWidth(tier.width()),
                     PropertyFactory.lineOffset(bundleOffset()),
                     PropertyFactory.visibility(visibility(isVisible)),
@@ -134,6 +165,8 @@ class TransitLinesLayer(
                 // Le rang trie les tracés en trois paliers de densité ; il est
                 // calculé au build des tuiles, le style se contente de le lire.
                 setFilter(Expression.eq(Expression.get(PROP_RANK), Expression.literal(tier.rank)))
+                // [setFade] passe par l'opacité : elle doit transiter, pas sauter.
+                lineOpacityTransition = TransitionOptions(FADE_MS, 0)
             }
             insertBelowLabels(style, layer)
             PaintedTier(layer, tier)
@@ -233,7 +266,7 @@ class TransitLinesLayer(
             // elle qui fait entrer chaque palier au lieu de le faire surgir.
             painted.layer.setProperties(
                 if (designated == null) {
-                    PropertyFactory.lineOpacity(painted.tier.opacity())
+                    PropertyFactory.lineOpacity(faded(painted.tier.opacity()))
                 } else {
                     PropertyFactory.lineOpacity(DIMMED_NETWORK_OPACITY)
                 },
@@ -432,6 +465,9 @@ class TransitLinesLayer(
          * surgisse pas d'un coup.
          */
         private const val SELECTION_FADE_MS = 200L
+
+        /** Le temps d'un fondu d'opacité — celui que [setFade] met à s'achever. */
+        const val FADE_MS = SELECTION_FADE_MS
 
         private fun visibility(value: Boolean): String =
             if (value) Property.VISIBLE else Property.NONE
