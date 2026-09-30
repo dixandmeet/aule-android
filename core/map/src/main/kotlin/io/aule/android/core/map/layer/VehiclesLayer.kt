@@ -475,7 +475,7 @@ class VehiclesLayer(
                 // les deux passent par l'extrusion, qui reste donc **empruntée à
                 // chaque session**. Un chemin de secours jamais parcouru est un
                 // chemin cassé qu'on ignore.
-                bodyBuffer += body(vehicle, pose, zoom, props)
+                bodyBuffer += body(vehicle, pose, zoom, props, isSelected)
             }
         }
         source.setGeoJson(FeatureCollection.fromFeatures(featureBuffer))
@@ -543,7 +543,7 @@ class VehiclesLayer(
 
         val east = WebMercator.eastOffsetMeters(pose.coordinate.longitude, anchorMercX, anchorLat)
         val north = WebMercator.northOffsetMeters(pose.coordinate.latitude, anchorMercY, anchorLat)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude).toFloat()
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected).toFloat()
 
         val paint = bodyPaint(mesh)
         val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade
@@ -574,9 +574,10 @@ class VehiclesLayer(
         pose: Pose,
         zoom: Double,
         props: JsonObject,
+        isSelected: Boolean,
     ): Feature {
         val gauge = VehicleBody.gauge(vehicle.mode)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude)
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected)
         VehicleBody.footprint(
             latitude = pose.coordinate.latitude,
             longitude = pose.coordinate.longitude,

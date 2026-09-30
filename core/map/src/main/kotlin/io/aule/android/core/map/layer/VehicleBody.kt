@@ -2,6 +2,7 @@ package io.aule.android.core.map.layer
 
 import io.aule.android.core.geo.GeoMath
 import io.aule.android.core.map.MapScale
+import io.aule.android.core.map.MapZoom
 import io.aule.android.core.model.TransportMode
 import kotlin.math.cos
 import kotlin.math.min
@@ -92,11 +93,17 @@ internal object VehicleBody {
      *   les pôles : le même zoom ne donne pas le même nombre de mètres par
      *   point à Nantes et à Lille.
      */
-    fun emphasis(mode: TransportMode, zoom: Double, latitude: Double): Double {
+    fun emphasis(mode: TransportMode, zoom: Double, latitude: Double, followed: Boolean = false): Double {
         if (!zoom.isFinite() || !latitude.isFinite()) return 1.0
         val metersPerPoint = MapScale.metersPerPixel(latitude, zoom)
         val floorMeters = floorPoints(mode) * metersPerPoint
-        return (floorMeters / gauge(mode).lengthMeters).coerceIn(1.0, MAX_EMPHASIS)
+        val floored = (floorMeters / gauge(mode).lengthMeters).coerceIn(1.0, MAX_EMPHASIS)
+        // Le plancher ne vaut que sous les bâtiments : il s'efface avec le fondu des volumes
+        // (14,9 → 15,5) et laisse le véhicule à l'échelle vraie, proportionnel aux immeubles
+        // devenus pleins. Gardé jusqu'à z16, il donnait à un bus 2,6 fois sa longueur réelle.
+        val relief = 1.0 - bodyFade(zoom, BODY_FADE, MapZoom.VEHICLE_BODIES_FROM)
+        val scale = 1.0 + (floored - 1.0) * relief
+        return if (followed) scale * FOLLOWED_SCALE else scale
     }
 
     /**
@@ -196,6 +203,15 @@ internal object VehicleBody {
      * bus de cent mètres de haut traversant le fondu se verrait.
      */
     private const val MAX_EMPHASIS = 6.0
+
+    /** La demi-largeur du fondu des volumes : la même que `VehiclesLayer.BODY_FADE`. */
+    private const val BODY_FADE = 0.3
+
+    /**
+     * Le grossissement du véhicule suivi (vue GPS) : à l'échelle vraie, sous 60° d'inclinaison et
+     * derrière les immeubles, un bus se lit petit. Seul le véhicule choisi le prend.
+     */
+    private const val FOLLOWED_SCALE = 1.8
 
     /** Longueur du nez : une part de la caisse, plafonnée pour les longs véhicules. */
     private const val NOSE_SHARE = 0.18

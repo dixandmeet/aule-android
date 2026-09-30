@@ -110,31 +110,27 @@ class VehicleBodyTest {
 
         // Le tram, déjà long de vingt-huit mètres, avalerait les carrefours au
         // même facteur.
-        val far = VehicleBody.emphasis(TransportMode.BUS, MapZoom.NEIGHBOURHOOD, lat)
-        assertTrue(VehicleBody.emphasis(TransportMode.TRAM, MapZoom.NEIGHBOURHOOD, lat) < far)
+        val far = VehicleBody.emphasis(TransportMode.BUS, 14.9, lat)
+        assertTrue(VehicleBody.emphasis(TransportMode.TRAM, 14.9, lat) < far)
     }
 
     /**
-     * Le contrat qui a remplacé la rampe : **une longueur à l'écran**.
-     *
-     * L'ancienne rampe rendait ×1,6 à z15,5 — un bus de quinze points au cadre
-     * du quartier, « beaucoup trop petit ». On vérifie en points, pas en
-     * facteur : c'est ce que l'œil voit.
+     * Le contrat : le plancher en points vaut **sous** les bâtiments (z14,9), et s'efface avec
+     * leur apparition ; au cadre du quartier et au-dessus, le véhicule est à l'échelle vraie,
+     * proportionnel aux immeubles. Le véhicule suivi, lui, est grossi de 1,8.
      */
     @Test
-    fun `au cadre du quartier un vehicule garde sa longueur a l ecran`() {
+    fun `le plancher s efface avec les batiments`() {
         val lat = commerce.latitude
-        for (zoom in listOf(MapZoom.VEHICLE_BODIES_FROM, MapZoom.NEIGHBOURHOOD, 16.0)) {
-            for (mode in TransportMode.entries) {
-                val meters = VehicleBody.gauge(mode).lengthMeters * VehicleBody.emphasis(mode, zoom, lat)
-                val points = meters / MapScale.metersPerPixel(lat, zoom)
-                assertEquals(VehicleBody.floorPoints(mode), points, 0.5, "$mode à z$zoom")
+        for (mode in TransportMode.entries) {
+            val low = 14.9
+            val meters = VehicleBody.gauge(mode).lengthMeters * VehicleBody.emphasis(mode, low, lat)
+            assertEquals(VehicleBody.floorPoints(mode), meters / MapScale.metersPerPixel(lat, low), 0.5, "$mode")
+            for (zoom in listOf(MapZoom.NEIGHBOURHOOD, 16.0, 18.0)) {
+                assertEquals(1.0, VehicleBody.emphasis(mode, zoom, lat), 1e-9, "$mode à z$zoom")
             }
         }
-        val bus = VehicleBody.gauge(TransportMode.BUS).lengthMeters *
-            VehicleBody.emphasis(TransportMode.BUS, MapZoom.NEIGHBOURHOOD, lat) /
-            MapScale.metersPerPixel(lat, MapZoom.NEIGHBOURHOOD)
-        assertTrue(bus >= 30.0, "un bus se lit d'un regard, pas en le cherchant : $bus pt")
+        assertEquals(1.8, VehicleBody.emphasis(TransportMode.BUS, 18.0, lat, followed = true), 1e-9)
     }
 
     @Test
