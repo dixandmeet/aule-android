@@ -224,7 +224,84 @@ data class RouteSegment(
      * veut dire quelque chose.
      */
     val crowding: CrowdingLevel? = null,
+    /**
+     * Le numéro de ligne tel que le voyageur le lit (« C10 »).
+     *
+     * ⚠️ **[routeId] ne s'affiche pas.** Celui d'un TER est un UUID
+     * (`ALEOP:TER:FR:Line::3BFEB2…:`), et le détail d'un trajet le peignait tel
+     * quel dans sa pastille (S21, 29/09/2026). Absent d'une réponse ancienne : on
+     * résout alors [routeId] par l'index des lignes.
+     */
+    val lineName: String? = null,
+    /** Le mode exact du contrat — `TER` pour un train, que la phrase disait « tram ». */
+    val vehicle: TransportMode? = null,
+    /** Arrêts parcourus après la montée, descente comprise. */
+    val stopCount: Int? = null,
+    /** Les arrêts entre la montée et la descente (exclues), à l'heure de la grille. */
+    val stops: List<RouteStopCall> = emptyList(),
+    /** Montée et descente accessibles en fauteuil, quand le réseau le dit. */
+    val accessible: Boolean? = null,
+    /** Les perturbations de **cette** ligne — à dire à l'étape, pas en tête de page. */
+    val alerts: List<RouteLegAlert> = emptyList(),
+    /** La fiabilité de la correspondance qui **mène** à ce tronçon. `null` = théorique. */
+    val transferReliability: RouteReliability? = null,
+    /** L'état temps réel du départ. `null` = horaire théorique, rien de vivant n'a parlé. */
+    val realtime: RouteRealtime? = null,
+    /** Tronçon à pied : la longueur et la durée que le moteur a retenues. */
+    val walkMeters: Double? = null,
+    val walkDuration: Duration? = null,
 )
+
+/** Un arrêt traversé sans descendre. */
+data class RouteStopCall(
+    val name: String,
+    /** L'heure de la **grille** — le temps réel ne se propage pas arrêt par arrêt. */
+    val at: Instant? = null,
+)
+
+/** Une perturbation, telle qu'on l'affiche à l'étape qu'elle touche. */
+data class RouteLegAlert(
+    val title: String,
+    val severe: Boolean = false,
+)
+
+/**
+ * Ce qu'une source vivante dit d'un départ.
+ *
+ * ## ⚠️ Cinq états, et le cinquième est une prudence
+ *
+ * [RealtimeStatus.LIVE] : un passage en direct est annoncé, sans preuve que ce soit
+ * la course de la grille — le flux d'arrêt ne nomme pas les courses. On a alors une
+ * heure attendue, **jamais** un retard : afficher « +34 min » pour ce qui est le
+ * train suivant serait une fausse nouvelle. Voir `docs/CONTRAT-BFF.md` §15.
+ */
+data class RouteRealtime(
+    val status: RealtimeStatus,
+    /** Écart à la grille, négatif en avance. `null` sous [RealtimeStatus.LIVE]. */
+    val delay: Duration? = null,
+    val expectedDepartureAt: Instant? = null,
+    val expectedArrivalAt: Instant? = null,
+)
+
+enum class RealtimeStatus {
+    ON_TIME,
+    DELAYED,
+    EARLY,
+    CANCELED,
+    LIVE,
+    ;
+
+    companion object {
+        fun fromApiValue(value: String?): RealtimeStatus? = when (value) {
+            "on_time" -> ON_TIME
+            "delayed" -> DELAYED
+            "early" -> EARLY
+            "canceled" -> CANCELED
+            "live" -> LIVE
+            else -> null
+        }
+    }
+}
 
 data class RouteCandidate(
     val id: String,

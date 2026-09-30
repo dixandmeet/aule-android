@@ -62,6 +62,17 @@ data class JourneyLeg(
      * était plein.
      */
     val crowding: CrowdingLevel? = null,
+    /**
+     * Ce que le détail du trajet affiche de l'étape, relayé du tronçon
+     * (contrat BFF §15). ⚠️ **[line] reste le `route_id`** : c'est lui que la
+     * veille et l'API `line` interrogent. [lineName] est ce qu'on **lit**.
+     */
+    val lineName: String? = null,
+    val stops: List<RouteStopCall> = emptyList(),
+    val accessible: Boolean? = null,
+    val alerts: List<RouteLegAlert> = emptyList(),
+    val transferReliability: RouteReliability? = null,
+    val realtime: RouteRealtime? = null,
 ) {
     /** Vrai quand des manœuvres de voirie ont un sens. Un tram ne « tourne » pas. */
     val isRoad: Boolean get() = mode == LegMode.WALK || mode == LegMode.CAR
@@ -254,6 +265,15 @@ fun journeyFromCandidate(
             boardStopName = segment.boardStopName,
             alightStopName = segment.alightStopName,
             crowding = segment.crowding,
+            vehicle = segment.vehicle,
+            stopCount = segment.stopCount,
+            duration = segment.walkDuration,
+            lineName = segment.lineName,
+            stops = segment.stops,
+            accessible = segment.accessible,
+            alerts = segment.alerts,
+            transferReliability = segment.transferReliability,
+            realtime = segment.realtime,
         )
     }
     if (legs.isEmpty()) return null

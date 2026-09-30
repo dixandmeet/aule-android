@@ -7,7 +7,9 @@ import java.util.concurrent.TimeUnit
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.DeserializationStrategy
 import kotlinx.serialization.json.Json
 import okhttp3.Call
@@ -261,8 +263,9 @@ class AuleHttpClient(
             logger.warn(LogDomain.NET, "Transport en échec sur ${request.url.encodedPath}", failure)
             throw ApiException.Transport(failure)
         }
-        response.use {
-            return RawHttpBytes(code = it.code, body = it.body.bytes())
+        // Hors du fil principal : voir [executeForText].
+        return withContext(Dispatchers.IO) {
+            response.use { RawHttpBytes(code = it.code, body = it.body.bytes()) }
         }
     }
 
@@ -276,15 +279,21 @@ class AuleHttpClient(
             throw ApiException.Transport(failure)
         }
 
-        response.use {
-            val body = it.body.string()
-            when (val status = it.code) {
-                in 200..299 -> return body
-                404 -> throw ApiException.NotFound(serverMessage(body))
-                502, 503, 504 -> throw ApiException.UpstreamUnavailable(status)
-                in 400..499 -> throw ApiException.BadRequest(status, serverMessage(body))
-                else -> throw ApiException.Server(status)
-            }
+        // ⚠️ **Le corps se lit hors du fil principal.** `await()` rend la main dès les en-têtes,
+        // sur le fil de l'appelant — souvent le principal. En HTTP/2 le corps arrive déjà en
+        // mémoire par le fil de lecture d'OkHttp, et rien ne se voyait ; en HTTP/1.1 (un proxy,
+        // un portail Wi-Fi, un relais local) `string()` lit la socket, et Android lève
+        // `NetworkOnMainThreadException` : flotte et itinéraires « indisponibles », partout.
+        // Relevé le 29/09/2026 derrière un relais HTTP/1.1.
+        val (status, body) = withContext(Dispatchers.IO) {
+            response.use { it.code to it.body.string() }
+        }
+        when (status) {
+            in 200..299 -> return body
+            404 -> throw ApiException.NotFound(serverMessage(body))
+            502, 503, 504 -> throw ApiException.UpstreamUnavailable(status)
+            in 400..499 -> throw ApiException.BadRequest(status, serverMessage(body))
+            else -> throw ApiException.Server(status)
         }
     }
 

@@ -16,6 +16,9 @@ import io.aule.android.data.aule.AuleStopRepository
 import io.aule.android.data.aule.AuleVehicleRepository
 import io.aule.android.core.model.RouteMode
 import io.aule.android.core.model.RouteProfile
+import io.aule.android.core.model.RealtimeStatus
+import io.aule.android.core.model.RouteLegAlert
+import io.aule.android.core.model.RouteReliability
 import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
@@ -414,6 +417,59 @@ class BffRepositoryTest {
         // Une marche n'a pas de course, et n'en invente pas : un identifiant vide
         // ferait interroger un véhicule qui n'existe pas.
         assertNull(plan.alternatives.first().segments.first { it.walk }.departureId)
+    }
+
+    /**
+     * Le détail d'un trajet (contrat BFF §15) : ligne lisible, mode réel, arrêts, direct.
+     *
+     * ⚠️ La pastille d'un TER affichait son `route_id` — un UUID — faute de `lineName`, et la
+     * phrase de l'étape disait « Tram » pour un train. Un état de direct inconnu se lit comme une
+     * absence : le traduire par défaut affirmerait une ponctualité que personne n'a dite.
+     */
+    @Test
+    fun `un troncon porte ce que le detail du trajet affiche`() = runTest {
+        respond(
+            """
+            {"alternatives":[{"id":"a","duration":1800,"distance":9000,
+              "coordinates":[[-1.55,47.21],[-1.69,47.14]],
+              "segments":[
+                {"type":"walk","color":"#94a3b8","distance":512,"duration":420,
+                 "coordinates":[[-1.5536,47.2184],[-1.5421,47.2172]]},
+                {"type":"transit","color":"#0749FF",
+                 "routeId":"ALEOP:TER:FR:Line::3BFEB21D-85AF-409B-9346-ED10CA3D8ED0:",
+                 "lineName":"C10","mode":"rail","stopCount":2,"accessible":true,
+                 "stops":[{"name":"Rezé Pont-Rousseau","arrivalAt":"2026-09-30T05:11:00Z"},{"name":" "}],
+                 "alerts":[{"title":"Ascenseur indisponible","severity":"warning"}],
+                 "transferReliability":"tight",
+                 "realtime":{"status":"delayed","delaySeconds":240,"expectedDepartureAt":"2026-09-30T05:11:00Z"},
+                 "coordinates":[[-1.5421,47.2172],[-1.6937,47.1453]]},
+                {"type":"transit","color":"#0749FF","routeId":"1",
+                 "realtime":{"status":"teleported","delaySeconds":60},
+                 "coordinates":[[-1.6937,47.1453],[-1.70,47.14]]}
+              ]}]}
+            """.trimIndent(),
+        )
+        val plan = AuleRoutingRepository(endpoints, client).plan(
+            mode = RouteMode.TRANSIT,
+            from = Coordinate(latitude = 47.2136, longitude = -1.5601),
+            to = Coordinate(latitude = 47.1453, longitude = -1.6937),
+        )
+        val (marche, ter, tram) = plan.alternatives.first().segments
+
+        assertEquals(512.0, marche.walkMeters)
+        assertEquals(java.time.Duration.ofSeconds(420), marche.walkDuration)
+        assertEquals("C10", ter.lineName)
+        assertEquals(TransportMode.TER, ter.vehicle)
+        assertEquals(2, ter.stopCount)
+        assertEquals(listOf("Rezé Pont-Rousseau"), ter.stops.map { it.name }, "un nom vide n'est pas un arrêt")
+        assertEquals(true, ter.accessible)
+        assertEquals(listOf(RouteLegAlert("Ascenseur indisponible", severe = true)), ter.alerts)
+        assertEquals(RouteReliability.TIGHT, ter.transferReliability)
+        val direct = assertNotNull(ter.realtime)
+        assertEquals(RealtimeStatus.DELAYED, direct.status)
+        assertEquals(java.time.Duration.ofMinutes(4), direct.delay)
+        assertNull(tram.realtime, "un état inconnu n'est pas « à l'heure »")
+        assertNull(tram.lineName)
     }
 
     @Test

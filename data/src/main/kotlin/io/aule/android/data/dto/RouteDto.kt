@@ -2,20 +2,26 @@ package io.aule.android.data.dto
 
 import io.aule.android.core.geo.Coordinate
 import io.aule.android.core.model.CrowdingLevel
+import io.aule.android.core.model.RealtimeStatus
 import io.aule.android.core.model.RecommendationReason
 import io.aule.android.core.model.RoadManeuver
 import io.aule.android.core.model.RouteCandidate
+import io.aule.android.core.model.RouteLegAlert
 import io.aule.android.core.model.RoutePlan
 import io.aule.android.core.model.RouteProfile
+import io.aule.android.core.model.RouteRealtime
 import io.aule.android.core.model.RouteRecommendation
 import io.aule.android.core.model.RouteReliability
 import io.aule.android.core.model.RouteSegment
 import io.aule.android.core.model.RouteStep
+import io.aule.android.core.model.RouteStopCall
+import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.anchorTransitSegments
 import io.aule.android.core.model.durationMinutesFromSeconds
 import io.aule.android.core.model.routeStepKindFromId
 import io.aule.android.core.network.Iso8601
 import kotlin.math.roundToInt
+import kotlin.math.roundToLong
 import kotlinx.serialization.Serializable
 
 @Serializable
@@ -120,6 +126,39 @@ internal data class RouteSegmentDto(
     val fromStopName: String? = null,
     val toStopName: String? = null,
     val crowding: String? = null,
+    // Le détail d'une étape (contrat BFF §15). Tous facultatifs : une réponse
+    // d'avant les porte absents, et l'écran retombe sur ce qu'il sait déduire.
+    val lineName: String? = null,
+    val mode: String? = null,
+    val stopCount: Int? = null,
+    val stops: List<RouteStopCallDto> = emptyList(),
+    val accessible: Boolean? = null,
+    val alerts: List<RouteLegAlertDto> = emptyList(),
+    val transferReliability: String? = null,
+    val realtime: RouteRealtimeDto? = null,
+    /** Tronçon à pied : mètres et secondes. */
+    val distance: Double? = null,
+    val duration: Double? = null,
+)
+
+@Serializable
+internal data class RouteStopCallDto(
+    val name: String? = null,
+    val arrivalAt: String? = null,
+)
+
+@Serializable
+internal data class RouteLegAlertDto(
+    val title: String? = null,
+    val severity: String? = null,
+)
+
+@Serializable
+internal data class RouteRealtimeDto(
+    val status: String? = null,
+    val delaySeconds: Double? = null,
+    val expectedDepartureAt: String? = null,
+    val expectedArrivalAt: String? = null,
 )
 
 @Serializable
@@ -245,6 +284,42 @@ private fun RouteSegmentDto.toDomain(): RouteSegment? {
         // Un cran inconnu se lit comme une absence : traduire par défaut afficherait
         // « peu de monde » sur un véhicule bondé.
         crowding = CrowdingLevel.fromApiValue(crowding),
+        lineName = lineName?.trim()?.takeIf { it.isNotEmpty() },
+        vehicle = TransportMode.fromApiValue(mode),
+        // Zéro arrêt n'est pas un trajet : mieux vaut l'absence, qui a sa formulation.
+        stopCount = stopCount?.takeIf { it > 0 },
+        stops = stops.mapNotNull { stop ->
+            stop.name?.trim()?.takeIf { it.isNotEmpty() }
+                ?.let { RouteStopCall(name = it, at = stop.arrivalAt.toInstantOrNull()) }
+        },
+        accessible = accessible,
+        alerts = alerts.mapNotNull { alert ->
+            alert.title?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                RouteLegAlert(title = it, severe = alert.severity == "critical" || alert.severity == "warning")
+            }
+        },
+        transferReliability = RouteReliability.fromApiValue(transferReliability),
+        realtime = realtime?.toDomain(),
+        walkMeters = distance?.takeIf { it.isFinite() && it >= 0 },
+        walkDuration = duration.toDurationOrNull(),
+    )
+}
+
+/**
+ * ⚠️ **Un état inconnu est une absence, pas un « à l'heure ».** Le traduire par
+ * défaut affirmerait une ponctualité qu'aucune source n'a dite.
+ */
+private fun RouteRealtimeDto.toDomain(): RouteRealtime? {
+    val state = RealtimeStatus.fromApiValue(status) ?: return null
+    return RouteRealtime(
+        status = state,
+        delay = if (state == RealtimeStatus.LIVE) {
+            null
+        } else {
+            delaySeconds?.takeIf { it.isFinite() }?.let { java.time.Duration.ofSeconds(it.roundToLong()) }
+        },
+        expectedDepartureAt = expectedDepartureAt.toInstantOrNull(),
+        expectedArrivalAt = expectedArrivalAt.toInstantOrNull(),
     )
 }
 
