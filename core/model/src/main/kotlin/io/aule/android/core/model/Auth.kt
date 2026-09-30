@@ -57,7 +57,30 @@ enum class AuthFailureKind {
 class AuthException(
     val kind: AuthFailureKind,
     val serverMessage: String? = null,
+    /**
+     * Ce qu'une panne de réseau dit d'elle-même, pour [AuthFailureKind.NETWORK] seulement —
+     * `null` quand on ne sait pas.
+     *
+     * Un **détail**, et non trois genres de plus : Aule Pro décide sur `NETWORK` qu'il peut
+     * rouvrir un conducteur sur ses dernières habilitations connues, et le découper en genres
+     * lui ferait perdre ce repère. Le Voyageur, lui, s'en sert pour dire la bonne chose : hors
+     * connexion, on vérifie son réseau ; un délai dépassé, on réessaie ; un serveur en panne,
+     * on attend — et la carte reste ouverte.
+     */
+    val networkReason: NetworkFailureReason? = null,
 ) : Exception(serverMessage ?: kind.name)
+
+/** Ce qu'une panne de réseau dit d'elle-même. Voir [AuthException.networkReason]. */
+enum class NetworkFailureReason {
+    /** Le téléphone n'a pas de réseau : la requête n'est jamais partie. */
+    OFFLINE,
+
+    /** La requête est partie, et la réponse n'est pas venue à temps. */
+    TIMEOUT,
+
+    /** Le serveur a répondu, par une panne (5xx). */
+    UNAVAILABLE,
+}
 
 /**
  * Ce qu'un échange PKCE en attente était venu faire.

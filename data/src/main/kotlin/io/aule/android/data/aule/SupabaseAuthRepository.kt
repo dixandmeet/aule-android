@@ -6,6 +6,7 @@ import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
+import io.aule.android.core.model.NetworkFailureReason
 import io.aule.android.core.model.OAuthProvider
 import io.aule.android.core.model.ProRegistrationDraft
 import io.aule.android.core.model.repository.AuthPkceStore
@@ -236,7 +237,7 @@ class SupabaseAuthRepository(
         } catch (cancelled: ApiException.Cancelled) {
             throw cancelled
         } catch (transport: ApiException.Transport) {
-            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+            throw AuthException(AuthFailureKind.NETWORK, transport.message, networkReasonOf(transport))
         }
         when (response.code) {
             in 200..299 -> Unit
@@ -470,7 +471,7 @@ class SupabaseAuthRepository(
         } catch (cancelled: ApiException.Cancelled) {
             throw cancelled
         } catch (transport: ApiException.Transport) {
-            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+            throw AuthException(AuthFailureKind.NETWORK, transport.message, networkReasonOf(transport))
         } catch (failure: ApiException) {
             throw AuthException(AuthFailureKind.NETWORK, failure.message)
         }
@@ -481,6 +482,7 @@ class SupabaseAuthRepository(
             throw AuthException(
                 kind = authFailureKindOf(response.code, error),
                 serverMessage = error.messageOr(response.code),
+                networkReason = unavailableIf(response.code),
             )
         }
         logger.info(LogDomain.AUTH, "Mot de passe changé.")
@@ -596,7 +598,7 @@ class SupabaseAuthRepository(
         } catch (cancelled: ApiException.Cancelled) {
             throw cancelled
         } catch (transport: ApiException.Transport) {
-            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+            throw AuthException(AuthFailureKind.NETWORK, transport.message, networkReasonOf(transport))
         } catch (failure: ApiException) {
             throw AuthException(AuthFailureKind.NETWORK, failure.message)
         }
@@ -663,7 +665,7 @@ class SupabaseAuthRepository(
         } catch (cancelled: ApiException.Cancelled) {
             throw cancelled
         } catch (transport: ApiException.Transport) {
-            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+            throw AuthException(AuthFailureKind.NETWORK, transport.message, networkReasonOf(transport))
         } catch (failure: ApiException) {
             throw AuthException(AuthFailureKind.NETWORK, failure.message)
         }
@@ -684,6 +686,7 @@ class SupabaseAuthRepository(
         throw AuthException(
             kind = authFailureKindOf(response.code, error),
             serverMessage = error.messageOr(response.code),
+            networkReason = unavailableIf(response.code),
         )
     }
 
@@ -747,7 +750,7 @@ class SupabaseAuthRepository(
         } catch (cancelled: ApiException.Cancelled) {
             throw cancelled
         } catch (transport: ApiException.Transport) {
-            throw AuthException(AuthFailureKind.NETWORK, transport.message)
+            throw AuthException(AuthFailureKind.NETWORK, transport.message, networkReasonOf(transport))
         } catch (failure: ApiException) {
             throw AuthException(AuthFailureKind.NETWORK, failure.message)
         }
@@ -758,6 +761,7 @@ class SupabaseAuthRepository(
         throw AuthException(
             kind = authFailureKindOf(response.code, error),
             serverMessage = error.messageOr(response.code),
+            networkReason = unavailableIf(response.code),
         )
     }
 
@@ -815,3 +819,25 @@ class MemoryRegistrationDraftStore : RegistrationDraftStore {
 
 internal const val EMAIL_CONFIRMATION_REDIRECT = "io.aule.pro://login-callback/"
 private const val MIN_PASSWORD_LENGTH = 8
+
+/**
+ * Ce qu'une erreur de transport dit d'elle-même : pas de réseau, ou un délai dépassé.
+ *
+ * ⚠️ **La classe de la cause, jamais son message** : le texte d'une `IOException` change avec la
+ * version d'OkHttp et la langue de l'appareil.
+ */
+internal fun networkReasonOf(transport: ApiException.Transport): NetworkFailureReason? =
+    when (transport.cause) {
+        is java.net.SocketTimeoutException -> NetworkFailureReason.TIMEOUT
+        is java.net.UnknownHostException,
+        is java.net.ConnectException,
+        is java.net.NoRouteToHostException,
+        -> NetworkFailureReason.OFFLINE
+        // Le délai d'appel d'OkHttp lève une `InterruptedIOException` nue, au message « timeout ».
+        is java.io.InterruptedIOException -> NetworkFailureReason.TIMEOUT
+        else -> null
+    }
+
+/** Une panne du serveur (5xx) n'est pas un refus : elle ne dit rien de ce qu'on a tapé. */
+internal fun unavailableIf(status: Int): NetworkFailureReason? =
+    if (status in 500..599) NetworkFailureReason.UNAVAILABLE else null

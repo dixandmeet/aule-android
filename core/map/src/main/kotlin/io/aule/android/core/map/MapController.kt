@@ -615,6 +615,56 @@ class MapController(
     }
 
     /**
+     * Fait **glisser** la caméra jusqu'à une position, en une durée donnée.
+     *
+     * Le pendant de `MapController.glide` sur iOS, et pour le même usage : un mouvement
+     * de caméra qu'on **regarde** — le plan d'ensemble de la porte du Voyageur, le retour
+     * de la caméra quand elle s'efface. [flyTo] ne convient pas : il décrit un arc (il
+     * recule pour mieux replonger) et sa durée est celle de la maison ; ici la position
+     * change à peine, et c'est la lenteur qui fait l'effet.
+     *
+     * `easeCamera` et non `animateCamera` : le second est un vol, le premier une
+     * interpolation droite, amortie en fin de course.
+     *
+     * @param durationMs zéro pose la caméra sans l'animer — c'est ce que demande un
+     *   appareil réglé sur « moins de mouvement ».
+     */
+    fun glide(
+        center: Coordinate,
+        zoom: Double,
+        pitch: Double,
+        bearing: Double,
+        durationMs: Int,
+    ) {
+        val map = map ?: return
+        val view = mapView ?: return
+        if (view.width == 0 || view.height == 0) {
+            view.post { glide(center, zoom, pitch, bearing, durationMs) }
+            return
+        }
+        if (durationMs <= 0) {
+            moveTo(center, zoom, pitch, bearing)
+            return
+        }
+        setCameraMode(CameraMode.FREE_EXPLORE)
+        forgetOwedPitch()
+        forgetFrame()
+        val position = cameraPosition(center, zoom, pitch, bearing, topPaddingPx = 0.0)
+        suppressGestureDetection = true
+        isCameraCallInFlight = true
+        map.easeCamera(
+            CameraUpdateFactory.newCameraPosition(position),
+            durationMs,
+            true,
+            object : MapLibreMap.CancelableCallback {
+                override fun onFinish() = releaseCameraCall()
+                override fun onCancel() = releaseCameraCall()
+            },
+        )
+        lastAppliedTarget = null
+    }
+
+    /**
      * Cadre un tracé pour qu'il tienne dans la bande visible, volet compris.
      *
      * Une seule coordonnée non finie étirerait la boîte jusqu'à l'infini, et
