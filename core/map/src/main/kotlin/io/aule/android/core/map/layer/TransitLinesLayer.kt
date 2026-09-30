@@ -8,9 +8,6 @@ import io.aule.android.core.map.MapStyleAnchors
 import io.aule.android.core.map.TransitTiles
 import io.aule.android.core.model.normalizeTransitLineKey
 import io.aule.android.core.model.splitTransitLineKey
-import com.google.gson.Gson
-import com.google.gson.JsonArray
-import com.google.gson.JsonPrimitive
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
@@ -89,18 +86,6 @@ class TransitLinesLayer(
     var focusedLine: String? = null
         private set
 
-    /**
-     * L'atténuation du réseau entier, de 0 (éteint) à 1 (tel que ses paliers le peignent).
-     *
-     * C'est ce qui permet d'**allumer et d'éteindre le réseau en fondu** : la visibilité d'une
-     * couche MapLibre bascule d'une image à l'autre, l'opacité, elle, transite
-     * (`lineOpacityTransition`). La porte du Voyageur allume le réseau pour le décor et le rend
-     * à la sortie ; sans fondu, cent trente-huit tracés disparaissaient d'un coup sous une
-     * caméra en train de glisser.
-     */
-    var fade: Float = 1f
-        private set
-
     private var source: VectorSource? = null
     private var tiers: List<PaintedTier> = emptyList()
     private var halo: LineLayer? = null
@@ -126,28 +111,6 @@ class TransitLinesLayer(
         logger.info(LogDomain.MAP, "Ligne mise en avant : ${canonical ?: "aucune"}.")
     }
 
-    /**
-     * Atténue le réseau entier, en fondu. Voir [fade].
-     *
-     * Sans effet sur la ligne mise en avant, qui n'est pas du décor. Sans effet avant le montage
-     * non plus : [mount] relit la valeur.
-     */
-    fun setFade(value: Float) {
-        val next = value.coerceIn(0f, 1f)
-        if (next == fade) return
-        fade = next
-        if (focusedLine == null) {
-            tiers.forEach { it.layer.setProperties(PropertyFactory.lineOpacity(faded(it.tier.opacity()))) }
-        }
-    }
-
-    /** L'opacité d'un palier, atténuée par [fade] — l'expression telle quelle quand rien n'atténue. */
-    private fun faded(opacity: Expression): Expression {
-        if (fade >= 1f) return opacity
-        val ramp = Gson().toJsonTree(opacity.toArray()).asJsonArray
-        return Expression.Converter.convert(fadedRamp(ramp, fade))
-    }
-
     override fun mount(style: Style, map: MapLibreMap) {
         val posed = VectorSource(SOURCE, archiveUrl)
         style.addSource(posed)
@@ -163,7 +126,7 @@ class TransitLinesLayer(
                     // La couleur voyage **dans la donnée** : chaque tronçon porte
                     // celle de sa ligne.
                     PropertyFactory.lineColor(Expression.get(PROP_COLOR)),
-                    PropertyFactory.lineOpacity(faded(tier.opacity())),
+                    PropertyFactory.lineOpacity(tier.opacity()),
                     PropertyFactory.lineWidth(tier.width()),
                     PropertyFactory.lineOffset(bundleOffset()),
                     PropertyFactory.visibility(visibility(isVisible)),
@@ -171,8 +134,6 @@ class TransitLinesLayer(
                 // Le rang trie les tracés en trois paliers de densité ; il est
                 // calculé au build des tuiles, le style se contente de le lire.
                 setFilter(Expression.eq(Expression.get(PROP_RANK), Expression.literal(tier.rank)))
-                // [setFade] passe par l'opacité : elle doit transiter, pas sauter.
-                lineOpacityTransition = TransitionOptions(FADE_MS, 0)
             }
             insertBelowLabels(style, layer)
             PaintedTier(layer, tier)
@@ -272,7 +233,7 @@ class TransitLinesLayer(
             // elle qui fait entrer chaque palier au lieu de le faire surgir.
             painted.layer.setProperties(
                 if (designated == null) {
-                    PropertyFactory.lineOpacity(faded(painted.tier.opacity()))
+                    PropertyFactory.lineOpacity(painted.tier.opacity())
                 } else {
                     PropertyFactory.lineOpacity(DIMMED_NETWORK_OPACITY)
                 },
@@ -413,36 +374,6 @@ class TransitLinesLayer(
     }
 
     companion object {
-        /**
-         * Atténue une rampe de zoom en multipliant **ses sorties**, pas la rampe.
-         *
-         * ⚠️ **`product(fade, interpolate(…, zoom(), …))` est refusé par MapLibre.** Le style
-         * n'admet `["zoom"]` que comme entrée d'un `interpolate` ou d'un `step` **de premier
-         * niveau** : Android journalise « Error setting property: line-opacity » et ignore la
-         * propriété — le fondu ne jouait pas —, iOS lève une exception et l'application tombe
-         * (30/09/2026). On garde la rampe au premier niveau et l'on atténue chacune de ses sorties.
-         *
-         * Une expression qui n'est ni l'une ni l'autre est rendue telle quelle.
-         */
-        fun fadedRamp(ramp: JsonArray, fade: Float): JsonArray {
-            val op = ramp.firstOrNull()?.takeIf { it.isJsonPrimitive }?.asString
-            // interpolate : [op, courbe, entrée, z1, v1, z2, v2…] — sorties aux indices 4, 6…
-            // step : [op, entrée, v0, z1, v1…] — sorties aux indices 2, 4…
-            val first = when (op) {
-                "interpolate" -> 4
-                "step" -> 2
-                else -> return ramp
-            }
-            val scaled = ramp.deepCopy()
-            for (index in first until scaled.size() step 2) {
-                val value = scaled[index]
-                if (value.isJsonPrimitive && value.asJsonPrimitive.isNumber) {
-                    scaled[index] = JsonPrimitive(value.asFloat * fade)
-                }
-            }
-            return scaled
-        }
-
         const val ID = "aule.transit-lines"
 
         internal const val SOURCE = "aule-transit-lines-source"
@@ -501,9 +432,6 @@ class TransitLinesLayer(
          * surgisse pas d'un coup.
          */
         private const val SELECTION_FADE_MS = 200L
-
-        /** Le temps d'un fondu d'opacité — celui que [setFade] met à s'achever. */
-        const val FADE_MS = SELECTION_FADE_MS
 
         private fun visibility(value: Boolean): String =
             if (value) Property.VISIBLE else Property.NONE
