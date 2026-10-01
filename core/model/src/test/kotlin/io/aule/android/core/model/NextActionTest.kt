@@ -130,6 +130,26 @@ class NextActionTest {
     }
 
     @Test
+    fun `un TER s annonce par son numero et non par son route_id`() {
+        // 29/09/2026 : le bandeau peignait « ALEOP:TER:FR:Line::576E2F4E-… » et la voix le lisait.
+        val routeId = "ALEOP:TER:FR:Line::576E2F4E-738A-4830-A235-A3BAAA706745:"
+        val base = multimodal()
+        val plan = base.copy(
+            legs = base.legs.mapIndexed { index, leg ->
+                if (index == 1) leg.copy(line = routeId, lineName = "C11") else leg
+            },
+        )
+
+        val montee = at(plan, 0.18)
+        assertEquals(NextActionKind.BOARD, montee.kind)
+        assertEquals("C11", montee.title)
+        assertEquals("C11", montee.line)
+        assertEquals("C11", at(plan, 0.5).line)
+        // Sans nom, l'identifiant reste : illisible, mais vrai.
+        assertEquals(routeId, at(plan.copy(legs = plan.legs.map { it.copy(lineName = null) }), 0.5).line)
+    }
+
+    @Test
     fun `un virage de la marche finale n est pas annonce pendant la premiere`() {
         val action = at(
             multimodal(),

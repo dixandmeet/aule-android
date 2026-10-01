@@ -31,12 +31,21 @@ data class NextAction(
     val maneuver: ManeuverKind? = null,
     /** La sortie du rond-point, quand la manœuvre en est un et qu'OSRM l'a dite. */
     val maneuverExit: Int? = null,
+    /** Le numéro **à montrer** (« C11 ») — jamais un identifiant à renvoyer au serveur. */
     val line: String? = null,
     val lineColor: String? = null,
     val destinationLabel: String? = null,
 )
 
 const val BOARDING_NOTICE_M = 150.0
+
+/**
+ * La ligne telle que le bandeau et la voix la disent.
+ *
+ * ⚠️ [JourneyLeg.line] est le `route_id` : celui d'un TER est un UUID
+ * (`ALEOP:TER:FR:Line::…:`), que le bandeau peignait tel quel (29/09/2026).
+ */
+private val JourneyLeg.shownLine: String? get() = lineName ?: line
 
 fun nextAction(
     plan: JourneyPlan,
@@ -69,14 +78,14 @@ fun nextAction(
         // `isTransfer` a déjà exigé `next?.mode == LegMode.TRANSIT` : le
         // compilateur sait ici que `next` n'est pas nul, et un appel sûr de
         // plus laisserait croire le contraire au lecteur.
-        val target = transferStopName ?: next.line
+        val target = transferStopName ?: next.shownLine
         return NextAction(
             kind = NextActionKind.TRANSFER,
             title = target.orEmpty(),
             leadIsTransfer = true,
             detail = transferPlatform,
             mode = leg.mode,
-            line = next.line,
+            line = next.shownLine,
             lineColor = next.lineColor,
         )
     }
@@ -88,7 +97,7 @@ fun nextAction(
                 title = alightStopName.orEmpty(),
                 leadStops = stopsToAlight,
                 mode = leg.mode,
-                line = leg.line,
+                line = leg.shownLine,
                 lineColor = leg.lineColor,
             )
         }
@@ -96,7 +105,7 @@ fun nextAction(
             kind = NextActionKind.FOLLOW,
             title = leg.title,
             mode = leg.mode,
-            line = leg.line,
+            line = leg.shownLine,
             lineColor = leg.lineColor,
         )
     }
@@ -121,11 +130,11 @@ fun nextAction(
     if (next?.mode == LegMode.TRANSIT && progress.legRemainingMeters <= BOARDING_NOTICE_M) {
         return NextAction(
             kind = NextActionKind.BOARD,
-            title = next.line.orEmpty(),
+            title = next.shownLine.orEmpty(),
             leadMeters = progress.legRemainingMeters,
             detail = next.title,
             mode = leg.mode,
-            line = next.line,
+            line = next.shownLine,
             lineColor = next.lineColor,
         )
     }
@@ -135,7 +144,7 @@ fun nextAction(
         title = leg.title,
         leadMeters = if (legs.size > 1) progress.legRemainingMeters else null,
         mode = leg.mode,
-        line = leg.line,
+        line = leg.shownLine,
         lineColor = leg.lineColor,
     )
 }
