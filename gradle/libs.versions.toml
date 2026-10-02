@@ -6,11 +6,11 @@
 [versions]
 # Chaîne de build. Vérifiées sur Maven Central et Google Maven le 16/08/2026.
 #
-# AGP 9.2.1 et non 9.3.1 : la 9.3.1 exige Gradle 9.5.0, et seule la distribution
-# 9.4.1 est présente sur cette machine. La 9.2.1 est par ailleurs celle sur
-# laquelle tourne déjà SAE/android. À remonter ensemble le jour où l'on passe le
-# wrapper à 9.5.
-agp = "9.2.1"
+# AGP 9.4.1 sur Gradle 9.6.0 depuis le 01/10/2026 : la chaîne du nouveau Mac,
+# avec laquelle le socle et le Voyageur Android — qui lit ce catalogue, et dont
+# le wrapper est passé en 9.6.0 le même jour — sont bâtis et éprouvés. Avant,
+# AGP 9.2.1 sur Gradle 9.4.1, seule distribution présente sur l'ancienne machine.
+agp = "9.4.1"
 kotlin = "2.4.10"
 ksp = "2.4.10-2.0.4"
 
