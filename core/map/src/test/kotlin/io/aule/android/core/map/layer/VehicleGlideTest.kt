@@ -222,6 +222,41 @@ class VehicleGlideTest {
         assertEquals(190.0, VehicleGlide.heading(previous = 10.0, aim = 190.0, dtSeconds = 0.016))
     }
 
+    @Test
+    fun `le cap tourne par le plus court arc, jamais de 350 a 10 par 340 degres`() {
+        // Spec commune des véhicules : « jamais 350° → 10° par 340° ». La caisse passe par le
+        // nord — 350, 355, 0, 5, 10 — et ne balaie à aucun moment le demi-cercle opposé.
+        var heading = 350.0
+        val seen = mutableListOf(heading)
+        repeat(120) {
+            heading = VehicleGlide.heading(previous = heading, aim = 10.0, dtSeconds = 1 / 120.0)
+            seen += heading
+        }
+        for (value in seen) {
+            assertTrue(
+                value >= 350.0 - 1e-6 || value <= 10.0 + 1e-6,
+                "le cap est passé par $value°, c'est-à-dire par le grand arc",
+            )
+        }
+        assertTrue(degreesBetween(heading, 10.0) < 3.0, "après une seconde il reste ${degreesBetween(heading, 10.0)}°")
+
+        // Et dans l'autre sens, de 10° vers 350°.
+        heading = 10.0
+        val back = mutableListOf(heading)
+        repeat(120) {
+            heading = VehicleGlide.heading(previous = heading, aim = 350.0, dtSeconds = 1 / 120.0)
+            back += heading
+        }
+        for (value in back) {
+            assertTrue(value >= 350.0 - 1e-6 || value <= 10.0 + 1e-6, "le cap est passé par $value°")
+        }
+
+        // Un seul pas : on avance à travers le nord, pas à travers le sud.
+        val step = VehicleGlide.heading(previous = 350.0, aim = 10.0, dtSeconds = 0.05)
+        assertTrue(step > 350.0 || step < 10.0, "un pas de 50 ms a rendu $step°")
+        assertTrue(degreesBetween(step, 350.0) < 10.0, "le pas a sauté de ${degreesBetween(step, 350.0)}°")
+    }
+
     // ----------------------------------------------------- la glisse, bout en bout
 
     @Test

@@ -15,11 +15,13 @@ import io.aule.android.core.geo.PolylineProjection
 import io.aule.android.core.map.MapAmbiance
 import io.aule.android.core.map.MapIcons
 import io.aule.android.core.map.MapInteractiveLayer
+import io.aule.android.core.map.MapScale
 import io.aule.android.core.map.MapZoom
 import io.aule.android.core.map3d.VehicleLighting
 import io.aule.android.core.map3d.VehicleScene
 import io.aule.android.core.map3d.WebMercator
 import io.aule.android.core.model.FleetSnapshot
+import io.aule.android.core.model.LinePalette
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
 import kotlin.math.min
@@ -28,6 +30,7 @@ import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.Style
 import org.maplibre.android.style.expressions.Expression
 import org.maplibre.android.style.layers.CircleLayer
+import org.maplibre.android.style.layers.Property
 import org.maplibre.android.style.layers.FillExtrusionLayer
 import org.maplibre.android.style.layers.PropertyFactory
 import org.maplibre.android.style.layers.SymbolLayer
@@ -80,6 +83,21 @@ class VehiclesLayer(
 
     override val id: String = ID
     override val isAnimated: Boolean = true
+
+    /**
+     * Comment la flotte se peint — la livrée d'origine par défaut (Aule Pro, SAE), ou la
+     * carrosserie **neutre + accent** que le Voyageur active ([FleetRendering.VOYAGEUR]).
+     *
+     * ⚠️ **À poser avant le montage** : ce sont les couches de style qui en dépendent, et elles ne se
+     * refont qu'au prochain chargement de style.
+     */
+    var rendering: FleetRendering = FleetRendering()
+
+    /**
+     * « Réduire les animations » : le halo du véhicule suivi cesse de pulser et reste un anneau
+     * fixe. Lu à chaque image ; l'appelant le pose depuis le réglage du système.
+     */
+    var reduceMotion: Boolean = false
 
     private var source: GeoJsonSource? = null
     private var selectionSource: GeoJsonSource? = null
@@ -161,7 +179,159 @@ class VehiclesLayer(
      */
     private var sceneStatus = VehicleScene.SceneStatus.NEEDS_INIT
 
+    /**
+     * Le style vivant, ou `null` entre deux styles : il sert à poser, au fil de l'arrivée des
+     * lignes, les silhouettes de la livrée neutre — une par couleur d'accent.
+     */
+    private var style: Style? = null
+
+    /** Les images de silhouette déjà posées **dans le style courant**. */
+    private val liveIcons = HashSet<String>()
+
+    /** Le nuancier des lignes : d'où vient l'accent de chaque véhicule. */
+    private var linePalette: LinePalette = LinePalette.EMPTY
+
+    /**
+     * La caméra suit-elle le véhicule choisi ? C'est ce qui fait d'un véhicule choisi un véhicule
+     * **suivi** : halo qui pulse, ombre de contact ×1,5.
+     */
+    private var following = false
+
+    /** L'horloge de la couche, en secondes : elle pilote la pulsation du halo. */
+    private var clockSeconds = 0.0
+
+    /**
+     * Ce que vaut un point dessiné d'une silhouette à l'écran.
+     *
+     * Les images sont posées à la densité par défaut de l'appareil, pas à 480 : un point dessiné
+     * y vaut `480 / densité` points d'écran. Il entre dans la longueur d'écran du véhicule, donc
+     * dans le diamètre du halo.
+     */
+    private val imageScale: Double = run {
+        // La densité d'un bitmap neuf est la densité par défaut de l'appareil — celle des images de
+        // `MapIcons`, que MapLibre lit pour savoir ce que vaut un de leurs pixels.
+        val density = runCatching {
+            android.graphics.Bitmap.createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888).density
+        }.getOrDefault(0)
+        if (density > 0) 480.0 / density else 1.0
+    }
+
+    private val neutralLook: Boolean get() = rendering.isNeutralAccent
+
     data class Pose(val coordinate: Coordinate, val heading: Double)
+
+    // --------------------------------------------------------------- la livrée neutre
+
+    /**
+     * Le nuancier des lignes — la couleur d'accent de chaque véhicule vient de là, pas du service
+     * de flotte, qui ne rend qu'un `route_id`. Sans effet sur la livrée d'origine.
+     */
+    fun setLinePalette(palette: LinePalette) {
+        linePalette = palette
+        refreshAppearance()
+        redraw(slideProgress)
+    }
+
+    /**
+     * Dit si la caméra suit le véhicule choisi (vue GPS).
+     *
+     * Le véhicule choisi devient alors **suivi** : son halo pulse et son ombre de contact pèse
+     * davantage. Sans véhicule choisi, l'appel n'a pas d'effet visible.
+     */
+    fun setFollowing(isFollowing: Boolean) {
+        if (following == isFollowing) return
+        following = isFollowing
+        refreshAppearance()
+        redraw(slideProgress)
+    }
+
+    private fun roleOf(vehicleId: String): VehicleLivery.Role {
+        val chosen = selectedID
+        return VehicleLivery.role(
+            isSelected = chosen != null && vehicleId == chosen,
+            isFollowed = following,
+            anyChosen = chosen != null && chosen in byId,
+        )
+    }
+
+    /**
+     * L'image d'une silhouette, posée dans le style si elle n'y est pas encore.
+     *
+     * Rend son nom dans tous les cas : sans style — avant le montage —, [refreshAppearance]
+     * repasse au montage et pose ce qui manque.
+     */
+    private fun ensureIcon(spec: VehicleLivery.IconSpec): String {
+        val name = spec.name
+        if (name !in liveIcons) {
+            val live = style
+            if (live != null) {
+                MapIcons.addVehicle(live, spec)
+                liveIcons += name
+            }
+        }
+        return name
+    }
+
+    /** Ce qui, dans les propriétés d'un véhicule, dépend de son état et de l'ambiance. */
+    private fun paintNeutral(vehicle: TransportVehicle, props: JsonObject) {
+        val role = roleOf(vehicle.id)
+        val accent = VehicleLivery.accent(
+            VehicleLivery.lineColorHex(vehicle, linePalette), vehicle.mode, night,
+        )
+        props.addProperty(PROP_ACCENT, VehicleLivery.css(accent))
+        props.addProperty(
+            PROP_ICON,
+            ensureIcon(
+                VehicleLivery.IconSpec(
+                    mode = vehicle.mode,
+                    accent = accent,
+                    live = vehicle.isLive,
+                    contoured = VehicleLivery.isContoured(role),
+                    night = night,
+                ),
+            ),
+        )
+        props.addProperty(PROP_SCALE, VehicleLivery.scale(role))
+        props.addProperty(PROP_SORT, VehicleLivery.drawRank(role))
+        // Le point de loin : celui du théorique garde son retrait, celui des autres recule.
+        props.addProperty(
+            PROP_OPACITY,
+            (if (vehicle.isLive) 1.0 else SCHEDULED_DOT_OPACITY) * VehicleLivery.opacity(role),
+        )
+    }
+
+    /**
+     * Republie l'apparence de toute la flotte : choix, suivi, nuancier ou ambiance ont changé.
+     *
+     * Rien à faire pour la livrée d'origine, dont les propriétés ne dépendent que du sondage.
+     */
+    private fun refreshAppearance() {
+        if (!neutralLook) return
+        for (vehicle in snapshot.vehicles) {
+            paintNeutral(vehicle, properties[vehicle.id] ?: continue)
+        }
+        applyRecession()
+    }
+
+    /**
+     * Le recul des **autres** caisses extrudées quand l'une est choisie.
+     *
+     * Les caisses de la flotte partagent une couche, dont l'opacité est une propriété de couche :
+     * c'est elle qu'on baisse, plutôt qu'une opacité par véhicule que le style ne sait pas lire.
+     */
+    private fun applyRecession() {
+        val live = style ?: return
+        val role = if (selectedID != null && selectedID in byId) {
+            VehicleLivery.Role.RECEDED
+        } else {
+            VehicleLivery.Role.REST
+        }
+        (live.getLayer(BODY_LAYER) as? FillExtrusionLayer)?.setProperties(
+            PropertyFactory.fillExtrusionOpacity(
+                bodyOpacity(FLEET_OPACITY * VehicleLivery.opacity(role)),
+            ),
+        )
+    }
 
     // ------------------------------------------------------------------ données
 
@@ -185,8 +355,11 @@ class VehiclesLayer(
             }
             properties[vehicle.id] = JsonObject().apply {
                 addProperty(PROP_ID, vehicle.id)
-                addProperty(PROP_ICON, MapIcons.vehicleName(vehicle.mode, vehicle.isLive))
                 addProperty(PROP_HEADING, vehicle.headingDegrees)
+                // La livrée neutre peint tout ce qui suit — silhouette, point, accent — dans
+                // [refreshAppearance], une fois la sélection reportée sur l'héritier.
+                if (neutralLook) return@apply
+                addProperty(PROP_ICON, MapIcons.vehicleName(vehicle.mode, vehicle.isLive))
                 // Un véhicule théorique s'affiche en retrait : il dit où le bus
                 // *devrait* être, ce qui n'est pas la même promesse qu'une
                 // position mesurée.
@@ -251,6 +424,7 @@ class VehiclesLayer(
             if (heir == null) selectedIdentity = null
         }
 
+        refreshAppearance()
         redraw(progress = 0.0)
     }
 
@@ -270,6 +444,8 @@ class VehiclesLayer(
         // cherche un héritier : à ce moment-là, le véhicule a déjà disparu de `byId` et son
         // `twinId` avec lui — il ne resterait qu'un identifiant orphelin à comparer.
         selectedIdentity = identity ?: id?.let { byId[it]?.courseIdentity ?: it }
+        // Le contour, l'échelle et l'ordre de dessin de toute la flotte en dépendent.
+        refreshAppearance()
         // Un redessin complet plutôt que le seul anneau : c'est la propriété
         // `selected` de chaque caisse qui décide de la couche translucide ou de
         // la pleine, et elle ne s'écrit qu'ici.
@@ -331,6 +507,7 @@ class VehiclesLayer(
 
     override fun onFrame(elapsedSeconds: Double) {
         val previousFrame = lastFrameSeconds
+        clockSeconds = elapsedSeconds
         // Retenu avant les sorties anticipées : sinon la première image après un
         // retour dans le cadre porterait tout le temps passé hors de lui.
         lastFrameSeconds = elapsedSeconds
@@ -436,6 +613,13 @@ class VehiclesLayer(
             // C'est cette propriété qui répartit la flotte entre les deux
             // couches de volume : la translucide, et celle du véhicule choisi.
             props.addProperty(PROP_SELECTED, isSelected)
+            val role = if (neutralLook) roleOf(vehicle.id) else VehicleLivery.Role.REST
+            if (neutralLook) {
+                // La silhouette s'efface devant son volume à la même rampe que le modèle s'allume :
+                // la rampe est calculée ici, **une fois pour les deux**, et non par une expression de
+                // zoom — celle-ci ne saurait pas la mêler à l'opacité d'une caisse qui recule.
+                props.addProperty(PROP_ICON_OPACITY, (1.0 - fade) * VehicleLivery.opacity(role))
+            }
 
             featureBuffer += Feature.fromGeometry(
                 Point.fromLngLat(pose.coordinate.longitude, pose.coordinate.latitude),
@@ -468,19 +652,19 @@ class VehiclesLayer(
                 // les véhicules à l'écran, celui qu'on regarde est le dernier qu'on accepte de
                 // ne pas voir.
                 val slot = if (poses < VehicleScene.MAX_POSES) poses++ else VehicleScene.MAX_POSES - 1
-                writePose(slot, vehicle, pose, zoom, isSelected, fade,
+                writePose(slot, vehicle, pose, zoom, isSelected, role, fade,
                     anchorMercX, anchorMercY, anchorLat, mesh)
             } else if (bodyBuffer.size < MAX_BODIES || isSelected) {
                 // Le navibus n'a pas de modèle dans le pack, et le repli non plus :
                 // les deux passent par l'extrusion, qui reste donc **empruntée à
                 // chaque session**. Un chemin de secours jamais parcouru est un
                 // chemin cassé qu'on ignore.
-                bodyBuffer += body(vehicle, pose, zoom, props, isSelected)
+                bodyBuffer += body(vehicle, pose, zoom, props, isSelected, role)
             }
         }
         source.setGeoJson(FeatureCollection.fromFeatures(featureBuffer))
         publishBodies()
-        publishSelection()
+        publishSelection(zoom, fade)
 
         // Publier même à zéro : sans cela, la dernière flotte resterait peinte
         // après un dézoom sous le seuil.
@@ -532,6 +716,7 @@ class VehiclesLayer(
         pose: Pose,
         zoom: Double,
         isSelected: Boolean,
+        role: VehicleLivery.Role,
         fade: Double,
         anchorMercX: Double,
         anchorMercY: Double,
@@ -543,10 +728,18 @@ class VehiclesLayer(
 
         val east = WebMercator.eastOffsetMeters(pose.coordinate.longitude, anchorMercX, anchorLat)
         val north = WebMercator.northOffsetMeters(pose.coordinate.latitude, anchorMercY, anchorLat)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected).toFloat()
+        val neutral = neutralLook
+        // Les autres reculent (×0,92) quand l'un est choisi ; le choisi garde l'exagération du suivi.
+        val scale = (
+            VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected) *
+                (if (neutral) VehicleLivery.volumeScale(role) else 1.0)
+            ).toFloat()
 
-        val paint = bodyPaint(mesh)
-        val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade
+        // Livrée neutre : la carrosserie est le blanc cassé ou l'anthracite, et la couleur de la
+        // ligne ne passe plus que par l'accent — bas de caisse, bande de toit, liseré.
+        val paint = if (neutral) AuleRgba(VehicleLivery.neutral(night).body) else bodyPaint(mesh)
+        val opacity = (if (isSelected) SELECTED_OPACITY else FLEET_OPACITY) * fade *
+            (if (neutral) VehicleLivery.opacity(role) else 1.0)
 
         staging.putFloat(base, east.toFloat())
         staging.putFloat(base + 4, north.toFloat())
@@ -560,6 +753,24 @@ class VehiclesLayer(
         staging.putFloat(base + 32, paint.blue.toFloat())
         staging.putFloat(base + 36, opacity.toFloat())
         staging.putInt(base + 40, mesh)
+        if (neutral) {
+            val accent = AuleRgba(
+                VehicleLivery.accent(VehicleLivery.lineColorHex(vehicle, linePalette), vehicle.mode, night),
+            )
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT, accent.red.toFloat())
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT + 4, accent.green.toFloat())
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT + 8, accent.blue.toFloat())
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT_MIX, 1f)
+            staging.putFloat(base + VehicleScene.OFFSET_SHADOW_BOOST, VehicleLivery.contactShadow(role).toFloat())
+        } else {
+            // Une pose écrite à la main n'hérite de rien : le tampon est réutilisé d'une image à
+            // l'autre, et l'accent d'une livrée neutre ne doit pas y survivre.
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT, 0f)
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT + 4, 0f)
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT + 8, 0f)
+            staging.putFloat(base + VehicleScene.OFFSET_ACCENT_MIX, 0f)
+            staging.putFloat(base + VehicleScene.OFFSET_SHADOW_BOOST, 1f)
+        }
     }
 
     /**
@@ -575,9 +786,11 @@ class VehiclesLayer(
         zoom: Double,
         props: JsonObject,
         isSelected: Boolean,
+        role: VehicleLivery.Role,
     ): Feature {
         val gauge = VehicleBody.gauge(vehicle.mode)
-        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected)
+        val scale = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, isSelected) *
+            (if (neutralLook) VehicleLivery.volumeScale(role) else 1.0)
         VehicleBody.footprint(
             latitude = pose.coordinate.latitude,
             longitude = pose.coordinate.longitude,
@@ -606,18 +819,65 @@ class VehiclesLayer(
         bodiesPublished = bodyBuffer.isNotEmpty()
     }
 
-    private fun publishSelection() {
+    private fun publishSelection(zoom: Double, fade: Double) {
         val source = selectionSource ?: return
         val pose = selectedID?.let { displayed[it] }
         if (pose == null) {
             source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
-        } else {
-            source.setGeoJson(
-                Feature.fromGeometry(
-                    Point.fromLngLat(pose.coordinate.longitude, pose.coordinate.latitude),
-                ),
-            )
+            return
         }
+        val point = Point.fromLngLat(pose.coordinate.longitude, pose.coordinate.latitude)
+        if (!neutralLook) {
+            source.setGeoJson(Feature.fromGeometry(point))
+            return
+        }
+
+        // Le halo de la livrée neutre : un anneau posé au sol, et, sous le véhicule suivi, sa lueur.
+        // **C'est la couche, et non le style, qui sait sa taille** : elle dépend de la longueur du
+        // véhicule à l'écran, donc du zoom, de la latitude et de ce qu'il est — silhouette ou volume.
+        val vehicle = selectedID?.let { byId[it] }
+        val paint = vehicle?.let { halo(it, pose, zoom, fade) }
+        if (paint == null) {
+            source.setGeoJson(FeatureCollection.fromFeatures(emptyList()))
+            return
+        }
+        val props = JsonObject().apply {
+            // Le trait d'un cercle de style est posé **hors** de son rayon : la ligne centrale de
+            // l'anneau est à `rayon + trait / 2`, d'où ce rayon un peu court.
+            addProperty(PROP_RING_RADIUS, (paint.diameterPt / 2.0 - HALO_RING_STROKE / 2.0).coerceAtLeast(1.0))
+            addProperty(PROP_HALO_SIZE, paint.diameterPt / MapIcons.VEHICLE_HALO_RING_DP)
+            addProperty(PROP_HALO_OPACITY, paint.opacity)
+            addProperty(PROP_GLOW_OPACITY, if (paint.glow) paint.opacity else 0.0)
+        }
+        source.setGeoJson(Feature.fromGeometry(point, props))
+    }
+
+    /** Ce que le halo du véhicule choisi doit peindre à cette image, ou `null`. */
+    private fun halo(
+        vehicle: TransportVehicle,
+        pose: Pose,
+        zoom: Double,
+        fade: Double,
+    ): VehicleHalo.Paint? {
+        val role = roleOf(vehicle.id)
+        if (role == VehicleLivery.Role.REST || role == VehicleLivery.Role.RECEDED) return null
+        val gauge = VehicleBody.gauge(vehicle.mode)
+        // De loin, un point ; ensuite la silhouette, mise à l'échelle de son rôle ; de près, le volume,
+        // exagération comprise — celle du suivi, qui grossit de 80 %.
+        val silhouettePt = if (zoom < MapZoom.VEHICLE_ICONS_FROM) {
+            VehicleLivery.DOT_DIAMETER_PT
+        } else {
+            VehicleLivery.Silhouette.lengthDp(vehicle.mode) * imageScale * VehicleLivery.scale(role)
+        }
+        val emphasis = VehicleBody.emphasis(vehicle.mode, zoom, pose.coordinate.latitude, followed = true)
+        val length = VehicleHalo.screenLengthPt(
+            silhouettePt = silhouettePt,
+            meters = gauge.lengthMeters,
+            volumeScale = emphasis,
+            metersPerPoint = MapScale.metersPerPixel(pose.coordinate.latitude, zoom),
+            volumeFade = fade,
+        )
+        return VehicleHalo.paint(role, length, clockSeconds, reduceMotion)
     }
 
     private fun Coordinate.isInside(box: DoubleArray): Boolean =
@@ -704,6 +964,9 @@ class VehiclesLayer(
 
     override fun mount(style: Style, map: MapLibreMap) {
         this.map = map
+        // Un style neuf n'a aucune de nos silhouettes : elles se reposent à la demande, plus bas.
+        this.style = style
+        liveIcons.clear()
         // La lumière du jour au montage ; la bascule d'ambiance la remplace.
         scene?.setLighting(VehicleLighting.of(night))
 
@@ -734,12 +997,16 @@ class VehiclesLayer(
 
         // L'anneau passe sous les glyphes : au-dessus, il masquerait le
         // véhicule qu'il désigne.
-        style.addLayer(
-            SymbolLayer(SELECTION_LAYER, SELECTION_SOURCE).withProperties(
-                PropertyFactory.iconImage(MapIcons.STOP_SELECTED),
-                PropertyFactory.iconAllowOverlap(true),
-            ),
-        )
+        if (neutralLook) {
+            mountHalo(style)
+        } else {
+            style.addLayer(
+                SymbolLayer(SELECTION_LAYER, SELECTION_SOURCE).withProperties(
+                    PropertyFactory.iconImage(MapIcons.STOP_SELECTED),
+                    PropertyFactory.iconAllowOverlap(true),
+                ),
+            )
+        }
 
         // Les volumes, en deux couches jumelles.
         //
@@ -751,7 +1018,15 @@ class VehiclesLayer(
         // aucune caisse n'est jamais dessinée deux fois.
         style.addLayer(
             FillExtrusionLayer(BODY_LAYER, BODY_SOURCE).withProperties(
-                *bodyProperties(FLEET_OPACITY),
+                *bodyProperties(
+                    FLEET_OPACITY * VehicleLivery.opacity(
+                        if (neutralLook && selectedID != null && selectedID in byId) {
+                            VehicleLivery.Role.RECEDED
+                        } else {
+                            VehicleLivery.Role.REST
+                        },
+                    ),
+                ),
             ).also {
                 it.minZoom = (MapZoom.VEHICLE_BODIES_FROM - BODY_FADE).toFloat()
                 it.setFilter(Expression.not(Expression.toBool(Expression.get(PROP_SELECTED))))
@@ -769,18 +1044,48 @@ class VehiclesLayer(
 
         // De loin, un point suffit : cent glyphes de bus à l'échelle de
         // l'agglomération ne se distinguent plus les uns des autres.
-        style.addLayer(
-            CircleLayer(DOT_LAYER, SOURCE).withProperties(
-                PropertyFactory.circleRadius(3.5f),
-                PropertyFactory.circleColor(AuleBrand.teal.argb),
-                PropertyFactory.circleStrokeWidth(1.2f),
-                PropertyFactory.circleStrokeColor(AuleTokens.day.surfaceSolid.argb),
-                PropertyFactory.circleOpacity(Expression.get(PROP_OPACITY)),
-            ).also {
-                it.minZoom = MapZoom.VEHICLES_FROM.toFloat()
-                it.maxZoom = MapZoom.VEHICLE_ICONS_FROM.toFloat()
-            },
-        )
+        if (neutralLook) {
+            // Un disque neutre cerclé de son contour, à cœur d'accent : la pastille de la spec,
+            // Ø 11 pour Ø 6. Aucune silhouette à cette échelle.
+            val neutral = VehicleLivery.neutral(night)
+            style.addLayer(
+                CircleLayer(DOT_LAYER, SOURCE).withProperties(
+                    // Le trait d'un cercle MapLibre est posé hors du rayon : 4,5 + 1 = Ø 11.
+                    PropertyFactory.circleRadius((VehicleLivery.DOT_DIAMETER_PT / 2 - DOT_STROKE).toFloat()),
+                    PropertyFactory.circleColor(opaque(neutral.body)),
+                    PropertyFactory.circleStrokeWidth(DOT_STROKE.toFloat()),
+                    PropertyFactory.circleStrokeColor(opaque(neutral.outline)),
+                    PropertyFactory.circleOpacity(Expression.get(PROP_OPACITY)),
+                    PropertyFactory.circleStrokeOpacity(Expression.get(PROP_OPACITY)),
+                ).also {
+                    it.minZoom = MapZoom.VEHICLES_FROM.toFloat()
+                    it.maxZoom = MapZoom.VEHICLE_ICONS_FROM.toFloat()
+                },
+            )
+            style.addLayer(
+                CircleLayer(DOT_CORE_LAYER, SOURCE).withProperties(
+                    PropertyFactory.circleRadius((VehicleLivery.DOT_CORE_DIAMETER_PT / 2).toFloat()),
+                    PropertyFactory.circleColor(Expression.toColor(Expression.get(PROP_ACCENT))),
+                    PropertyFactory.circleOpacity(Expression.get(PROP_OPACITY)),
+                ).also {
+                    it.minZoom = MapZoom.VEHICLES_FROM.toFloat()
+                    it.maxZoom = MapZoom.VEHICLE_ICONS_FROM.toFloat()
+                },
+            )
+        } else {
+            style.addLayer(
+                CircleLayer(DOT_LAYER, SOURCE).withProperties(
+                    PropertyFactory.circleRadius(3.5f),
+                    PropertyFactory.circleColor(AuleBrand.teal.argb),
+                    PropertyFactory.circleStrokeWidth(1.2f),
+                    PropertyFactory.circleStrokeColor(AuleTokens.day.surfaceSolid.argb),
+                    PropertyFactory.circleOpacity(Expression.get(PROP_OPACITY)),
+                ).also {
+                    it.minZoom = MapZoom.VEHICLES_FROM.toFloat()
+                    it.maxZoom = MapZoom.VEHICLE_ICONS_FROM.toFloat()
+                },
+            )
+        }
 
         // Une seule couche pour le véhicule et son cap. Le chevron qu'elle
         // remplace était une couche à part, posée sur la même source : deux
@@ -795,9 +1100,29 @@ class VehiclesLayer(
                 // la silhouette mentirait dès que la carte tourne.
                 PropertyFactory.iconRotationAlignment(PROPERTY_ALIGNMENT_MAP),
                 PropertyFactory.iconAllowOverlap(true),
-                PropertyFactory.iconOpacity(flatOpacity()),
+                // Livrée d'origine : l'opacité est une rampe de zoom. Livrée neutre : elle est
+                // calculée par véhicule — la rampe et le recul des autres s'y multiplient.
+                PropertyFactory.iconOpacity(
+                    if (neutralLook) Expression.get(PROP_ICON_OPACITY) else flatOpacity(),
+                ),
+                *(
+                    if (neutralLook) {
+                        arrayOf(
+                            // L'« élévation » du choisi, le retrait des autres.
+                            PropertyFactory.iconSize(Expression.get(PROP_SCALE)),
+                            // Le choisi se dessine au-dessus des autres, le suivi au-dessus du choisi.
+                            PropertyFactory.symbolSortKey(Expression.get(PROP_SORT)),
+                        )
+                    } else {
+                        emptyArray()
+                    }
+                    ),
             ).also { it.minZoom = MapZoom.VEHICLE_ICONS_FROM.toFloat() },
         )
+
+        // Les silhouettes de la livrée neutre se posent à l'arrivée de leur couleur ; un style neuf
+        // les a toutes perdues, et la flotte connue les redemande ici.
+        refreshAppearance()
 
         // La source posée est vide : sans republication, la flotte reste absente
         // jusqu'au prochain sondage — quinze secondes de carte déserte après un
@@ -808,9 +1133,12 @@ class VehiclesLayer(
 
     override fun unmount(style: Style) {
         style.removeLayer(ICON_LAYER)
+        style.removeLayer(DOT_CORE_LAYER)
         style.removeLayer(DOT_LAYER)
         style.removeLayer(BODY_SELECTED_LAYER)
         style.removeLayer(BODY_LAYER)
+        style.removeLayer(HALO_RING_LAYER)
+        style.removeLayer(HALO_GLOW_LAYER)
         style.removeLayer(SELECTION_LAYER)
         style.removeSource(SOURCE)
         style.removeSource(SELECTION_SOURCE)
@@ -831,6 +1159,9 @@ class VehiclesLayer(
      * après un passage en mode sombre.
      */
     override fun forgetStyle() {
+        // Le style n'est plus : les images qu'on lui avait posées non plus.
+        style = null
+        liveIcons.clear()
         source = null
         selectionSource = null
         bodySource = null
@@ -852,10 +1183,26 @@ class VehiclesLayer(
         this.night = night
         scene?.setLighting(VehicleLighting.of(night))
         val tokens = AuleTokens.of(night)
-        (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
-            PropertyFactory.circleStrokeColor(tokens.surfaceSolid.argb),
-            PropertyFactory.circleColor(tokens.accentOnSurface.argb),
-        )
+        if (neutralLook) {
+            val neutral = VehicleLivery.neutral(night)
+            (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
+                PropertyFactory.circleColor(opaque(neutral.body)),
+                PropertyFactory.circleStrokeColor(opaque(neutral.outline)),
+            )
+            (style.getLayer(HALO_RING_LAYER) as? CircleLayer)?.setProperties(
+                PropertyFactory.circleStrokeColor(opaque(VehicleLivery.turquoiseStroke(night))),
+            )
+            (style.getLayer(HALO_GLOW_LAYER) as? SymbolLayer)?.setProperties(
+                PropertyFactory.iconImage(MapIcons.vehicleHaloGlowName(night)),
+            )
+            // Les silhouettes ont une version par ambiance : on repasse sur celle-ci.
+            refreshAppearance()
+        } else {
+            (style.getLayer(DOT_LAYER) as? CircleLayer)?.setProperties(
+                PropertyFactory.circleStrokeColor(tokens.surfaceSolid.argb),
+                PropertyFactory.circleColor(tokens.accentOnSurface.argb),
+            )
+        }
         val colour = PropertyFactory.fillExtrusionColor(bodyColor(night))
         (style.getLayer(BODY_LAYER) as? FillExtrusionLayer)?.setProperties(colour)
         (style.getLayer(BODY_SELECTED_LAYER) as? FillExtrusionLayer)?.setProperties(colour)
@@ -879,15 +1226,49 @@ class VehiclesLayer(
         PropertyFactory.fillExtrusionRoundedCornerDistance(BODY_CORNER_M),
         // Les volumes montent quand les icônes plates s'effacent : sur ces trois
         // dixièmes de zoom, l'un remplace l'autre sans que rien clignote.
-        PropertyFactory.fillExtrusionOpacity(
-            Expression.interpolate(
-                Expression.linear(),
-                Expression.zoom(),
-                Expression.stop(MapZoom.VEHICLE_BODIES_FROM - BODY_FADE, 0.0),
-                Expression.stop(MapZoom.VEHICLE_BODIES_FROM + BODY_FADE, opacity),
-            ),
-        ),
+        PropertyFactory.fillExtrusionOpacity(bodyOpacity(opacity)),
     )
+
+    /** La rampe d'apparition des caisses, jusqu'à [opacity]. */
+    private fun bodyOpacity(opacity: Double): Expression = Expression.interpolate(
+        Expression.linear(),
+        Expression.zoom(),
+        Expression.stop(MapZoom.VEHICLE_BODIES_FROM - BODY_FADE, 0.0),
+        Expression.stop(MapZoom.VEHICLE_BODIES_FROM + BODY_FADE, opacity),
+    )
+
+    /** Le halo du véhicule choisi : sa lueur, puis son anneau — sous les caisses et les glyphes. */
+    private fun mountHalo(style: Style) {
+        // La lueur d'abord, **sous** l'anneau : le trait reste franc sur la lumière.
+        style.addLayer(
+            SymbolLayer(HALO_GLOW_LAYER, SELECTION_SOURCE).withProperties(
+                PropertyFactory.iconImage(MapIcons.vehicleHaloGlowName(night)),
+                PropertyFactory.iconSize(Expression.get(PROP_HALO_SIZE)),
+                PropertyFactory.iconOpacity(Expression.get(PROP_GLOW_OPACITY)),
+                PropertyFactory.iconAllowOverlap(true),
+                PropertyFactory.iconIgnorePlacement(true),
+                // **Posé au sol** : il s'écrase en perspective avec la route, et ne se redresse pas
+                // face à la caméra comme le ferait un marqueur.
+                PropertyFactory.iconPitchAlignment(Property.ICON_PITCH_ALIGNMENT_MAP),
+                PropertyFactory.iconRotationAlignment(PROPERTY_ALIGNMENT_MAP),
+            ),
+        )
+        // L'anneau : un cercle **sans remplissage** — transparent au centre, jamais un disque —,
+        // dont seul le trait est peint, à l'épaisseur de la spec quelle que soit sa taille.
+        style.addLayer(
+            CircleLayer(HALO_RING_LAYER, SELECTION_SOURCE).withProperties(
+                PropertyFactory.circleRadius(Expression.get(PROP_RING_RADIUS)),
+                PropertyFactory.circleOpacity(0f),
+                PropertyFactory.circleStrokeWidth(HALO_RING_STROKE.toFloat()),
+                PropertyFactory.circleStrokeColor(opaque(VehicleLivery.turquoiseStroke(night))),
+                PropertyFactory.circleStrokeOpacity(Expression.get(PROP_HALO_OPACITY)),
+                PropertyFactory.circlePitchAlignment(Property.CIRCLE_PITCH_ALIGNMENT_MAP),
+                PropertyFactory.circlePitchScale(Property.CIRCLE_PITCH_SCALE_MAP),
+            ),
+        )
+    }
+
+    private fun opaque(rgb: Int): Int = 0xFF000000.toInt() or (rgb and 0xFFFFFF)
 
     /**
      * Le fondu inverse : les glyphes plats s'éteignent là où les caisses montent.
@@ -917,6 +1298,9 @@ class VehiclesLayer(
      * couche et non au véhicule.
      */
     private fun bodyColor(night: Boolean): Expression {
+        // Livrée neutre : une seule carrosserie pour toute la flotte, blanc cassé ou anthracite. Une
+        // extrusion n'a pas de bande de toit à poser — la ligne se lit sur l'étiquette.
+        if (neutralLook) return Expression.color(opaque(VehicleLivery.neutral(night).body))
         val surface = AuleTokens.of(night).surfaceSolid
         val stops = ArrayList<Expression.Stop>(TransportMode.entries.size * 2)
         for (mode in TransportMode.entries) {
@@ -987,6 +1371,9 @@ class VehiclesLayer(
         const val SELECTION_SOURCE = "aule.vehicles.selection"
         const val BODY_SOURCE = "aule.vehicles.body.source"
         const val DOT_LAYER = "aule.vehicles.dot"
+        const val DOT_CORE_LAYER = "aule.vehicles.dot.core"
+        const val HALO_RING_LAYER = "aule.vehicles.halo.ring"
+        const val HALO_GLOW_LAYER = "aule.vehicles.halo.glow"
         const val ICON_LAYER = "aule.vehicles.icon"
         const val BODY_LAYER = "aule.vehicles.body"
         const val BODY_SELECTED_LAYER = "aule.vehicles.body.selected"
@@ -999,6 +1386,27 @@ class VehiclesLayer(
         const val PROP_SELECTED = "selected"
         const val PROP_HEIGHT = "height"
         const val PROP_TINT = "tint"
+
+        /** La couleur d'accent, en `#RRGGBB`, que le cœur du point de loin lit comme couleur. */
+        const val PROP_ACCENT = "accent"
+        const val PROP_SCALE = "scale"
+        const val PROP_SORT = "sort"
+        const val PROP_ICON_OPACITY = "iconOpacity"
+
+        /** Ce que le halo publie : rayon de l'anneau, taille de la lueur, leurs opacités. */
+        const val PROP_RING_RADIUS = "ringRadius"
+        const val PROP_HALO_SIZE = "haloSize"
+        const val PROP_HALO_OPACITY = "haloOpacity"
+        const val PROP_GLOW_OPACITY = "glowOpacity"
+
+        /** L'épaisseur du trait de l'anneau, en points : 1,6 — celle du contour d'une silhouette. */
+        const val HALO_RING_STROKE = VehicleLivery.SELECTED_STROKE_PT
+
+        /** Le trait qui cerne le point de loin : un point. */
+        const val DOT_STROKE = 1.0
+
+        /** L'opacité du point d'un véhicule théorique : le seul objet trop petit pour porter une forme. */
+        const val SCHEDULED_DOT_OPACITY = 0.55
 
         /** Ce qui, dans une teinte, dit que la position est calculée et non mesurée. */
         const val GHOST_SUFFIX = ".ghost"

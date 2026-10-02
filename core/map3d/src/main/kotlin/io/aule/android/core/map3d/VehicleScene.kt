@@ -109,8 +109,21 @@ class VehicleScene private constructor(private val handle: Long) {
     }
 
     companion object {
-        /** Octets par pose — contrat avec la structure `Pose` de `scene_state.hpp`. */
-        const val POSE_BYTES = 44
+        /**
+         * Octets par pose — contrat avec la structure `Pose` de `scene_state.hpp` (un
+         * `static_assert` y garde la même valeur).
+         *
+         * Disposition, par décalage : `0` est, `4` nord, `8` cap (radians), `12/16/20` échelles
+         * x/y/z, `24/28/32` teinte de carrosserie, `36` opacité, `40` maillage (entier), puis la
+         * livrée neutre + accent : `44/48/52` couleur d'accent, `56` mélange d'accent (0 ou 1),
+         * `60` facteur de l'ombre de contact.
+         */
+        const val POSE_BYTES = 64
+
+        /** Les décalages de la livrée neutre + accent dans une pose, après le maillage. */
+        const val OFFSET_ACCENT = 44
+        const val OFFSET_ACCENT_MIX = 56
+        const val OFFSET_SHADOW_BOOST = 60
 
         /** Le plafond d'instances, aligné sur le `MAX_BODIES` de `VehiclesLayer`. */
         const val MAX_POSES = 48

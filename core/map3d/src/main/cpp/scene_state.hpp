@@ -27,10 +27,23 @@ struct Pose {
     float heading;
     /// L'exagération, dans l'ordre du maillage : largeur, longueur, hauteur.
     float scaleX, scaleY, scaleZ;
-    /// La teinte de la ligne, et l'opacité de l'instance.
+    /// La teinte de la carrosserie, et l'opacité de l'instance.
+    ///
+    /// Livrée d'origine : la teinte du mode. Livrée **neutre + accent** : le blanc cassé de jour,
+    /// l'anthracite de nuit — la couleur de la ligne passe alors par [accentR..accentB].
     float r, g, b, a;
     uint32_t mesh;
+    /// La couleur de la ligne : bas de caisse (pièce 4) et bande de toit de la carrosserie.
+    float accentR, accentG, accentB;
+    /// 1 : livrée neutre + accent (l'accent se montre) ; 0 : livrée d'origine, l'accent est ignoré.
+    float accentMix;
+    /// Le facteur de l'ombre de contact : 1, ou 1,5 sous le véhicule que la caméra suit.
+    /// Zéro est lu comme 1 — une pose écrite sans lui garde son ombre.
+    float shadowBoost;
 };
+
+/// Le contrat avec `VehicleScene.POSE_BYTES` : Kotlin écrit ces poses à l'octet près.
+static_assert(sizeof(Pose) == 64, "Pose doit faire 64 octets — voir VehicleScene.POSE_BYTES");
 
 /// Le nombre de flottants que `VehicleLighting.toFloatArray` publie.
 constexpr uint32_t kLightingFloats = 14;

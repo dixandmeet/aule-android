@@ -11,6 +11,7 @@ import io.aule.android.core.designsystem.token.AuleBrand
 import io.aule.android.core.designsystem.token.AuleRgba
 import io.aule.android.core.designsystem.token.AuleTokens
 import io.aule.android.core.designsystem.token.markerColor
+import io.aule.android.core.map.layer.VehicleLivery
 import io.aule.android.core.model.TransportMode
 import org.maplibre.android.maps.Style
 
@@ -54,6 +55,9 @@ internal object MapIcons {
      * calée au bord se ferait rogner dès que le cap quitte le nord.
      */
     private const val VEHICLE_SIZE_DP = 32f
+
+    /** 480 dpi : un point d'image vaut trois pixels, donc un point d'écran à `pixelRatio` 3. */
+    private const val HALO_DENSITY_DPI = 480
 
     /**
      * Le halo du puck, à son ampleur maximale.
@@ -110,6 +114,15 @@ internal object MapIcons {
     fun vehicleName(mode: TransportMode, live: Boolean) =
         "vehicle-${mode.name.lowercase()}" + if (live) "" else "-scheduled"
     const val STOP_SELECTED = "stop-selected"
+
+    /**
+     * La lueur du halo d'un véhicule suivi, par ambiance : l'anneau est un cercle de style, la
+     * lueur est cette image. Voir [vehicleHaloGlow].
+     */
+    fun vehicleHaloGlowName(night: Boolean) = if (night) "vehicle-halo-glow-night" else "vehicle-halo-glow-day"
+
+    /** Le diamètre de l'anneau que [vehicleHaloGlow] entoure de sa lueur, en points d'image. */
+    const val VEHICLE_HALO_RING_DP = 64f
     const val DESTINATION = "destination"
     const val VEHICLE_HEADING = "vehicle-heading"
     const val PUCK = "user-puck"
@@ -144,6 +157,10 @@ internal object MapIcons {
             )
         }
         style.addImage(STOP_SELECTED, selectionRing(tokens))
+        // Les deux ambiances : l'image est choisie par la couche, qui peut apprendre la sienne
+        // une image après le chargement du style.
+        style.addImage(vehicleHaloGlowName(night = false), vehicleHaloGlow(night = false))
+        style.addImage(vehicleHaloGlowName(night = true), vehicleHaloGlow(night = true))
         style.addImage(DESTINATION, destinationPin(tokens))
         style.addImage(VEHICLE_HEADING, headingChevron(tokens))
         style.addImage(PUCK, puckDot())
@@ -233,6 +250,173 @@ internal object MapIcons {
                 canvas.drawCircle(center, center + tail * 0.1f, 2.6f * u, paint(fill.argb))
             }
         }
+
+    /**
+     * Pose, dans le style courant, la silhouette de la livrée « neutre + accent » décrite par
+     * [spec]. Une image par couleur d'accent : voir [VehicleLivery.IconSpec].
+     */
+    fun addVehicle(style: Style, spec: VehicleLivery.IconSpec) {
+        style.addImage(spec.name, vehicleNeutral(spec))
+    }
+
+    /**
+     * Le véhicule en livrée **neutre + accent** : une coque blanc cassé de jour, anthracite de nuit,
+     * et la couleur de la ligne seulement en **bande de toit**.
+     *
+     * C'est la silhouette **compacte** de la spec : la bande de toit seule, **sans vitrages** ni
+     * liseré de flanc — à cette taille, le liseré se confondrait avec le contour, et c'est la
+     * bande qui dit la ligne. Le liseré vit sur le volume, où le bas de caisse a la place de se lire.
+     *
+     * - **Cernée d'un trait neutre à 55 %** : une ligne blanche (NC) sur une coque blanche, ou
+     *   noire sur de l'anthracite, reste une forme.
+     * - **Choisi, suivi** : le contour de la coque devient turquoise, 1,6 pt. Le halo au sol est
+     *   une autre couche ; l'échelle est celle de la couche.
+     * - **Théorique** : la silhouette est creuse — la coque est neutre mais **son trait est
+     *   l'accent**, et un point d'accent en marque le cœur. Le plein dit la mesure, le creux dit
+     *   l'horaire.
+     *
+     * Les cotes sont celles de [VehicleLivery.Silhouette], partagées avec le calcul de la longueur
+     * d'écran du véhicule — donc du halo.
+     */
+    private fun vehicleNeutral(spec: VehicleLivery.IconSpec): Bitmap =
+        bitmap(sizeDp = VEHICLE_SIZE_DP) { canvas, size ->
+            val shape = VehicleLivery.Silhouette
+            val neutral = VehicleLivery.neutral(spec.night)
+            val body = opaque(neutral.body)
+            val outline = opaque(neutral.outline)
+            val accent = opaque(spec.accent)
+            val chosen = opaque(VehicleLivery.turquoiseStroke(spec.night))
+
+            val center = size / 2f
+            val u = size / shape.UNITS
+            val nose = shape.noseUnits(spec.mode) * u
+            val tail = shape.TAIL_UNITS * u
+            val wing = shape.wingUnits(spec.mode) * u
+
+            val hull = Path().apply {
+                moveTo(center, center - nose)
+                quadTo(center + wing, center + tail * 0.2f, center + wing * 0.7f, center + tail)
+                quadTo(center, center + tail * 0.55f, center - wing * 0.7f, center + tail)
+                quadTo(center - wing, center + tail * 0.2f, center, center - nose)
+                close()
+            }
+            val shadow = { paint: Paint ->
+                paint.setShadowLayer(2f * DENSITY_SCALE, 0f, 0.75f * DENSITY_SCALE, SHADOW_COLOR)
+            }
+            // Le trait neutre qui cerne un aplat d'accent : le contour de la spec, à 55 %.
+            val cerne = paint(withAlpha(outline, VehicleLivery.OUTLINE_ALPHA))
+            val chosenStroke = VehicleLivery.SELECTED_STROKE_PT.toFloat() * DENSITY_SCALE
+
+            if (spec.live) {
+                canvas.drawPath(hull, paint(body).apply { shadow(this) })
+                canvas.drawPath(
+                    hull,
+                    paint(if (spec.contoured) chosen else outline).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = if (spec.contoured) chosenStroke else 1.5f * u
+                        strokeJoin = Paint.Join.ROUND
+                    },
+                )
+                // La bande de toit : une gélule dans l'axe, du capot à l'arrière, cernée.
+                val width = shape.roofStripeUnits(spec.mode) * u
+                val top = center - nose * 0.5f
+                val bottom = center + tail * 0.5f
+                val rim = 1.1f * u
+                canvas.drawRoundRect(
+                    RectF(center - width / 2f - rim, top - rim, center + width / 2f + rim, bottom + rim),
+                    width / 2f + rim,
+                    width / 2f + rim,
+                    cerne,
+                )
+                canvas.drawRoundRect(
+                    RectF(center - width / 2f, top, center + width / 2f, bottom),
+                    width / 2f,
+                    width / 2f,
+                    paint(accent),
+                )
+            } else {
+                canvas.drawPath(hull, paint(body).apply { shadow(this) })
+                val trait = 3f * u
+                if (spec.contoured) {
+                    // Le turquoise déborde de part et d'autre du trait d'accent, qui reste lisible.
+                    canvas.drawPath(
+                        hull,
+                        paint(chosen).apply {
+                            style = Paint.Style.STROKE
+                            strokeWidth = trait + 2f * chosenStroke
+                            strokeJoin = Paint.Join.ROUND
+                        },
+                    )
+                } else {
+                    canvas.drawPath(
+                        hull,
+                        paint(withAlpha(outline, VehicleLivery.OUTLINE_ALPHA)).apply {
+                            style = Paint.Style.STROKE
+                            strokeWidth = trait + 2f * 1.1f * u
+                            strokeJoin = Paint.Join.ROUND
+                        },
+                    )
+                }
+                canvas.drawPath(
+                    hull,
+                    paint(accent).apply {
+                        style = Paint.Style.STROKE
+                        strokeWidth = trait
+                        strokeJoin = Paint.Join.ROUND
+                    },
+                )
+                // Un point au cœur du creux, comme l'ancienne silhouette : sans lui, la coque évidée
+                // se lit comme un trou dans la carte.
+                canvas.drawCircle(center, center + tail * 0.1f, 2.6f * u + 1.1f * u, cerne)
+                canvas.drawCircle(center, center + tail * 0.1f, 2.6f * u, paint(accent))
+            }
+        }
+
+    /**
+     * La lueur du halo d'un véhicule suivi : un anneau de lumière **transparent au centre**, qui
+     * s'éteint vers l'extérieur.
+     *
+     * ⚠️ **Ce n'est pas le halo du puck** ([puckHalo]), et la différence est voulue : celui-là est un
+     * dégradé radial **plein** — c'est un disque de lumière posé sous un disque —, celui-ci laisse
+     * passer la route et le tracé sous le véhicule. Le trait de l'anneau, lui, n'est pas dessiné
+     * ici : c'est un cercle de style, d'épaisseur constante quelle que soit la taille du halo.
+     *
+     * Peint à [VEHICLE_HALO_RING_DP] de diamètre d'anneau, la lueur sortant jusqu'à 1,5 fois le
+     * rayon. La densité de l'image est fixée à 480 : un point d'image vaut un point d'écran, sans
+     * quoi la taille de l'anneau dépendrait de la densité de l'appareil.
+     */
+    private fun vehicleHaloGlow(night: Boolean): Bitmap =
+        bitmap(sizeDp = VEHICLE_HALO_RING_DP * 1.5f) { canvas, size ->
+            val center = size / 2f
+            val glow = opaque(VehicleLivery.turquoiseGlow(night))
+            canvas.drawCircle(
+                center,
+                center,
+                center,
+                Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    shader = RadialGradient(
+                        center,
+                        center,
+                        center,
+                        intArrayOf(
+                            withAlpha(glow, 0.0),
+                            withAlpha(glow, 0.0),
+                            withAlpha(glow, 0.55),
+                            withAlpha(glow, 0.0),
+                        ),
+                        // Transparent jusqu'à 82 % du rayon de l'anneau, pic **sur** l'anneau (les
+                        // deux tiers du rayon de l'image), éteint au bord.
+                        floatArrayOf(0f, 0.55f, 0.667f, 1f),
+                        Shader.TileMode.CLAMP,
+                    )
+                },
+            )
+        }.also { it.density = HALO_DENSITY_DPI }
+
+    private fun opaque(rgb: Int): Int = 0xFF000000.toInt() or (rgb and 0xFFFFFF)
+
+    private fun withAlpha(argb: Int, alpha: Double): Int =
+        ((alpha * 255).toInt().coerceIn(0, 255) shl 24) or (argb and 0xFFFFFF)
 
     /**
      * Le chevron de cap.

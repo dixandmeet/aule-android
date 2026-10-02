@@ -173,6 +173,21 @@ GLuint link(const char* vertexSource, const char* fragmentSource) {
 // permet **un seul maillage par modèle** quelle que soit la livrée : cuire la
 // couleur de ligne dans les sommets demanderait un tampon par ligne.
 //
+// ## Deux livrées, un seul nuancier
+//
+// `u_accent.a` (0 ou 1) choisit. À 0, la livrée d'origine : `u_tint` colore la
+// carrosserie, le bas de caisse en reprend l'assombri. À 1, la livrée **neutre +
+// accent** (spec `voyageur/docs/vehicules-livree-neutre-accent.md`) : `u_tint`
+// est la carrosserie neutre — blanc cassé de jour, anthracite de nuit —, et
+// `u_accent.rgb`, la couleur de la ligne, ne se montre qu'en trois endroits :
+// le bas de caisse (pièce 4), une **bande de toit** centrale, et un liseré bas
+// de flanc. Chacun est cerné d'un liseré neutre à 55 % : une ligne blanche sur
+// une caisse blanche reste une forme. Les vitres, roues et feux ne changent pas.
+//
+// ⚠️ Le repère est celui du modèle standardisé : nez +Y, x latéral, z haut, en
+// mètres, **avant** l'exagération — d'où des cotes absolues (0,28 m, 0,6 m) qui
+// valent aussi bien pour un bus que pour un tram.
+//
 // ⚠️ **Les roues sont le seul noir du véhicule.** Vu du ciel, un bus n'a pas de
 // châssis visible : une caisse, des vitres, des roues. Peindre les jupes et les
 // pare-chocs en anthracite neutre donnait une carcasse sous une carrosserie —
@@ -190,11 +205,13 @@ uniform mat4 u_viewProjection;
 uniform mat4 u_model;
 uniform mat3 u_rotation;
 uniform vec4 u_tint;
+uniform vec4 u_accent;
 varying vec3 v_world;
 varying vec3 v_normal;
 varying vec3 v_albedo;
 varying float v_part;
 varying float v_height;
+varying float v_across;
 void main() {
     vec4 world = u_model * vec4(a_position, 1.0);
     gl_Position = u_viewProjection * world;
@@ -212,12 +229,20 @@ void main() {
     // l'ambiante. Le bas de caisse tombait alors à 0,45 de la livrée quand le
     // toit en rendait 1,00, soit un rapport de 2,2 entre deux surfaces de la même
     // matière. À 0,88 × 0,88 il rend 0,54, ce qui se lit comme une jupe.
-    float assombri = 1.0 - 0.12 * step(3.5, a_color.a);
-    v_albedo = mix(a_color.rgb, u_tint.rgb * assombri, livree);
+    float skirt = step(3.5, a_color.a);
+    float assombri = 1.0 - 0.12 * skirt;
+    vec3 livery = u_tint.rgb * assombri;
+    // Livrée neutre + accent : le bas de caisse prend l'accent **tel quel**, à
+    // la place de la carrosserie assombrie. Une jupe de couleur de ligne, sur une
+    // caisse neutre, est ce que le plan de réseau montre d'un tram.
+    livery = mix(livery, u_accent.rgb, skirt * u_accent.a);
+    v_albedo = mix(a_color.rgb, livery, livree);
     v_part = a_color.a;
     // La hauteur dans le modèle, en mètres, avant exagération : c'est elle qui
-    // assombrit le bas de caisse.
+    // assombrit le bas de caisse, et qui borne la bande de toit et le liseré.
     v_height = a_position.z;
+    // Le travers : l'écart à l'axe du véhicule, en mètres. Il porte la bande de toit.
+    v_across = a_position.x;
 }
 )";
 
@@ -228,6 +253,7 @@ precision highp float;
 precision mediump float;
 #endif
 uniform vec4 u_tint;
+uniform vec4 u_accent;
 uniform vec3 u_camera;
 uniform vec3 u_sunDir;
 uniform vec3 u_sunColor;
@@ -239,6 +265,7 @@ varying vec3 v_normal;
 varying vec3 v_albedo;
 varying float v_part;
 varying float v_height;
+varying float v_across;
 
 void main() {
     vec3 N = normalize(v_normal);
@@ -267,6 +294,39 @@ void main() {
     // qui les sépare, l'un presque noir, l'autre la livrée assombrie.
     float isMatte = step(1.5, v_part) * (1.0 - step(2.5, v_part)) + step(3.5, v_part);
 
+    // La livrée neutre + accent : la bande de toit, et le bas de flanc.
+    //
+    // Les arêtes sont des `smoothstep` d'un centimètre et non des `step` : un
+    // modèle bas-poly a de grandes faces, et un bord franc, à cette distance,
+    // crénelle sur un toit qui occupe quelques pixels.
+    //
+    // ⚠️ **`v_normal.z` suffit pour le toit** : la rotation de cap est une
+    // rotation autour de l'axe vertical, elle ne touche pas la composante z. Et
+    // `v_height > 2 m` écarte les planchers et les dessus de banquette que le
+    // modèle porte à l'intérieur, vers 0,5 et 1,7 m, et qu'on ne voit jamais.
+    float accentOn = step(0.5, u_accent.a);
+    float up = smoothstep(0.88, 0.92, N.z);
+    float high = smoothstep(1.9, 2.1, v_height);
+    float across = abs(v_across);
+    // La bande : |x| < 0,28 m, soit ≈ 22 % de la largeur du bus, 21 % du tram.
+    float stripe = isBody * up * high * (1.0 - smoothstep(0.27, 0.29, across));
+    // Son liseré neutre, de 0,28 à 0,36 m.
+    float stripeRim = isBody * up * high * smoothstep(0.27, 0.29, across)
+                    * (1.0 - smoothstep(0.35, 0.37, across));
+    // Le bas de flanc : toute face verticale sous 0,6 m. La pièce « bas de caisse » du
+    // maillage ne couvre que 0,9 m² sur le bus et rien sur le tram — leurs jupes sont
+    // rangées en carrosserie (voir `VehicleMeshCatalog`) : sans cette bande, l'accent
+    // n'aurait aucun flanc où se montrer.
+    float flank = isBody * (1.0 - smoothstep(0.45, 0.55, abs(N.z)));
+    float sill = flank * (1.0 - smoothstep(0.59, 0.61, v_height));
+    float sillRim = flank * smoothstep(0.59, 0.61, v_height)
+                  * (1.0 - smoothstep(0.67, 0.69, v_height));
+    // Le contour neutre de la spec, #5E6874 de jour et #B8C0CB de nuit.
+    vec3 outline = mix(vec3(0.369, 0.408, 0.455), vec3(0.722, 0.753, 0.796),
+                       clamp(u_lampGlow, 0.0, 1.0));
+    vec3 bodyAlbedo = mix(v_albedo, u_accent.rgb, accentOn * (stripe + sill));
+    bodyAlbedo = mix(bodyAlbedo, mix(v_albedo, outline, 0.55), accentOn * (stripeRim + sillRim));
+
     // Carrosserie : satinée, et le reflet est un **éclat**, pas un voile.
     //
     // ⚠️ **C'est le réglage qui décide si une livrée garde sa couleur.** À
@@ -278,7 +338,7 @@ void main() {
     // 120 et 0,12 suffit : l'éclat ne prend que les arêtes et les pare-brise,
     // ce qu'un satin fait vraiment, et le toit rend sa livrée en plein jour
     // (0x309F85 mesuré sur le S21 le 16/09/2026, pour 0x2E9E84 calculé).
-    vec3 body = v_albedo * (ambient + u_sunColor * ndl) * occlusion
+    vec3 body = bodyAlbedo * (ambient + u_sunColor * ndl) * occlusion
               + u_sunColor * pow(ndh, 120.0) * 0.12
               + u_sky * fresnel * 0.18;
 
@@ -385,6 +445,7 @@ public:
         modelUniform_ = glGetUniformLocation(program_, "u_model");
         rotationUniform_ = glGetUniformLocation(program_, "u_rotation");
         tintUniform_ = glGetUniformLocation(program_, "u_tint");
+        accentUniform_ = glGetUniformLocation(program_, "u_accent");
         cameraUniform_ = glGetUniformLocation(program_, "u_camera");
         sunDirUniform_ = glGetUniformLocation(program_, "u_sunDir");
         sunColorUniform_ = glGetUniformLocation(program_, "u_sunColor");
@@ -661,7 +722,9 @@ private:
             glUniform2f(shadowHalfBodyUniform_, half[0], half[1]);
             // L'ombre suit l'opacité de sa caisse : un véhicule qui s'estompe au
             // seuil de zoom n'en laisse pas une derrière lui.
-            glUniform1f(shadowStrengthUniform_, light.shadowStrength * pose.a);
+            // Le véhicule suivi pèse davantage sur la chaussée : ×1,5 (spec de la livrée).
+            const float boost = pose.shadowBoost > 0.f ? pose.shadowBoost : 1.f;
+            glUniform1f(shadowStrengthUniform_, std::min(light.shadowStrength * pose.a * boost, 1.f));
             glDrawArrays(GL_TRIANGLES, 0, 6);
         }
 
@@ -715,6 +778,7 @@ private:
             rotationMatrix(pose, rotation);
             glUniformMatrix3fv(rotationUniform_, 1, GL_FALSE, rotation);
             glUniform4f(tintUniform_, pose.r, pose.g, pose.b, pose.a);
+            glUniform4f(accentUniform_, pose.accentR, pose.accentG, pose.accentB, pose.accentMix);
             glDrawArrays(GL_TRIANGLES, 0, vertexCount_[mesh]);
         }
     }
@@ -827,6 +891,7 @@ private:
     GLint modelUniform_ = -1;
     GLint rotationUniform_ = -1;
     GLint tintUniform_ = -1;
+    GLint accentUniform_ = -1;
     GLint cameraUniform_ = -1;
     GLint sunDirUniform_ = -1;
     GLint sunColorUniform_ = -1;
