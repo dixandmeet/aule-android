@@ -91,6 +91,17 @@ class MapController(
             reframeForSheet()
         }
 
+    /**
+     * Hauteur masquée **par le haut**, en pixels : le pendant de [sheetHeightPx]. Entre dans le
+     * cadrage de toutes les caméras — suivi compris — qui posent leur sujet au milieu de la bande
+     * restée libre entre les deux.
+     *
+     * Zéro, sauf quand un écran pose un calque sur le haut de la carte : la porte du Voyageur, dont
+     * le titre occupe le tiers de l'écran pendant que sa démonstration suit un véhicule. Sans elle,
+     * le véhicule suivi se posait sous le titre, et son étiquette dessous le voile.
+     */
+    var topInsetPx: Float = 0f
+
     var onTapMap: ((Coordinate) -> Unit)? = null
     var onUserTookControl: (() -> Unit)? = null
     var onRegionSettled: ((center: Coordinate, zoom: Double, radiusMeters: Double) -> Unit)? = null
@@ -724,12 +735,14 @@ class MapController(
         val builder = org.maplibre.android.geometry.LatLngBounds.Builder()
         coordinates.forEach { builder.include(LatLng(it.latitude, it.longitude)) }
         val pad = (FRAME_MARGIN_DP * density).toInt().coerceAtLeast(32)
+        // La réserve du haut, quand un calque en pose une ([topInsetPx]) : zéro sinon.
+        val top = pad + topInsetPx.toInt()
         // Le volet peut couvrir l'écran entier — une fiche de ligne s'ouvre
         // ainsi. La marge basse demandée dépasserait alors la hauteur de la
         // vue, et le moteur cadrerait sur une bande de hauteur négative. On
         // garde donc toujours une bande à lire : le tracé y tient en petit,
         // et il retrouve sa taille dès que le volet redescend.
-        val room = view.height - pad - (MIN_FRAME_BAND_DP * density).toInt()
+        val room = view.height - top - (MIN_FRAME_BAND_DP * density).toInt()
         val bottom = (pad + sheetHeightPx.toInt()).coerceAtMost(room.coerceAtLeast(pad))
         // **Cadrer à plat et au nord.** Sans cap ni inclinaison donnés, MapLibre
         // reprend ceux de la caméra (`getCameraForLatLngBounds(bounds, padding)`
@@ -738,7 +751,7 @@ class MapController(
         // la rue, donc le cas est la règle, pas l'exception.
         val position = map.getCameraForLatLngBounds(
             builder.build(),
-            intArrayOf(pad, pad, pad, bottom),
+            intArrayOf(pad, top, pad, bottom),
             0.0,
             0.0,
         ) ?: return
@@ -968,7 +981,7 @@ class MapController(
         val map = map ?: return
         val current = map.cameraPosition
         val position = CameraPosition.Builder(current)
-            .padding(0.0, topPx, 0.0, sheetHeightPx.toDouble())
+            .padding(0.0, topPx + topInsetPx, 0.0, sheetHeightPx.toDouble())
             .build()
         suppressGestureDetection = true
         map.moveCamera(CameraUpdateFactory.newCameraPosition(position))
@@ -989,8 +1002,9 @@ class MapController(
         // Le padding voyage **dans** la position : le décalage avant (haut × 2,
         // pour descendre le sujet d'autant) et le volet sont donc appliqués
         // dans la même trame. Sur iOS le `contentInset` s'écrivait séparément,
-        // ce qui laissait une image où l'un était posé sans l'autre.
-        .padding(0.0, topPaddingPx, 0.0, sheetHeightPx.toDouble())
+        // ce qui laissait une image où l'un était posé sans l'autre. La réserve du
+        // haut ([topInsetPx]) s'y ajoute : zéro, sauf sous un calque.
+        .padding(0.0, topPaddingPx + topInsetPx, 0.0, sheetHeightPx.toDouble())
         .build()
 
     val cameraCenter: Coordinate?
