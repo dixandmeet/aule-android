@@ -20,8 +20,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.navigationBarsPadding
+import io.aule.android.core.designsystem.components.AuleSheetGrip
+import io.aule.android.core.designsystem.foundation.auleBottomSystemInset
+import io.aule.android.core.designsystem.foundation.auleSheetContentHeight
+import io.aule.android.core.designsystem.foundation.auleSheetPeekHeight
+import io.aule.android.core.designsystem.foundation.auleBottomSystemPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.statusBars
@@ -70,6 +73,8 @@ import androidx.lifecycle.compose.LifecycleResumeEffect
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.repeatOnLifecycle
+import io.aule.android.core.designsystem.components.AuleSnackbarHost
+import io.aule.android.core.designsystem.components.rememberAuleMessenger
 import io.aule.android.core.designsystem.AuleSheetMotion
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.component.AuleGlyph
@@ -94,6 +99,7 @@ import io.aule.android.core.map.layer.TransitLinesLayer
 import io.aule.android.core.map.layer.StopsLayer
 import io.aule.android.core.map.layer.UserPuckLayer
 import io.aule.android.core.map.layer.VehicleModelLayer
+import io.aule.android.core.map.layer.FleetRendering
 import io.aule.android.core.map.layer.VehiclesLayer
 import io.aule.android.core.map3d.VehicleScene
 import io.aule.android.core.map.layer.VoirieLayer
@@ -232,6 +238,9 @@ fun MapScreen(
     // est celle de qui regarde — un téléphone de service passe de main en main,
     // et la rangée ne doit pas montrer le domicile du collègue précédent.
     LaunchedEffect(Unit) { viewModel.savedPlaces.sync() }
+    val messenger = rememberAuleMessenger()
+    val savedPlaceSaved = stringResource(R.string.saved_place_saved)
+    val savedPlaceRemoved = stringResource(R.string.saved_place_removed)
     var savedPlaceTarget by remember { mutableStateOf<SavedPlaceTarget?>(null) }
     var deletingSavedPlace by remember { mutableStateOf<SavedPlace?>(null) }
     // La demande de clavier faite au champ de recherche, une fois.
@@ -310,7 +319,10 @@ fun MapScreen(
                 viewModel.select(vehicle)
             },
             scene = vehicleScene,
-        ).also { controller.registry.register(it) }
+        ).also {
+            it.rendering = FleetRendering.VOYAGEUR
+            controller.registry.register(it)
+        }
     }
     // Les modèles se posent **au-dessus** des glyphes plats : c'est le même
     // véhicule, et c'est le relief qui doit primer une fois la ville en volume.
@@ -824,8 +836,8 @@ fun MapScreen(
             // sur la seule hauteur du champ aurait posé celui-ci **sous** les
             // trois boutons du S21. Ce qu'on ajoute ici est de la surface de
             // volet, pas de la marge — le champ, lui, garde la sienne.
-            val navigationBarPx = WindowInsets.navigationBars.getBottom(density)
-            val navigationBarHeight = with(density) { navigationBarPx.toDp() }
+            val navigationBarHeight = auleBottomSystemInset
+            val navigationBarPx = with(density) { navigationBarHeight.toPx() }
             // ⚠️ **Sans la poignée** : la carte flottante n'en a pas, et la
             // hauteur retenue de la dernière qui en avait une — celle du menu —
             // gonflait le palier d'autant. Le volet montait alors trop haut, la
@@ -842,7 +854,25 @@ fun MapScreen(
             val socleBandTargetPx = with(density) { socleBand.toPx() }
             LaunchedEffect(socleBandTargetPx) { socleBandPx = socleBandTargetPx }
 
-            val peekHeight = when {
+            // `BottomSheetScaffold` n'a pas d'encoche pour les insets : déployé,
+            // il monte jusqu'au pixel zéro et sa poignée finit dans l'heure et
+            // les icônes de la barre d'état. On borne donc le contenu — la
+            // liste défile à l'intérieur, et le volet s'arrête sous la barre.
+            // La poignée compte : le volet, c'est elle **plus** le contenu.
+            // L'oublier laisse remonter l'ensemble de sa hauteur dans la barre.
+            val statusBarPx = WindowInsets.statusBars.getTop(density)
+            val gripHeight = with(density) {
+                if (sheetPresented || searchOpen) sheetHandleHeightPx.toDp() else 0.dp
+            }
+            val maxSheetHeight = with(density) {
+                auleSheetContentHeight(
+                    windowHeight = parentHeightPx.toDp(),
+                    topInset = statusBarPx.toDp(),
+                    gripHeight = gripHeight,
+                    topGap = SHEET_TOP_INSET,
+                )
+            }
+            val requestedPeekHeight = when {
                 // Le socle passe avant la mesure du contenu : celui du volet de
                 // recherche vaut tout l'écran une fois déployé, et le prendre
                 // pour palier ouvrirait la recherche en grand sans qu'on l'ait
@@ -856,18 +886,11 @@ fun MapScreen(
                 else -> maxPeekHeight
             }
 
-            // `BottomSheetScaffold` n'a pas d'encoche pour les insets : déployé,
-            // il monte jusqu'au pixel zéro et sa poignée finit dans l'heure et
-            // les icônes de la barre d'état. On borne donc le contenu — la
-            // liste défile à l'intérieur, et le volet s'arrête sous la barre.
-            // La poignée compte : le volet, c'est elle **plus** le contenu.
-            // L'oublier laisse remonter l'ensemble de sa hauteur dans la barre.
-            val statusBarPx = WindowInsets.statusBars.getTop(density)
-            val maxSheetHeight = with(density) {
-                val available = parentHeightPx - statusBarPx - sheetHandleHeightPx -
-                    SHEET_TOP_INSET.toPx()
-                available.coerceAtLeast(0f).toDp()
-            }
+            val peekHeight = auleSheetPeekHeight(
+                requestedHeight = requestedPeekHeight,
+                expandedHeight = maxSheetHeight + gripHeight,
+            )
+
             // `rememberStandardBottomSheetState` retire tout seul le cran
             // intermédiaire dès que le volet fait moins de la moitié de
             // l'écran. À 45 % de peek, la plupart des fiches y passent :
@@ -898,6 +921,7 @@ fun MapScreen(
                 confirmValueChange = confirmSheetValue,
             )
             val scaffoldState = rememberBottomSheetScaffoldState(sheetState)
+
 
             // Les arrêts de la desserte s'affichent le long du tracé dès que la
             // ligne est ouverte, et s'effacent à sa fermeture.
@@ -1207,7 +1231,7 @@ fun MapScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(maxSheetHeight)
-                                    .navigationBarsPadding()
+                                    .auleBottomSystemPadding()
                                     .imePadding()
                                     .semantics(mergeDescendants = false) {
                                         this.paneTitle = paneSearch
@@ -1309,7 +1333,7 @@ fun MapScreen(
                                         sheetContentHeightPx = height
                                     }
                                 }
-                                .navigationBarsPadding()
+                                .auleBottomSystemPadding()
                                 .semantics(mergeDescendants = false) {
                                     this.paneTitle = paneTitle
                                     isTraversalGroup = true
@@ -1519,8 +1543,11 @@ fun MapScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                     scaffoldState = scaffoldState,
+                    snackbarHost = {
+                        AuleSnackbarHost(messenger, modifier = Modifier.auleBottomSystemPadding())
+                    },
                     sheetPeekHeight = peekHeight,
-                    // `surface` et non le `surfaceContainerLow` que Material propose
+                    // `surfaceContainerLowest`, comme Voyageur, au lieu du conteneur Material
                     // par défaut. Le volet est le **support** des cartes qu'il
                     // contient, et un support doit être plus clair que ce qu'on pose
                     // dessus, sans quoi la hiérarchie s'inverse : au défaut Material,
@@ -1532,9 +1559,9 @@ fun MapScreen(
                     sheetContainerColor = if (showingSocle && !searchOpen) {
                         Color.Transparent
                     } else {
-                        MaterialTheme.colorScheme.surface
+                        MaterialTheme.colorScheme.surfaceContainerLowest
                     },
-                    sheetShape = BottomSheetDefaults.ExpandedShape,
+                    sheetShape = MaterialTheme.shapes.large,
                     sheetTonalElevation = 0.dp,
                     sheetShadowElevation = if (showingSocle && !searchOpen) {
                         0.dp
@@ -1572,7 +1599,7 @@ fun MapScreen(
                                     ),
                                 contentAlignment = Alignment.Center,
                             ) {
-                                BottomSheetDefaults.DragHandle(
+                                AuleSheetGrip(
                                     modifier = Modifier.semantics {
                                         contentDescription = handleDescription
                                     },
@@ -1816,6 +1843,7 @@ fun MapScreen(
                                 name = savedLabel(doomed),
                                 onConfirm = {
                                     viewModel.savedPlaces.remove(doomed.id)
+                                    messenger.say(savedPlaceRemoved)
                                     deletingSavedPlace = null
                                 },
                                 onDismiss = { deletingSavedPlace = null },
@@ -1828,8 +1856,14 @@ fun MapScreen(
                                 repository = viewModel.placeRepository,
                                 dispatchers = viewModel.dispatchers,
                                 logger = viewModel.logger,
-                                onSave = viewModel.savedPlaces::save,
-                                onDelete = viewModel.savedPlaces::remove,
+                                onSave = { edit ->
+                                    viewModel.savedPlaces.save(edit)
+                                    messenger.say(savedPlaceSaved)
+                                },
+                                onDelete = { id ->
+                                    viewModel.savedPlaces.remove(id)
+                                    messenger.say(savedPlaceRemoved)
+                                },
                                 onClose = { savedPlaceTarget = null },
                             )
                         }

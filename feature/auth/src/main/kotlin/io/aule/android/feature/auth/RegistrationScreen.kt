@@ -9,7 +9,6 @@ import androidx.compose.animation.EnterTransition
 import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -20,7 +19,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
@@ -28,18 +26,14 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -56,11 +50,11 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
@@ -70,6 +64,8 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -99,18 +95,14 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.AuleTypeface
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.component.AuleBanner
-import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleFormField
 import io.aule.android.core.designsystem.component.AuleGlyph
-import io.aule.android.core.designsystem.component.AuleNetworkBackdrop
 import io.aule.android.core.designsystem.component.AuleNetworkEmblem
 import io.aule.android.core.designsystem.component.AuleShape
 import io.aule.android.core.designsystem.component.AuleTone
-import io.aule.android.core.designsystem.component.AuleWordmark
 import io.aule.android.core.designsystem.component.asImageVector
 import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.model.OAuthProvider
@@ -127,44 +119,7 @@ import io.aule.android.core.model.ProfessionalTransportMode
 import io.aule.android.core.model.SIGNUP_PROFILES
 import kotlinx.coroutines.CancellationException
 
-/**
- * L'assistant d'inscription professionnelle.
- *
- * Port de `SAE/lib/screens/registration_screen.dart` : les phrases, l'ordre
- * des étapes et la persistance du brouillon (sans le mot de passe).
- *
- * ## Ce qu'un parcours en plusieurs étapes doit dire, et qu'il ne disait pas
- *
- * Un assistant a une question que l'écran ne pose jamais mais que l'utilisateur
- * se pose à chaque page : *où j'en suis, et combien il en reste*. La barre de
- * progression qui vivait ici y répondait mal, pour deux raisons dont aucune ne
- * se voyait en revue de code :
- *
- * - son fond (`outlineVariant`) est un filet à huit centièmes d'opacité. Un
- *   trait de séparation, pas un rail : la part **non parcourue** de la barre
- *   était donc invisible, et une barre sans fond n'est plus une proportion,
- *   c'est un trait qui grandit ;
- * - collée au bord haut de la carte, elle passait sous un arrondi de vingt-huit
- *   points, qui lui mangeait les deux extrémités.
- *
- * Elle est remplacée par [StepRail] — une pastille par étape, celle du moment
- * plus large que les autres. La proportion se **compte** au lieu de s'estimer,
- * ce qui est exactement ce dont on a besoin quand il reste quatre écrans à
- * remplir debout dans un dépôt.
- *
- * ## Le mouvement
- *
- * Deux gestes, et deux seulement. Le rail redistribue ses pastilles sur un
- * ressort spatial : c'est le changement d'étape qui **pousse** la pastille
- * active, on ne le lit pas, on le voit arriver. Et le contenu de l'étape glisse
- * dans le sens de la lecture — il part quand on avance, il revient quand on
- * recule — ce qui donne au bouton « Retour » une conséquence visible et non un
- * simple changement de page.
- *
- * Le glissement fait un quart de largeur, pas une largeur entière. Une page qui
- * traverse tout l'écran raconte un déplacement ; un quart raconte une
- * succession, et se termine avant que le doigt ait quitté le verre.
- */
+/** Inscription professionnelle : présentation web, validations et brouillon natifs. */
 @Composable
 fun RegistrationScreen(
     viewModel: RegistrationViewModel,
@@ -192,515 +147,55 @@ fun RegistrationScreen(
         }
     }
 
-    AuleTheme(night = true, typeface = AuleTypeface.BRAND) {
+    AuleTheme(night = false) {
         val colors = MaterialTheme.colorScheme
         val motion = MaterialTheme.motionScheme
         val reduceMotion = reduceMotionEnabled()
-
-        // Les trois régimes sont lus **ici** et non dans `transitionSpec` : ce
-        // dernier n'est pas un contexte composable — Compose l'évalue dans un
-        // `remember` — et n'a donc pas accès au thème.
         val slide = motion.defaultSpatialSpec<IntOffset>()
         val fade = motion.defaultEffectsSpec<Float>()
         val resize = motion.defaultSpatialSpec<IntSize>()
-
-        // Le tracé passe au régime discret : derrière quatre cartes de choix
-        // et deux champs, le motif qui pose la connexion ne pose plus rien, il
-        // encombre.
-        AuleNetworkBackdrop(modifier = modifier.fillMaxSize(), quiet = true) {
+        val slidePixels = with(LocalDensity.current) { RegistrationLayout.stepSlide.roundToPx() }
+        Box(modifier.fillMaxSize().background(colors.surface)) {
             if (!state.isHydrated) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .safeDrawingPadding(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(AuleControl.icon),
-                        color = colors.primary,
-                        strokeWidth = AuleStroke.glyph,
-                    )
+                Box(Modifier.fillMaxSize().safeDrawingPadding(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator(color = colors.primary)
                 }
-                return@AuleNetworkBackdrop
-            }
-            // L'accueil se pose au milieu de l'écran, les étapes en haut : le
-            // pourquoi est en tête de [WelcomeStep].
-            val welcome = state.step == RegistrationStep.WELCOME
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .safeDrawingPadding()
-                    .imePadding(),
-                contentAlignment = if (welcome) Alignment.Center else Alignment.TopCenter,
-            ) {
-                Column(
-                    modifier = Modifier
-                        .widthIn(max = COLUMN_MAX_WIDTH)
-                        .fillMaxWidth()
-                        .verticalScroll(rememberScrollState())
-                        .padding(horizontal = AuleSpacing.xl, vertical = AuleSpacing.xl),
+            } else {
+                RegistrationChrome(
+                    state = state,
+                    onClose = onClose,
+                    onBack = { viewModel.back(onClose) },
+                    onContinue = viewModel::continueForward,
                 ) {
-                    // Plus de carte : comme sur le web, ce qui a un cadre est ce
-                    // dans quoi on écrit, et rien d'autre. La carte cernait
-                    // aussi le rail, le bouton et l'air entre les deux — trois
-                    // choses qui n'ont jamais eu besoin d'un bord.
-                    if (state.step != RegistrationStep.WELCOME) {
-                        RegistrationHeader(state = state, onBack = { viewModel.back(onClose) })
-                    }
                     AnimatedContent(
                         targetState = state.step,
                         modifier = Modifier.fillMaxWidth(),
                         transitionSpec = {
                             if (reduceMotion) {
-                                // L'appareil a demandé moins de mouvement :
-                                // l'étape est simplement là. Pas de version
-                                // atténuée — un glissement discret reste un
-                                // glissement.
-                                (EnterTransition.None togetherWith ExitTransition.None)
-                                    .using(sizeTransform = null)
+                                (EnterTransition.None togetherWith ExitTransition.None).using(null)
                             } else {
-                                // L'ordre de déclaration de RegistrationStep
-                                // **est** l'ordre du parcours : le rang de
-                                // l'énumération dit donc le sens de la
-                                // marche, y compris quand l'étape « mode de
-                                // transport » saute.
-                                // `Start` / `End` et non `Left` / `Right` :
-                                // le sens de la marche est celui de la
-                                // lecture, et il s'inverse avec elle.
                                 val towards = if (targetState.ordinal >= initialState.ordinal) {
                                     AnimatedContentTransitionScope.SlideDirection.Start
-                                } else {
-                                    AnimatedContentTransitionScope.SlideDirection.End
-                                }
-                                val enter =
-                                    slideIntoContainer(towards, slide) { it / SLIDE_FRACTION } +
-                                        fadeIn(fade)
-                                val exit =
-                                    slideOutOfContainer(towards, slide) { it / SLIDE_FRACTION } +
-                                        fadeOut(fade)
-                                (enter togetherWith exit)
-                                    .using(SizeTransform(clip = true) { _, _ -> resize })
+                                } else AnimatedContentTransitionScope.SlideDirection.End
+                                val enter = slideIntoContainer(towards, slide) { slidePixels } + fadeIn(fade)
+                                val exit = slideOutOfContainer(towards, slide) { slidePixels } + fadeOut(fade)
+                                (enter togetherWith exit).using(SizeTransform(clip = true) { _, _ -> resize })
                             }
                         },
                         label = "register-step",
                     ) { step ->
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            when (step) {
-                                RegistrationStep.WELCOME -> WelcomeStep(
-                                    onStart = viewModel::continueForward,
-                                    onSignIn = onClose,
-                                )
-                                RegistrationStep.PROFILE -> WithFooter(state, viewModel) {
-                                    ProfilesStep(state = state, onToggle = viewModel::toggleProfile)
-                                }
-                                RegistrationStep.NETWORK -> WithFooter(state, viewModel) {
-                                    NetworkStep(
-                                        state = state,
-                                        onQuery = viewModel::setNetworkQuery,
-                                        onSelect = viewModel::selectNetwork,
-                                    )
-                                }
-                                RegistrationStep.IDENTITY -> WithFooter(state, viewModel) {
-                                    IdentityStep(state = state, viewModel = viewModel)
-                                }
-                                RegistrationStep.TRANSPORT_MODE -> WithFooter(state, viewModel) {
-                                    TransportStep(state = state, onSelect = viewModel::setTransportMode)
-                                }
-                                RegistrationStep.ACCOUNT -> WithFooter(state, viewModel) {
-                                    AccountStep(state = state, viewModel = viewModel)
-                                }
-                                RegistrationStep.CONFIRMATION -> ConfirmationStep(
-                                    state = state,
-                                    onResend = viewModel::resendConfirmation,
-                                    onFinish = { viewModel.finish(onClose) },
-                                )
-                            }
+                        when (step) {
+                            RegistrationStep.WELCOME -> RegistrationWelcome(onSignIn = onClose)
+                            RegistrationStep.PROFILE -> ProfilesStep(state, viewModel::toggleProfile)
+                            RegistrationStep.NETWORK -> NetworkStep(state, viewModel::setNetworkQuery, viewModel::selectNetwork)
+                            RegistrationStep.IDENTITY -> IdentityStep(state, viewModel::setFullName, viewModel::setEmployeeId)
+                            RegistrationStep.TRANSPORT_MODE -> TransportStep(state, viewModel::setTransportMode)
+                            RegistrationStep.ACCOUNT -> AccountStep(state, viewModel)
+                            RegistrationStep.CONFIRMATION -> ConfirmationStep(state, viewModel::resendConfirmation) { viewModel.finish(onClose) }
                         }
                     }
                 }
             }
-        }
-    }
-}
-
-/**
- * Le pied d'une étape à valider : l'action principale, puis la promesse.
- *
- * L'action porte une **ombre teintée** — la seule de l'écran. C'est ce
- * qu'[AuleShadowTint.ACCENT] existe pour faire : une lueur de marque qui désigne
- * l'action au lieu de l'éloigner du fond. Elle disparaît quand le bouton est
- * inactif, sinon elle promettrait un appui que le formulaire refuse.
- *
- * Pendant l'envoi, la roue s'accompagne de « Création… ». Une roue seule dit
- * qu'il se passe quelque chose ; elle ne dit pas quoi, et un compte qui se crée
- * mérite qu'on le nomme — c'est la seule action de tout le parcours qui parte
- * sur le réseau.
- */
-@Composable
-private fun WithFooter(
-    state: RegistrationUiState,
-    viewModel: RegistrationViewModel,
-    content: @Composable () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = MaterialTheme.shapes.small
-    val enabled = state.canContinue && !state.isSubmitting
-    val glow = Modifier.auleShadow(AuleElevation.FLOATING, shape, AuleShadowTint.ACCENT)
-    Column {
-        content()
-        Spacer(modifier = Modifier.height(AuleSpacing.xl))
-        Button(
-            onClick = viewModel::continueForward,
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleControl.height)
-                .then(if (enabled) glow else Modifier),
-            enabled = enabled,
-            shape = shape,
-            colors = auleAccentButtonColors(),
-        ) {
-            if (state.isSubmitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(AuleControl.icon),
-                    color = AuleTheme.tokens.onAccent.color,
-                    strokeWidth = AuleStroke.glyph,
-                )
-                Spacer(modifier = Modifier.width(AuleSpacing.sm))
-                Text(
-                    text = stringResource(R.string.register_creating),
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                )
-            } else {
-                Text(
-                    text = stringResource(
-                        when {
-                            state.step == RegistrationStep.ACCOUNT -> R.string.register_create
-                            else -> R.string.register_continue
-                        },
-                    ),
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                )
-            }
-        }
-        Spacer(modifier = Modifier.height(AuleSpacing.md))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = AuleGlyph.LOCK.asImageVector(),
-                contentDescription = null,
-                tint = colors.onSurfaceVariant,
-                modifier = Modifier.size(AuleSpacing.md),
-            )
-            Text(
-                text = stringResource(R.string.register_saved),
-                style = MaterialTheme.typography.labelSmall,
-                color = colors.onSurfaceVariant,
-                modifier = Modifier.padding(start = AuleSpacing.xs),
-            )
-        }
-    }
-}
-
-/**
- * L'en-tête de l'assistant : le rail, puis le retour et le compte d'étapes.
- *
- * Le rail passe **en premier**, avant le bouton de retour : c'est la réponse à
- * la question qu'on se pose en arrivant sur l'écran, et le compte écrit juste
- * en dessous se lit alors comme sa légende plutôt que comme une information
- * séparée.
- *
- * Ce compte est une **région vivante**. TalkBack annonce le contenu de la
- * nouvelle étape quand elle arrive, mais rien ne lui dit qu'on a changé de
- * rang : sans cette ligne, l'utilisateur qui n'a pas l'écran sous les yeux
- * traverse six formulaires sans savoir combien il en reste.
- */
-@Composable
-private fun RegistrationHeader(
-    state: RegistrationUiState,
-    onBack: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val finished = state.step == RegistrationStep.CONFIRMATION
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = AuleSpacing.xl, top = AuleSpacing.xl, end = AuleSpacing.xl),
-    ) {
-        StepRail(
-            stepCount = state.actionSteps.size,
-            // Sur la confirmation, l'index d'action retombe à zéro : le parcours
-            // est fini, pas revenu à son début. On pousse donc l'index au-delà du
-            // dernier cran, ce qui allume tout le rail sans en élargir aucun.
-            activeIndex = if (finished) state.actionSteps.size else state.actionIndex,
-        )
-        if (!finished) {
-            Spacer(modifier = Modifier.height(AuleSpacing.xs))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(
-                    onClick = onBack,
-                    contentPadding = PaddingValues(horizontal = AuleSpacing.xs),
-                ) {
-                    Icon(
-                        imageVector = AuleGlyph.BACK.asImageVector(),
-                        contentDescription = null,
-                        tint = colors.primary,
-                        modifier = Modifier.size(AuleSpacing.lg),
-                    )
-                    Text(
-                        text = stringResource(R.string.register_back),
-                        style = MaterialTheme.typography.labelLargeEmphasized,
-                        color = colors.primary,
-                        modifier = Modifier.padding(start = AuleSpacing.xs),
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                Text(
-                    text = stringResource(
-                        R.string.register_step,
-                        state.actionIndex + 1,
-                        state.actionSteps.size,
-                    ),
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    color = colors.onSurfaceVariant,
-                    modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite },
-                )
-            }
-        }
-    }
-}
-
-/**
- * Le rail d'étapes : une pastille par écran, la courante élargie.
- *
- * ## Pourquoi des pastilles et non une barre
- *
- * Une barre continue donne une **proportion** — « à peu près à la moitié » — là
- * où un assistant demande un **compte** : « encore trois ». Le parcours fait
- * quatre ou cinq étapes selon qu'on conduit ou non ; à cette échelle les crans
- * se comptent d'un coup d'œil, ce qu'aucune barre ne permet.
- *
- * ## Ce qui bouge, et sur quel régime
- *
- * La **largeur** de la pastille active est animée sur un ressort spatial : à
- * chaque étape, le rail se redistribue, et le mouvement part de là où il en
- * était si l'on enchaîne deux appuis. Une durée fixe rejouerait sa courbe depuis
- * le début et donnerait ce décalage d'un demi-battement qu'on sent sans savoir
- * le nommer. La **couleur**, elle, passe par un ressort d'effets : animée sur un
- * ressort spatial elle dépasserait sa cible, se ferait plafonner, et
- * scintillerait.
- *
- * La pastille active porte en plus l'ombre teintée. Sur huit points de haut
- * c'est une lueur, pas une ombre — et c'est précisément ce qu'on veut : le
- * repère du moment doit briller un peu.
- *
- * ## Le fond des pastilles à venir
- *
- * `surfaceContainerHighest` et non `outlineVariant`. Ce dernier est le filet de
- * séparation de la charte, à huit centièmes d'opacité : il disparaît en plein
- * soleil, et un rail dont on ne voit pas les crans restants ne compte plus rien.
- * L'échelle de conteneurs, elle, descend jusqu'à un gris franc.
- */
-@Composable
-private fun StepRail(
-    stepCount: Int,
-    activeIndex: Int,
-    modifier: Modifier = Modifier,
-) {
-    val colors = MaterialTheme.colorScheme
-    val motion = MaterialTheme.motionScheme
-    val glow = Modifier.auleShadow(AuleElevation.RESTING, CircleShape, AuleShadowTint.ACCENT)
-    Row(
-        modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-    ) {
-        repeat(stepCount) { index ->
-            val active = index == activeIndex
-            val reached = index <= activeIndex
-            val share by animateFloatAsState(
-                targetValue = if (active) RAIL_ACTIVE_SHARE else 1f,
-                animationSpec = motion.defaultSpatialSpec<Float>(),
-                label = "rail-share",
-            )
-            val color by animateColorAsState(
-                targetValue = if (reached) colors.primary else colors.surfaceContainerHighest,
-                animationSpec = motion.defaultEffectsSpec<Color>(),
-                label = "rail-color",
-            )
-            Box(
-                modifier = Modifier
-                    // Un ressort expressif dépasse sa cible aux deux bouts : la
-                    // pastille qu'on quitte passe donc *sous* sa part d'arrivée,
-                    // et `weight` refuse une part nulle ou négative.
-                    .weight(share.coerceAtLeast(RAIL_MIN_SHARE))
-                    .height(RAIL_HEIGHT)
-                    .then(if (active) glow else Modifier)
-                    .clip(CircleShape)
-                    .background(color),
-            )
-        }
-    }
-}
-
-/**
- * L'accueil de l'inscription : la marque, ce qu'on y fait, et par où on entre.
- *
- * Il suit la page d'inscription du web (`SpacePro/app/(auth)/inscription`) :
- * marque en tête, la phrase qui dit à qui l'espace s'adresse, l'action, puis
- * l'autre chemin pour ceux qui ont déjà un compte.
- *
- * ## Pourquoi cet écran est centré, et lui seul
- *
- * Les cinq étapes qui suivent sont des formulaires : on les remplit de haut en
- * bas, leur contenu passe sous la ligne de flottaison dès que le clavier monte,
- * et le haut est alors le seul point d'ancrage qui ne bouge pas. L'accueil, lui,
- * ne se remplit pas — huit lignes, pas d'en-tête, pas de champ. Posé en haut, il
- * laissait la moitié basse de l'écran vide sous son bouton, ce qui se lit comme
- * une page inachevée plutôt que comme de l'air. Centré, le bloc devient ce qu'il
- * est — une page de titre — et son action revient sous le pouce au lieu de
- * flotter au tiers supérieur.
- *
- * Le texte est centré pour la même raison, et le reste du parcours ne l'est pas
- * pour une autre : deux phrases se centrent, un formulaire non — un intitulé de
- * champ dont le bord gauche se déplace d'une ligne à l'autre se cherche à chaque
- * fois.
- *
- * ## L'air
- *
- * Trois blocs — la marque et ses pastilles, le titre et sa phrase, l'action et
- * ses deux lignes de service — séparés par [WELCOME_GAP], quand l'intérieur d'un
- * bloc reste sur l'échelle ordinaire. C'est ce rapport-là qui fait lire trois
- * groupes au lieu de sept lignes empilées, et non la quantité d'air elle-même.
- *
- * Les trois pastilles restent, et elles ne sont pas un décor : elles nomment les
- * trois métiers que l'inscription accepte, ce que la phrase suivante met quatre
- * lignes à dire. Groupées au centre sous la marque, elles se lisent comme un
- * objet ; réparties sur toute la largeur, elles faisaient une frise,
- * c'est-à-dire une décoration.
- */
-@Composable
-private fun WelcomeStep(
-    onStart: () -> Unit,
-    onSignIn: () -> Unit,
-) {
-    val colors = MaterialTheme.colorScheme
-    val shape = MaterialTheme.shapes.small
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        AuleWordmark(
-            name = stringResource(R.string.auth_brand),
-            kicker = stringResource(R.string.auth_workspace),
-            contentDescription = stringResource(R.string.auth_logo),
-        )
-        Spacer(modifier = Modifier.height(WELCOME_GAP))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(AuleSpacing.lg),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            // Les trois pastilles arrivent l'une après l'autre. C'est le premier
-            // écran de l'application pour qui s'inscrit : trois ronds qui se
-            // posent ensemble sont un bloc, les mêmes décalés de quarante
-            // millisecondes se déroulent, et le regard suit le déroulé.
-            WelcomeIcon(AuleGlyph.BUS, index = 0)
-            WelcomeIcon(AuleGlyph.TICKET, index = 1)
-            WelcomeIcon(AuleGlyph.SHIELD, index = 2)
-        }
-        Spacer(modifier = Modifier.height(WELCOME_GAP))
-        Text(
-            text = stringResource(R.string.register_welcome_title),
-            style = MaterialTheme.typography.headlineMediumEmphasized,
-            color = colors.onSurface,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.semantics { heading() },
-        )
-        Spacer(modifier = Modifier.height(AuleSpacing.md))
-        Text(
-            text = stringResource(R.string.register_welcome_subtitle),
-            style = MaterialTheme.typography.bodyMedium,
-            color = colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(WELCOME_GAP))
-        Button(
-            onClick = onStart,
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleControl.height)
-                .auleShadow(AuleElevation.FLOATING, shape, AuleShadowTint.ACCENT),
-            shape = shape,
-            colors = auleAccentButtonColors(),
-        ) {
-            Text(
-                text = stringResource(R.string.register_start),
-                style = MaterialTheme.typography.titleMediumEmphasized,
-            )
-        }
-        Spacer(modifier = Modifier.height(AuleSpacing.lg))
-        Text(
-            text = stringResource(R.string.register_hint),
-            style = MaterialTheme.typography.labelSmall,
-            color = colors.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(modifier = Modifier.height(AuleSpacing.md))
-        // La rangée se centre sur l'ensemble « question + réponse ». Le bouton
-        // texte y perd sa réserve d'origine : posée à côté d'une phrase et non
-        // entre deux autres boutons, elle éloignait la réponse de sa question
-        // et décalait le centre optique de la ligne entière.
-        Row(
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                text = stringResource(R.string.register_have_account),
-                style = MaterialTheme.typography.bodyMedium,
-                color = colors.onSurfaceVariant,
-            )
-            TextButton(
-                onClick = onSignIn,
-                contentPadding = PaddingValues(horizontal = AuleSpacing.sm),
-            ) {
-                Text(
-                    text = stringResource(R.string.register_already),
-                    style = MaterialTheme.typography.labelLargeEmphasized,
-                    color = colors.primary,
-                )
-            }
-        }
-    }
-}
-
-/**
- * Une pastille d'accueil : un des trois mondes de l'application.
- *
- * Le contour clair n'est pas une décoration : posée sur la carte blanche, une
- * pastille de conteneur primaire sans bord flotte sans se poser. Le filet lui
- * donne un bord, et l'ensemble se lit comme trois objets et non comme trois
- * taches.
- */
-@Composable
-private fun WelcomeIcon(glyph: AuleGlyph, index: Int) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = Modifier
-            .size(AuleControl.avatar)
-            .auleEnter(index = index),
-        shape = CircleShape,
-        color = colors.primaryContainer,
-        contentColor = colors.onPrimaryContainer,
-        border = BorderStroke(AuleStroke.hairline, colors.outlineVariant),
-    ) {
-        Box(
-            modifier = Modifier.fillMaxSize(),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                imageVector = glyph.asImageVector(),
-                contentDescription = null,
-            )
         }
     }
 }
@@ -740,7 +235,7 @@ private fun StepHeader(title: String, subtitle: String) {
 }
 
 @Composable
-private fun ProfilesStep(
+internal fun ProfilesStep(
     state: RegistrationUiState,
     onToggle: (ProfessionalProfile) -> Unit,
 ) {
@@ -760,6 +255,7 @@ private fun ProfilesStep(
                 onClick = { onToggle(profile) },
                 modifier = Modifier.auleEnter(index = index),
                 multiSelect = true,
+                pastille = registrationProfileShape(profile),
             )
             Spacer(modifier = Modifier.height(AuleSpacing.sm))
         }
@@ -1005,9 +501,10 @@ private fun ProNetwork.logo(): Painter? {
 }
 
 @Composable
-private fun IdentityStep(
+internal fun IdentityStep(
     state: RegistrationUiState,
-    viewModel: RegistrationViewModel,
+    onFullName: (String) -> Unit,
+    onEmployeeId: (String) -> Unit,
 ) {
     val required = stringResource(R.string.auth_required)
     Column {
@@ -1018,8 +515,8 @@ private fun IdentityStep(
         AuleFormField(
             label = stringResource(R.string.register_full_name),
             value = state.draft.fullName,
-            onValueChange = viewModel::setFullName,
-            fieldModifier = Modifier.semantics { contentType = ContentType.PersonFullName },
+            onValueChange = onFullName,
+            fieldModifier = Modifier.testTag("registration-name").semantics { contentType = ContentType.PersonFullName },
             required = true,
             requiredLabel = required,
             keyboardOptions = KeyboardOptions(
@@ -1031,7 +528,8 @@ private fun IdentityStep(
         AuleFormField(
             label = stringResource(R.string.register_employee_id),
             value = state.draft.employeeId,
-            onValueChange = viewModel::setEmployeeId,
+            fieldModifier = Modifier.testTag("registration-employee"),
+            onValueChange = onEmployeeId,
             required = true,
             requiredLabel = required,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
@@ -1054,7 +552,6 @@ private fun TransportStep(
     state: RegistrationUiState,
     onSelect: (ProfessionalTransportMode) -> Unit,
 ) {
-    val pastille = AuleShape.modeAvatar()
     Column {
         StepHeader(
             title = stringResource(R.string.register_transport_title),
@@ -1068,7 +565,7 @@ private fun TransportStep(
                 selected = state.draft.transportMode == mode,
                 onClick = { onSelect(mode) },
                 modifier = Modifier.auleEnter(index = index),
-                pastille = pastille,
+                pastille = registrationModeShape(mode),
             )
             Spacer(modifier = Modifier.height(AuleSpacing.sm))
         }
@@ -1385,7 +882,7 @@ private fun GoogleSignUpButton(
             .fillMaxWidth()
             .defaultMinSize(minHeight = AuleControl.height),
         enabled = enabled,
-        shape = MaterialTheme.shapes.small,
+        shape = CircleShape,
         border = BorderStroke(AuleStroke.hairline, colors.outline),
         colors = ButtonDefaults.outlinedButtonColors(contentColor = colors.onSurface),
     ) {
@@ -1437,7 +934,7 @@ private fun ConfirmationStep(
     onFinish: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
-    val shape = MaterialTheme.shapes.medium
+    val shape = CircleShape
     val recapKind = stringResource(
         if (state.draft.profiles.size > 1) {
             R.string.register_recap_profiles
@@ -1479,38 +976,29 @@ private fun ConfirmationStep(
         add(recapName to state.draft.fullName)
         add(recapEmployee to state.draft.employeeId)
     }
-    // Aligné à gauche comme les quatre étapes qui précèdent : l'écran de fin
-    // n'est pas un autre écran, c'est le dernier de la même colonne.
-    Column {
-        // La seule surface de marque de l'écran, à l'endroit où le parcours
-        // s'achève. Le dégradé, le reflet et l'ombre teintée valent ici ce qu'un
-        // aplat ne dirait pas : le compte existe. Une pastille de conteneur
-        // primaire de cinquante-deux points — celle des trois mondes de
-        // l'accueil — annonçait la fin du parcours du même ton qu'une icône
-        // décorative.
-        AuleBrandSurface(
-            modifier = Modifier.size(MEDALLION_SIZE),
-            shape = CircleShape,
-            elevation = AuleElevation.LIFTED,
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Surface(
+            modifier = Modifier.size(MEDALLION_SIZE).auleEnter(),
+            shape = registrationIllustrationShape(0),
+            color = colors.primaryContainer,
+            contentColor = colors.onPrimaryContainer,
         ) {
-            Icon(
-                imageVector = AuleGlyph.CHECK.asImageVector(filled = true),
-                contentDescription = null,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(MEDALLION_GLYPH),
-            )
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Icon(AuleGlyph.CHECK.asImageVector(filled = true), null, Modifier.size(MEDALLION_GLYPH))
+            }
         }
         Spacer(modifier = Modifier.height(AuleSpacing.lg))
         Text(
             text = stringResource(R.string.register_confirm_title),
             style = MaterialTheme.typography.headlineSmallEmphasized,
+            textAlign = TextAlign.Center,
             color = colors.onSurface,
             modifier = Modifier.semantics { heading() },
         )
         Spacer(modifier = Modifier.height(AuleSpacing.sm))
         Text(
             text = stringResource(R.string.register_confirm_body),
+            textAlign = TextAlign.Center,
             style = MaterialTheme.typography.bodyMedium,
             color = colors.onSurfaceVariant,
         )
@@ -1522,7 +1010,7 @@ private fun ConfirmationStep(
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.large,
-            color = colors.surfaceContainerHigh,
+            color = colors.surfaceContainerLow,
             contentColor = colors.onSurface,
         ) {
             Column(modifier = Modifier.padding(horizontal = AuleSpacing.lg)) {
@@ -1605,37 +1093,7 @@ private fun ConfirmationStep(
     }
 }
 
-/**
- * Une carte de choix : un métier, un réseau, un matériel.
- *
- * ## Ce que la sélection doit produire
- *
- * L'ancienne version ne changeait qu'un aplat : conteneur primaire pour le
- * choix retenu, conteneur neutre pour les autres. Deux clairs voisins, à
- * comparer l'un à l'autre pour savoir lequel est coché — soit exactement le
- * geste qu'on ne fait pas quand on remplit un formulaire debout. La sélection
- * porte maintenant trois marques qui se lisent chacune seule :
- *
- * - l'aplat, qui passe au conteneur primaire ;
- * - le **contour**, qui passe du filet au trait appuyé, à la couleur d'encre de
- *   la marque ;
- * - l'**ombre teintée**, qui décolle la rangée retenue de celles qui restent au
- *   ras de la carte.
- *
- * Les deux couleurs sont animées sur le ressort d'effets : la carte prend sa
- * teinte pendant que le doigt se relève, au lieu de basculer d'un coup après
- * lui. C'est le seul endroit du parcours où un mouvement accompagne un appui, et
- * c'est là qu'il compte.
- *
- * ## L'élévation, qui vient d'ici et pas du composant
- *
- * `CardDefaults.cardElevation` est neutralisée : Material poserait une ombre
- * noire, et une ombre noire sous une carte teintée la salit. L'ombre de la
- * rangée retenue passe donc par [auleShadow] et prend la couleur de la marque.
- *
- * @param pastille la forme du jeton de tête. Ronde par défaut ; les modes de
- *   transport prennent la silhouette expressive du kit.
- */
+/** Cartes de choix web : surface douce, forme métier et coche réservée à la sélection. */
 @Composable
 private fun ChoiceCard(
     label: String,
@@ -1655,29 +1113,25 @@ private fun ChoiceCard(
     val effects = motion.defaultEffectsSpec<Color>()
 
     val container by animateColorAsState(
-        // `surface` posait une carte blanche dans la carte blanche du
-        // formulaire : le choix non retenu disparaissait. Un cran de conteneur
-        // au-dessus le fait exister sans lui donner l'air d'être coché.
-        targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerHigh,
+        targetValue = if (selected) colors.primaryContainer else colors.surfaceContainerLow,
         animationSpec = effects,
         label = "choice-container",
     )
     val edge by animateColorAsState(
-        targetValue = if (selected) colors.primary else colors.outlineVariant,
+        targetValue = if (selected) colors.primary else Color.Transparent,
         animationSpec = effects,
         label = "choice-edge",
     )
     val jetonFill by animateColorAsState(
-        targetValue = if (selected) colors.primary else colors.primaryContainer,
+        targetValue = if (selected) colors.primary else colors.surfaceContainerHighest,
         animationSpec = effects,
         label = "choice-jeton",
     )
     val jetonInk by animateColorAsState(
-        targetValue = if (selected) colors.onPrimary else colors.onPrimaryContainer,
+        targetValue = if (selected) colors.onPrimary else colors.onSurfaceVariant,
         animationSpec = effects,
         label = "choice-jeton-ink",
     )
-    val glow = Modifier.auleShadow(AuleElevation.RESTING, shape, AuleShadowTint.ACCENT)
 
     val selectModifier = if (multiSelect) {
         Modifier.toggleable(
@@ -1701,7 +1155,6 @@ private fun ChoiceCard(
     Card(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (selected) glow else Modifier)
             .then(selectModifier),
         shape = shape,
         colors = CardDefaults.cardColors(containerColor = container),
@@ -1714,14 +1167,14 @@ private fun ChoiceCard(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(AuleSpacing.md),
+            modifier = Modifier.padding(horizontal = AuleSpacing.md, vertical = RegistrationLayout.choiceVertical),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (emblem != null) {
                 emblem()
             } else if (glyph != null) {
                 Surface(
-                    modifier = Modifier.size(AuleControl.avatar),
+                    modifier = Modifier.size(RegistrationLayout.choiceIcon),
                     shape = pastille,
                     color = jetonFill,
                     contentColor = jetonInk,
@@ -1731,7 +1184,7 @@ private fun ChoiceCard(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            imageVector = glyph.asImageVector(filled = selected),
+                            imageVector = glyph.asImageVector(),
                             contentDescription = null,
                         )
                     }
@@ -1742,30 +1195,24 @@ private fun ChoiceCard(
                     .weight(1f)
                     .padding(start = AuleSpacing.md),
             ) {
-                // Seize points en demi-gras plutôt que quatorze en gras : à
-                // encombrement égal, c'est la taille qui porte, pas la graisse.
                 Text(
                     text = label,
-                    style = MaterialTheme.typography.bodyLargeEmphasized,
+                    style = MaterialTheme.typography.bodyMediumEmphasized.copy(fontSize = RegistrationLayout.choiceLabelSize),
                     color = colors.onSurface,
                 )
                 Text(
                     text = description,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = RegistrationLayout.choiceDescriptionSize),
                     color = colors.onSurfaceVariant,
                 )
             }
-            if (multiSelect) {
-                Checkbox(
-                    checked = selected,
-                    onCheckedChange = null,
-                )
-            } else if (selected) {
-                Icon(
-                    imageVector = AuleGlyph.CHECK.asImageVector(filled = true),
-                    contentDescription = null,
-                    tint = colors.primary,
-                )
+            Box(Modifier.padding(start = AuleSpacing.sm).size(AuleSpacing.xl), contentAlignment = Alignment.Center) {
+                if (selected) {
+                    Surface(shape = CircleShape, color = colors.primary, contentColor = colors.onPrimary) {
+                        Icon(AuleGlyph.CHECK.asImageVector(filled = true), null,
+                            Modifier.size(AuleSpacing.xl).padding(AuleSpacing.xs))
+                    }
+                }
             }
         }
     }
@@ -1829,28 +1276,6 @@ private val ProfessionalTransportMode.glyph: AuleGlyph
         ProfessionalTransportMode.BUSTRAM -> AuleGlyph.HEADING
     }
 
-private val CARD_MAX_WIDTH = 520.dp
-
-/**
- * L'air qui sépare les trois blocs de l'écran d'accueil.
- *
- * Au-dessus du plus grand cran de l'échelle — trente-deux points — parce qu'il
- * ne sépare pas deux éléments d'un même groupe mais trois groupes entiers, et
- * qu'un écran qui ne porte que huit lignes a la place de le montrer. Le cran
- * d'échelle y suffirait sur une étape de formulaire ; ici il rendait la même
- * distance entre un titre et sa phrase qu'entre la phrase et le bouton, donc
- * aucun groupe.
- */
-private val WELCOME_GAP = 40.dp
-
-/**
- * La hauteur d'un cran du rail.
- *
- * Le filet de quatre points de Material se lit assis, à l'ombre. Debout, gants
- * aux mains, pare-brise plein sud, il faut le double pour que le rail reste un
- * repère et non une bordure.
- */
-private val RAIL_HEIGHT = 8.dp
 
 /** Même raison, pour l'échelle de solidité du mot de passe. */
 private val METER_HEIGHT = 6.dp
@@ -1862,7 +1287,7 @@ private val METER_HEIGHT = 6.dp
  * travail — sans devenir une illustration qui repousserait le récapitulatif
  * sous la ligne de flottaison.
  */
-private val MEDALLION_SIZE = 96.dp
+private val MEDALLION_SIZE = 92.dp
 
 /**
  * La coche du médaillon.
@@ -1870,24 +1295,12 @@ private val MEDALLION_SIZE = 96.dp
  * La grille d'icône ordinaire, posée au centre d'un disque quatre fois plus
  * large, se lirait comme un bouton oublié là.
  */
-private val MEDALLION_GLYPH = 44.dp
+private val MEDALLION_GLYPH = 40.dp
 
-/**
- * La part de largeur que prend la pastille de l'étape en cours.
- *
- * Deux fois et demie ses voisines : au-delà, les crans restants s'écrasent et le
- * rail cesse de se compter ; en deçà, on ne voit plus lequel est le nôtre.
- */
-private const val RAIL_ACTIVE_SHARE = 2.5f
-
-/** Le plancher qui protège `weight` du dépassement du ressort. */
-private const val RAIL_MIN_SHARE = 0.6f
 
 /** Les trois crans de solidité que [passwordScore] sait rendre. */
 private const val METER_STEPS = 3
 
-/** Le quart de largeur dont l'étape entrante glisse. */
-private const val SLIDE_FRACTION = 4
 
 /**
  * Les logos des réseaux, par clé.

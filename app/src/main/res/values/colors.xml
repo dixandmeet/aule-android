@@ -1,16 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!--
-      Ces deux couleurs doublent volontairement les tokens Kotlin du design
-      system : le système a besoin du fond de fenêtre avant que la moindre ligne
-      de Kotlin ne tourne. Le fond doit donc valoir AuleTokens.surfaceSolid —
-      Neutral.T100 le jour, Neutral.T8 la nuit — et la marque, AuleBrand.teal.
-
-      Le test du lot 2 qui interdisait la divergence n'existe plus, et la valeur
-      de nuit avait dérivé sans que personne le voie. Tant qu'aucune garde ne le
-      reprend, ces deux-ci et celle de values-night se reposent à la main à
-      chaque fois que la palette bouge.
-    -->
-    <color name="aule_surface">#FFFFFFFF</color>
-    <color name="aule_brand_teal">#FF0D595E</color>
+    <!-- Même fond que le thème commun à Pro et Voyageur, avant le montage de Compose. -->
+    <color name="aule_surface">#FFF6FAF8</color>
+    <color name="aule_brand_teal">#FF006B5E</color>
 </resources>

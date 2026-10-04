@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
+    <string name="auth_welcome_tagline">Le réseau avance avec vous.</string>
+    <string name="auth_subtitle">Utilisez un compte professionnel habilité à votre espace Aule Pro.</string>
+    <string name="auth_verifying">Vérification…</string>
+    <string name="auth_granted">Bienvenue dans votre espace</string>
+    <string name="auth_error_offline">Vous êtes hors connexion. Vérifiez votre accès à Internet, puis réessayez.</string>
+    <string name="auth_error_timeout">Le serveur met trop de temps à répondre. Réessayez dans un instant.</string>
+    <string name="auth_error_unavailable">Le service est momentanément indisponible. Réessayez dans un instant.</string>
+    <string name="auth_welcome_title">Votre réseau.\nVotre équipe.</string>
+    <string name="auth_welcome_body">Votre espace pour agir sur le terrain.</string>
     <string name="auth_logo">Logo Aule Pro</string>
     <string name="auth_title">Connexion</string>
     <string name="auth_brand">Aule Pro</string>
     <string name="auth_workspace">Espace de travail</string>
-    <string name="auth_no_account">Pas encore de compte ?</string>
+    <string name="auth_no_account">Pas encore d’espace ?</string>
     <string name="auth_email_label">Adresse e-mail professionnelle</string>
     <string name="auth_email_placeholder">prenom.nom@operateur.fr</string>
     <string name="auth_required">obligatoire</string>
@@ -111,20 +120,28 @@
     <string name="profile_avatar_error_denied">Accès refusé — vérifiez votre connexion conducteur.</string>
     <string name="profile_avatar_error_unsupported">Format d\'image non supporté (JPEG ou PNG).</string>
     <string name="profile_avatar_error_send">Impossible d\'envoyer la photo.</string>
-    <string name="auth_create_account">Créer un compte</string>
+    <string name="auth_create_account">Créer un compte professionnel</string>
     <string name="auth_error_user_already_exists">Un compte existe déjà pour cette adresse. Connectez-vous.</string>
+    <string name="register_scene_title">Configurons</string>
+    <string name="register_scene_emphasis">votre espace.</string>
+    <string name="register_return_signup">Retour à l\'inscription</string>
+    <string name="register_need_time">Quelques étapes, deux minutes</string>
+    <string name="register_need_identity">Votre identifiant professionnel ou matricule</string>
+    <string name="register_need_valid_email">Renseignez une adresse e-mail valide.</string>
+    <string name="register_need_email">Une adresse e-mail, de préférence celle de votre employeur</string>
+    <string name="register_traveler_link">Vous êtes voyageur ? Créer un compte voyageur</string>
     <string name="register_welcome_title">Bienvenue sur Aule Pro</string>
-    <string name="register_welcome_subtitle">L\'espace professionnel des conducteurs, contrôleurs, agents d\'intervention et équipes de maîtrise.</string>
+    <string name="register_welcome_subtitle">L\'espace réservé aux conducteurs, contrôleurs, agents d\'intervention et équipes de maîtrise.</string>
     <string name="register_start">Commencer</string>
     <string name="register_hint">Munissez-vous de votre identifiant professionnel</string>
-    <string name="register_have_account">Déjà inscrit ?</string>
+    <string name="register_have_account">Déjà un compte ?</string>
     <string name="register_already">Se connecter</string>
     <string name="register_back">Retour</string>
     <string name="register_continue">Continuer</string>
     <string name="register_create">Créer mon compte</string>
     <string name="register_creating">Création…</string>
     <string name="register_step">Étape %1$d sur %2$d</string>
-    <string name="register_saved">Progression enregistrée automatiquement</string>
+    <string name="register_saved">Brouillon enregistré</string>
     <string name="register_profiles_title">Quels sont vos métiers ?</string>
     <string name="register_profiles_subtitle">L\'inscription Aule Pro est réservée aux équipes opérationnelles du réseau. Les métiers de terrain se cumulent : sélectionnez-en autant que nécessaire.</string>
     <string name="register_profile_conducteur">Conducteur</string>
@@ -254,4 +271,9 @@
     <!-- L'entrée de la messagerie dans le menu du compte. -->
     <string name="menu_hub">Messagerie</string>
     <string name="menu_hub_desc">Écrire à vos collègues et lire les annonces</string>
+    <string name="auth_showcase_labels">Service|Affectation|Régularité|Relève|Terrain|Guidage|Missions</string>
+    <string name="auth_showcase_titles">Votre service commence ici.|Véhicule et course affectés.|L’avance et le retard, ligne par ligne.|La relève se prépare seule.|Un incident se signale en trois champs.|Haut-le-pied, guidé au mètre.|Les missions du jour, sur le terrain.</string>
+    <string name="auth_showcase_details" tools:ignore="Typos">Trois vérifications, une confirmation, et l’heure réelle part avec vous.|Le parc, la ligne et la course du jour vous attendent à l’ouverture.|Ce qui roule, dans quel sens, et l’écart que le temps réel lui donne.|La carte de prochaine action la rappelle au volant, avec un seul bouton.|Le poste de contrôle le reçoit pendant que vous restez à votre poste.|Du dépôt à la tête de ligne, le volet compte la distance qui reste.|Équipes, points de contrôle et consignes, là où le rôle l’autorise.</string>
+    <string name="auth_showcase_pause">Mettre la démonstration en pause</string>
+    <string name="auth_showcase_resume">Reprendre la démonstration</string>
 </resources>

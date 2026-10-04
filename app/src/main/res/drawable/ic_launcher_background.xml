@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Variante Pro : indigo #2725A8, avec une profondeur discrète. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <gradient
+        android:angle="315"
+        android:startColor="#FF302EC0"
+        android:centerColor="#FF2725A8"
+        android:endColor="#FF24228F" />
+</shape>

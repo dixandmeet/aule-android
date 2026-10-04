@@ -4,34 +4,18 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Close
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.foundation.text.input.TextFieldLineLimits
-import androidx.compose.foundation.text.input.rememberTextFieldState
-import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextField
-import androidx.compose.material3.TextFieldDefaults
+import io.aule.android.core.designsystem.components.AuleCard
+import io.aule.android.core.designsystem.components.AuleCardTone
+import io.aule.android.core.designsystem.components.AuleSearchField
+import io.aule.android.core.designsystem.components.AuleSheetHeader
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
@@ -41,7 +25,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.token.AuleChrome
-import io.aule.android.core.designsystem.token.AuleControl
 import io.aule.android.core.designsystem.token.AuleSpacing
 import io.aule.android.core.designsystem.token.AuleStroke
 
@@ -127,24 +110,12 @@ internal fun SheetHeading(
     modifier: Modifier = Modifier,
     subtitle: String? = null,
 ) {
-    Column(
-        modifier = modifier.semantics(mergeDescendants = true) { heading() },
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.xs),
-    ) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.titleMediumEmphasized,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-        if (subtitle != null) {
-            Text(
-                text = subtitle,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-        }
-    }
+    AuleSheetHeader(
+        title = title,
+        subtitle = subtitle,
+        modifier = modifier,
+        compact = true,
+    )
 }
 
 /**
@@ -196,7 +167,6 @@ internal fun SheetHeading(
  * socle a grandi ([AuleChrome.socle]), le plancher est revenu des deux côtés,
  * et ce champ-ci n'a plus qu'une taille.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun SheetSearchField(
     query: String,
@@ -205,83 +175,15 @@ internal fun SheetSearchField(
     modifier: Modifier = Modifier,
     textStyle: TextStyle = MaterialTheme.typography.bodyMedium,
 ) {
-    val colors = MaterialTheme.colorScheme
-
-    // Le champ tient sa saisie, l'appelant tient la sienne, et les deux se
-    // recopient. C'est le prix de l'API à état de Material 3 — la seule qui
-    // laisse régler la marge intérieure, voir plus bas — devant des appelants
-    // qui, eux, n'ont qu'une chaîne dans leur modèle d'écran.
-    val field = rememberTextFieldState(query)
-    val latestQuery = rememberUpdatedState(query)
-    val latestOnQuery = rememberUpdatedState(onQuery)
-    LaunchedEffect(query) {
-        if (query != field.text.toString()) field.setTextAndPlaceCursorAtEnd(query)
-    }
-    LaunchedEffect(field) {
-        snapshotFlow { field.text.toString() }.collect { text ->
-            if (text != latestQuery.value) latestOnQuery.value(text)
-        }
-    }
-
-    TextField(
-        state = field,
-        // ⚠️ **Un plancher, et non une hauteur — et la marge intérieure à nous.**
-        //
-        // Material réserve seize points au-dessus et seize en dessous de la
-        // ligne de saisie, et se donne un minimum de 56. Forcer 48 par le
-        // modificateur ne recentrait rien : il **rognait par le bas**, et le
-        // « y » de « Ranzay » perdait sa jambe — vu à l'écran, sur un réseau
-        // qui compte aussi Bouffay et Longchamp.
-        //
-        // Quatre points suffisent à la ligne. Le cran du chrome donne le reste,
-        // le volet récupère les huit points que le minimum de Material lui
-        // prenait, et un texte agrandi pousse le champ au-delà du plancher au
-        // lieu de se faire couper.
-        modifier = modifier
-            .fillMaxWidth()
-            .heightIn(min = AuleChrome.bar),
-        lineLimits = TextFieldLineLimits.SingleLine,
+    AuleSearchField(
+        value = query,
+        onValueChange = onQuery,
+        placeholder = placeholder,
+        clearLabel = stringResource(R.string.search_clear),
+        modifier = modifier,
         textStyle = textStyle,
-        shape = MaterialTheme.shapes.extraLarge,
-        placeholder = { Text(text = placeholder, style = textStyle) },
-        leadingIcon = {
-            Icon(
-                imageVector = Icons.Outlined.Search,
-                contentDescription = null,
-                tint = colors.primary,
-                modifier = Modifier.size(AuleControl.icon),
-            )
-        },
-        trailingIcon = if (query.isNotEmpty()) {
-            {
-                IconButton(onClick = { onQuery("") }) {
-                    Icon(
-                        imageVector = Icons.Outlined.Close,
-                        contentDescription = stringResource(R.string.search_clear),
-                        modifier = Modifier.size(AuleControl.icon),
-                    )
-                }
-            }
-        } else {
-            null
-        },
-        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-        contentPadding = TextFieldDefaults.contentPaddingWithoutLabel(
-            top = AuleSpacing.xs,
-            bottom = AuleSpacing.xs,
-        ),
-        colors = TextFieldDefaults.colors(
-            focusedContainerColor = colors.surfaceContainerHigh,
-            unfocusedContainerColor = colors.surfaceContainerHigh,
-            disabledContainerColor = colors.surfaceContainerHigh,
-            cursorColor = colors.primary,
-            // Le trait sous un champ **plein** est un reste de Material 2 : il
-            // souligne un aplat qui se voit déjà, et il casse le rayon plein en
-            // bas. La mise au point se dit par le curseur et par le libellé.
-            focusedIndicatorColor = Color.Transparent,
-            unfocusedIndicatorColor = Color.Transparent,
-            disabledIndicatorColor = Color.Transparent,
-        ),
+        compact = true,
+        imeAction = ImeAction.Done,
     )
 }
 
@@ -357,15 +259,7 @@ internal fun SheetSectionLabel(text: String, modifier: Modifier = Modifier) {
  */
 @Composable
 internal fun SheetCard(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    val colors = MaterialTheme.colorScheme
-    Surface(
-        modifier = modifier,
-        shape = MaterialTheme.shapes.large,
-        color = colors.surfaceContainerHigh,
-        contentColor = colors.onSurface,
-    ) {
-        Column { content() }
-    }
+    AuleCard(modifier = modifier, tone = AuleCardTone.High) { content() }
 }
 
 /**

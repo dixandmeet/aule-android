@@ -24,6 +24,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.Lifecycle
@@ -131,6 +132,17 @@ fun AuleRoot(
     // par image pour un booléen qui ne change qu'une fois dans la vie de l'app.
     var welcomeDone by rememberSaveable { mutableStateOf(graph.welcome.hasSeenWelcome()) }
     var recoveryEmail by rememberSaveable { mutableStateOf("") }
+    // Présentation locale : la session et les habilitations continuent de décider de l'accès.
+    var loginEntranceActive by remember { mutableStateOf(false) }
+    LaunchedEffect(authState.isReady, authState.isSignedIn, authState.isResettingPassword,
+        authState.isAwaitingBiometricUnlock, showingRecovery, showingRegistration) {
+        if (!authState.isReady || authState.isResettingPassword || authState.isAwaitingBiometricUnlock ||
+            showingRecovery || showingRegistration) {
+            loginEntranceActive = false
+        } else if (!authState.isSignedIn) {
+            loginEntranceActive = true
+        }
+    }
     // Les quatre pièces du verrou voyagent ensemble : aucun écran n'en veut
     // deux sur quatre, et les passer une à une donnait des signatures où
     // l'ordre finit par se mélanger.
@@ -159,26 +171,14 @@ fun AuleRoot(
         }
     }
 
-    // La porte d'entrée est sombre, toujours.
-    //
-    // C'est la charte du web : `aule.fr` et les écrans d'accueil de l'espace de
-    // travail ne suivent pas le thème du visiteur — la maison est sombre, et
-    // une façade qui change de couleur selon l'heure de celui qui sonne n'est
-    // plus une identité. Le choix d'apparence reprend ses droits dès qu'une
-    // session est ouverte : là, c'est l'outil de travail, et c'est
-    // l'utilisateur qui décide de sa lumière.
-    //
-    // Le mode est posé **ici**, sur le local d'apparence, et non écran par
-    // écran : les barres système le lisent au même endroit, et une nuit forcée
-    // dans un thème local aurait laissé des icônes noires sur un fond noir.
-    val doorway = !authState.isReady ||
-        authState.isCheckingAccess ||
-        authState.isResettingPassword ||
-        !authState.isSignedIn
-    val resolved = if (doorway) AppearanceMode.DARK else appearance
+    // Le compte et la carte partagent la même ambiance, comme Voyageur.
+    val resolved = appearance
 
     CompositionLocalProvider(LocalAppearanceMode provides resolved) {
-    SystemBarsFollowAppearance()
+    SystemBarsFollowAppearance(webAuthentication =
+        (showingRegistration && !authState.isSignedIn) ||
+            (!showingRecovery && (loginEntranceActive || !authState.isSignedIn)),
+    )
     when {
         // La restauration de session dure d'ordinaire deux cents millisecondes,
         // et c'est pourtant la première image de chaque lancement.
@@ -226,7 +226,7 @@ fun AuleRoot(
                 authViewModel.onBiometricUnlockDeclined(invalidated = invalidated)
             },
         )
-        authState.isCheckingAccess -> AccessCheckScreen()
+        authState.isCheckingAccess && !loginEntranceActive -> AccessCheckScreen()
         // Avant tout le reste, y compris avant la carte : une session ouverte
         // par un lien de récupération **n'ouvre que** le choix d'un nouveau mot
         // de passe. Placer ce cas plus bas ferait de la boîte e-mail une porte
@@ -261,21 +261,23 @@ fun AuleRoot(
         // la demander à quelqu'un qui n'a pas encore prouvé qu'il entre dans
         // l'application serait demander pour rien. Il vient avant la carte, en
         // revanche — c'est tout son propos, expliquer avant de demander.
-        authState.isSignedIn && !welcomeDone -> WelcomeHost(
+        authState.isSignedIn && !welcomeDone && !loginEntranceActive -> WelcomeHost(
             location = graph.location,
             onDone = {
                 graph.welcome.markWelcomeSeen()
                 welcomeDone = true
             },
         )
-        !authState.isSignedIn -> AuthScreen(
+        (loginEntranceActive || !authState.isSignedIn) -> AuthScreen(
             viewModel = authViewModel,
-            onCreateAccount = { showingRegistration = true },
+            onCreateAccount = { loginEntranceActive = false; showingRegistration = true },
             onForgotPassword = { typed ->
+                loginEntranceActive = false
                 recoveryEmail = typed
                 authViewModel.clearRecovery()
                 showingRecovery = true
             },
+            onEntryFinished = { loginEntranceActive = false },
         )
         else -> {
             val mapContext = LocalContext.current
@@ -696,19 +698,26 @@ fun AuleRoot(
  * que la carte y descend.
  */
 @Composable
-private fun SystemBarsFollowAppearance() {
+private fun SystemBarsFollowAppearance(webAuthentication: Boolean) {
     val night = resolvedNight()
     val view = LocalView.current
-    LaunchedEffect(night, view) {
+    val systemUiMode = LocalConfiguration.current.uiMode
+    LaunchedEffect(night, view, webAuthentication, systemUiMode) {
         if (view.isInEditMode) return@LaunchedEffect
         val activity = view.context.findComponentActivity() ?: return@LaunchedEffect
-        val transparent = SystemBarStyle.auto(
-            lightScrim = android.graphics.Color.TRANSPARENT,
-            darkScrim = android.graphics.Color.TRANSPARENT,
-        ) { night }
+        val transparent = android.graphics.Color.TRANSPARENT
+        val status = if (webAuthentication) {
+            SystemBarStyle.dark(transparent)
+        } else {
+            SystemBarStyle.auto(lightScrim = transparent, darkScrim = transparent) { night }
+        }
+        // Le web conserve un bandeau sombre et une carte claire dans les deux thèmes.
+        val navigation = if (webAuthentication) {
+            SystemBarStyle.light(scrim = transparent, darkScrim = transparent)
+        } else status
         activity.enableEdgeToEdge(
-            statusBarStyle = transparent,
-            navigationBarStyle = transparent,
+            statusBarStyle = status,
+            navigationBarStyle = navigation,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             activity.window.isNavigationBarContrastEnforced = false

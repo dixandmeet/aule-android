@@ -95,6 +95,10 @@ data class StopDepartures(
     val outcome: DeparturesOutcome,
     val fetchedAt: Instant,
 ) {
+    fun retainingPreviousOnFailure(previous: StopDepartures?): StopDepartures =
+        if (outcome == DeparturesOutcome.PROVIDER_SILENT && previous != null)
+            previous.copy(outcome = DeparturesOutcome.PROVIDER_SILENT) else this
+
     /**
      * Regroupe par ligne et destination, en gardant les prochaines attentes.
      *
@@ -120,7 +124,8 @@ data class StopDepartures(
                     lineColor = departure.lineColor,
                     destination = departure.destination,
                     mode = departure.mode,
-                    isRealtime = departure.isRealtime,
+                    isRealtime = departure.isRealtime && outcome == DeparturesOutcome.ANNOUNCED &&
+                        Duration.between(fetchedAt, from).toMillis() in -5_000..90_000,
                     waits = listOf(departure.waitMinutes(from)),
                 )
             } else if (existing.waits.size < maxPerRow) {
@@ -147,7 +152,7 @@ data class DepartureRow(
      */
     val nextWait: Wait?
         get() = waits.firstOrNull()?.let { minutes ->
-            if (minutes == 0) Wait.Approaching else Wait.Minutes(minutes)
+            if (minutes == 0 && isRealtime) Wait.Approaching else Wait.Minutes(minutes.coerceAtLeast(1))
         }
 
     /**

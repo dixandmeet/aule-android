@@ -2,6 +2,7 @@ package io.aule.android.core.designsystem.token
 
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import io.aule.android.core.designsystem.foundation.AuleLayout
 
 /** Espacements, sur une base de 4. */
 object AuleSpacing {
@@ -30,13 +31,13 @@ object AuleSpacing {
  * expressif se retrouve à mi-chemin — le pire endroit.
  */
 object AuleRadius {
-    val sm = 10.dp
-    val md = 14.dp
-    val lg = 22.dp
-    val xl = 28.dp
+    val sm = io.aule.android.core.designsystem.foundation.AuleRadius.s
+    val md = io.aule.android.core.designsystem.foundation.AuleRadius.m
+    val lg = io.aule.android.core.designsystem.foundation.AuleRadius.l
+    val xl = io.aule.android.core.designsystem.foundation.AuleRadius.xl
 
     /** Le cran des dialogues et des volets. */
-    val xxl = 34.dp
+    val xxl = io.aule.android.core.designsystem.foundation.AuleRadius.xxl
 
     val pill = 999.dp
 }
@@ -52,7 +53,7 @@ object AuleTouch {
      * véhicule. Material fixe par ailleurs ses propres cibles à 48 dp, donc
      * descendre en dessous ne gagnait même pas la compacité recherchée.
      */
-    val minimum = 48.dp
+    val minimum = AuleLayout.touch
 }
 
 /**
@@ -64,20 +65,20 @@ object AuleTouch {
  * loin.
  */
 object AuleControl {
-    /** Bouton principal, barre de recherche. */
-    val height = 52.dp
+    /** Action principale ; la recherche et les contrôles carte ont leurs propres rôles. */
+    val height = AuleLayout.button
 
     /**
      * Champ à libellé flottant. Le libellé monte de 12 dp au-dessus de la
      * saisie ; en dessous de 60 dp, l'un des deux touche le bord.
      */
-    val field = 60.dp
+    val field = AuleLayout.field
 
     /**
      * La grille d'icône, commune aux trois plateformes
      * (`dashboard/docs/carte-immersive/08-style-graphique.md`, § 6).
      */
-    val icon = 24.dp
+    val icon = AuleLayout.icon
 
     /** La pastille d'identité : deux initiales, lisibles sans être un portrait. */
     val avatar = 52.dp

@@ -1,6 +1,6 @@
 package io.aule.android.core.designsystem
 
-import io.aule.android.core.designsystem.token.AuleBrand
+import io.aule.android.core.designsystem.foundation.AuleVoyageurPalette
 import io.aule.android.core.designsystem.token.AuleRgba
 import io.aule.android.core.designsystem.token.AuleTokens
 import java.io.File
@@ -35,17 +35,17 @@ class WindowBackgroundTest {
 
     @Test
     fun `le fond de fenetre du jour est la surface du jour`() {
-        assertColor("values", "aule_surface", AuleTokens.day.surfaceSolid)
+        assertColor("values", "aule_surface", AuleVoyageurPalette.Surface)
     }
 
     @Test
     fun `le fond de fenetre de nuit est la surface de nuit`() {
-        assertColor("values-night", "aule_surface", AuleTokens.night.surfaceSolid)
+        assertColor("values-night", "aule_surface", AuleVoyageurPalette.InverseSurface)
     }
 
     @Test
     fun `la marque declaree au systeme est la marque`() {
-        assertColor("values", "aule_brand_teal", AuleBrand.teal)
+        assertColor("values", "aule_brand_teal", AuleVoyageurPalette.Primary)
     }
 
     private fun assertColor(qualifier: String, name: String, expected: AuleRgba) {

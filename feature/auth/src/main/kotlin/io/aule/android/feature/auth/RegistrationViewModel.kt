@@ -53,9 +53,12 @@ data class RegistrationUiState(
     val passwordMismatch: Boolean
         get() = confirmPassword.isNotEmpty() && confirmPassword != password
 
+    val passwordLengthValid: Boolean
+        get() = password.length >= MIN_PASSWORD_LENGTH
+
     val accountComplete: Boolean
         get() = emailValid &&
-            password.length >= MIN_PASSWORD_LENGTH &&
+            passwordLengthValid &&
             password == confirmPassword &&
             draft.termsAccepted
 

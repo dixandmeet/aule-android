@@ -1,14 +1,15 @@
 package io.aule.android.core.designsystem
 
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.animation.core.FiniteAnimationSpec
-import androidx.compose.animation.core.spring
-import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.MaterialExpressiveTheme
 import androidx.compose.material3.MaterialTheme
+import io.aule.android.core.designsystem.foundation.AuleMotionScheme
+import io.aule.android.core.designsystem.foundation.LocalAuleSemantics
+import io.aule.android.core.designsystem.foundation.auleSemanticColors
+import io.aule.android.core.designsystem.foundation.auleBridgeTokens
+import io.aule.android.core.designsystem.foundation.auleShapes as sharedShapes
+import io.aule.android.core.designsystem.foundation.AuleFontFamily
 import androidx.compose.material3.MotionScheme
-import androidx.compose.material3.Shapes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.ReadOnlyComposable
@@ -16,7 +17,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.text.font.FontFamily
 import io.aule.android.core.model.AppearanceMode
-import io.aule.android.core.designsystem.token.AuleRadius
 import io.aule.android.core.designsystem.token.AuleTokens
 
 /**
@@ -80,38 +80,26 @@ fun AuleTheme(
         if (night) auleDarkColorScheme() else auleLightColorScheme()
     }
     val typography = remember(typeface) { auleTypography(typeface.family) }
-    val shapes = remember { auleShapes() }
+    val shapes = remember { sharedShapes() }
+    val semantics = remember(night) { auleSemanticColors(night) }
+    val tokens = remember(night) { auleBridgeTokens(night) }
 
     MaterialExpressiveTheme(
         colorScheme = colorScheme,
-        motionScheme = MotionScheme.expressive(),
+        motionScheme = AuleMotionScheme,
         typography = typography,
         shapes = shapes,
     ) {
         CompositionLocalProvider(
-            LocalAuleTokens provides AuleTokens.of(night),
+            LocalAuleTokens provides tokens,
+            LocalAuleSemantics provides semantics,
             LocalAuleNight provides night,
             content = content,
         )
     }
 }
 
-/**
- * La voix typographique d'un écran.
- *
- * Deux, et deux seulement. [TEXT] est l'application : Roboto, la police qu'on
- * lit en vingt secondes debout dans un véhicule, et qui n'a pas à se faire
- * remarquer. [BRAND] est la porte d'entrée — connexion, inscription — où le
- * produit se présente avant d'avoir rien à dire, et où la même grotesque que
- * sur aule.fr fait le travail qu'aucune mise en page ne fait à sa place : dire
- * qu'on est au bon endroit.
- *
- * C'est un paramètre du **thème** et non un style posé sur un titre : le web
- * met sa police d'affichage sur toute la coquille d'authentification, libellés
- * de champ et bouton compris. Un titre en Space Grotesk au-dessus d'un
- * formulaire en Roboto ne serait pas la charte du web, ce serait deux polices
- * sur un même écran.
- */
+/** La police partagée de l'interface, ou la variante de marque pour les usages dédiés. */
 enum class AuleTypeface {
     TEXT,
     BRAND,
@@ -119,7 +107,7 @@ enum class AuleTypeface {
 
     internal val family: FontFamily
         get() = when (this) {
-            TEXT -> Roboto
+            TEXT -> AuleFontFamily
             BRAND -> SpaceGrotesk
         }
 }
@@ -132,89 +120,10 @@ object AuleTheme {
         @Composable @ReadOnlyComposable get() = LocalAuleNight.current
 }
 
-/**
- * Les cinq formes de Material 3, servies par l'échelle de rayons d'Aule.
- *
- * Material attribue déjà une forme à chaque composant : `extraSmall` aux menus,
- * `small` aux chips, `medium` aux cartes, `large` aux volets, `extraLarge` aux
- * dialogues. Renseigner l'échelle ici suffit donc à arrondir toute
- * l'application — et dispense les écrans d'écrire leur propre
- * `RoundedCornerShape`.
- */
-private fun auleShapes() = Shapes(
-    extraSmall = RoundedCornerShape(AuleRadius.sm),
-    small = RoundedCornerShape(AuleRadius.md),
-    medium = RoundedCornerShape(AuleRadius.lg),
-    large = RoundedCornerShape(AuleRadius.xl),
-    extraLarge = RoundedCornerShape(AuleRadius.xxl),
-)
-
-/**
- * Le mouvement des **volets**, plus lent d'un cran que celui du reste.
- *
- * Material fait ouvrir un volet au ressort spatial par défaut — raide, 380 —
- * et le fait *redescendre* au ressort d'**effets rapides** — 3800, soit un
- * dixième de seconde. Ce dernier est un régime de couleur et d'opacité : posé
- * sur une surface qui traverse la moitié de l'écran, il ne se lit pas comme un
- * mouvement mais comme une disparition. Vu à l'écran : le socle de recherche
- * s'ouvrait et se fermait d'un claquement.
- *
- * Ce régime-ci rend au volet une course qu'on suit de l'œil : un ressort
- * spatial doux pour la montée — moins raide, moins rebondi, la surface est
- * grande et un dépassement s'y voit — et un ressort **sans rebond** pour la
- * descente, qui reste le geste le plus fréquent et n'a pas à s'attarder.
- *
- * ⚠️ **Il s'enveloppe autour du `BottomSheetScaffold`**, et pas plus loin : les
- * régimes de Material se lisent par le thème, et le seul moyen d'en changer
- * pour un composant est de lui en poser un autre. Tout le reste de
- * l'application garde le régime expressif de [AuleTheme] — un changement de
- * couleur de puce n'a aucune raison de durer une demi-seconde.
- *
- * Le **corps** de l'écran est dans ce sous-arbre lui aussi : le menu flottant
- * de la carte s'ouvre donc du même ressort adouci. C'est voulu, et c'est même
- * la cohérence qu'on cherchait : ce sont les deux grandes surfaces qui montent
- * du bas de l'écran, et rien ne justifierait qu'elles montent différemment.
- */
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/** API historique de Pro ; le régime des volets est désormais celui du socle commun. */
 @Composable
-fun AuleSheetMotion(content: @Composable () -> Unit) {
-    MaterialExpressiveTheme(
-        colorScheme = MaterialTheme.colorScheme,
-        motionScheme = SheetMotionScheme,
-        typography = MaterialTheme.typography,
-        shapes = MaterialTheme.shapes,
-        content = content,
-    )
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Suppress("UNCHECKED_CAST")
-private object SheetMotionScheme : MotionScheme {
-    private val expressive = MotionScheme.expressive()
-
-    /** La montée : douce, et à peine rebondie — la surface est large. */
-    private val rise = spring<Any>(dampingRatio = 0.9f, stiffness = 200f)
-
-    /** La descente : franche, sans rebond, mais pas expédiée. */
-    private val fall = spring<Any>(dampingRatio = 1f, stiffness = 400f)
-
-    override fun <T> defaultSpatialSpec(): FiniteAnimationSpec<T> =
-        rise as FiniteAnimationSpec<T>
-
-    override fun <T> fastSpatialSpec(): FiniteAnimationSpec<T> = expressive.fastSpatialSpec()
-
-    override fun <T> slowSpatialSpec(): FiniteAnimationSpec<T> = expressive.slowSpatialSpec()
-
-    override fun <T> defaultEffectsSpec(): FiniteAnimationSpec<T> = expressive.defaultEffectsSpec()
-
-    /**
-     * C'est **la descente d'un volet**, chez Material, et non un effet : voir
-     * [AuleSheetMotion]. Le reste du sous-arbre n'anime pas d'effet rapide.
-     */
-    override fun <T> fastEffectsSpec(): FiniteAnimationSpec<T> = fall as FiniteAnimationSpec<T>
-
-    override fun <T> slowEffectsSpec(): FiniteAnimationSpec<T> = expressive.slowEffectsSpec()
-}
+fun AuleSheetMotion(content: @Composable () -> Unit) =
+    io.aule.android.core.designsystem.foundation.AuleSheetMotion(content)
 
 /**
  * Le régime de mouvement courant, tel que le thème l'a posé.

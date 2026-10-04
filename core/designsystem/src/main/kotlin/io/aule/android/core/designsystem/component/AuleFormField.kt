@@ -93,6 +93,7 @@ fun AuleFormField(
     keyboardActions: KeyboardActions = KeyboardActions.Default,
     visualTransformation: VisualTransformation = VisualTransformation.None,
     fieldModifier: Modifier = Modifier,
+    leadingIcon: @Composable (() -> Unit)? = null,
 ) {
     val colors = MaterialTheme.colorScheme
     // ⚠️ **Un champ refusé ne se voyait pas se faire refuser.** Le message naît *sous* la boîte,
@@ -182,6 +183,7 @@ fun AuleFormField(
                 }
             },
             trailingIcon = trailingIcon,
+            leadingIcon = leadingIcon,
             isError = error != null,
             keyboardOptions = keyboardOptions,
             keyboardActions = keyboardActions,

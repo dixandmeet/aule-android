@@ -117,46 +117,10 @@ import kotlinx.coroutines.flow.StateFlow
  * hauts arrondis, poignée — parce qu'une liste de résultats se lit sur une
  * surface, pas sur une carte posée sur la ville.
  *
- * ## Ce que la carte a repris au volet d'iOS
- *
- * Elle en était la version serrée : une bande de 56 points, un champ et un
- * avatar de 30 dessinés sous le plancher tactile, un blanc plein, pas de
- * poignée. Côte à côte avec la capture d'iOS, ce n'était pas la même surface —
- * la nôtre se lisait comme un contrôle rangé en bas de l'écran, la sienne
- * comme le socle de l'écran. Quatre choses les séparaient, et ce sont les
- * quatre qui changent ici :
- *
- * - **la hauteur** — [AuleChrome.socle] est désormais la somme d'iOS, la bande
- *   qui dégage la poignée plus le contenu à sa taille tactile plus la même
- *   bande dessous ;
- * - **le contenu** — champ et avatar au plancher, [AuleChrome.socleControl],
- *   et le champ au cran du titre de volet : au repos, « Où allez-vous ? » est
- *   le seul mot de l'écran ;
- * - **la poignée** — celle de Material, dessinée dans la carte : voir plus
- *   bas ;
- * - **le verre** — la carte laisse deviner la ville dessous
- *   ([AuleAlpha.GLASS]) et se borde d'un trait clair, comme tout ce qui flotte
- *   au-dessus de la carte dans cette application. Ce n'est pas le flou
- *   d'arrière-plan d'iOS, et ça ne peut pas l'être : la `MapView` est une vue
- *   native rendue hors de l'arbre Compose, hors d'atteinte de tout effet, et
- *   la capturer image par image pour la flouter coûterait au rendu
- *   cartographique lui-même. Voir `AuleGlassSurface`, qui porte l'argument.
- *
- * ## Il s'ouvre au doigt posé sur la carte, ou tiré vers le haut
- *
- * Le glissement du **volet** reste coupé tant que la recherche est fermée
- * (`sheetSwipeEnabled`) : la surface du volet couvre alors toute la largeur de
- * l'écran, marges de la carte flottante comprises, et lui laisser le geste
- * aurait fait monter la recherche au premier défilement de ville mal visé, en
- * bas de l'écran, là où le pouce travaille.
- *
- * La carte, elle, prend les deux gestes **sur sa propre surface** : l'appui,
- * qui donne la mise au point au champ et ouvre le clavier, et le glissement
- * vers le haut, qui monte le volet **sans** clavier — on ne tape pas dans un
- * champ qu'on n'a pas visé. C'est ce que la poignée promet, et c'est la seule
- * raison de la dessiner : un trait de préhension inerte est un mensonge, et
- * l'ancienne version s'en passait précisément parce qu'elle n'avait rien à
- * tenir.
+ * La capsule fermée reprend la hauteur et la forme arrondie de Voyageur,
+ * avec le champ et l'avatar à leur taille tactile. La poignée appartient au
+ * volet déployé. La capsule s'ouvre par appui ou glissement vers le haut ;
+ * les marges restent disponibles pour déplacer la carte.
  *
  * ## Ce qu'il montre suit son palier, et non l'état de la recherche
  *
@@ -262,7 +226,7 @@ internal fun MapSearchSheet(
     // bascule : le champ perdait sa mise au point au moment même où le doigt
     // venait de la lui donner, et la frappe partait dans le vide. Ce sont donc
     // les **modificateurs** qui changent ici, jamais la structure.
-    val shape = if (expanded) RectangleShape else MaterialTheme.shapes.extraLarge
+    val shape = if (expanded) RectangleShape else CircleShape
     Column(modifier = modifier.fillMaxWidth()) {
         Box(
             modifier = Modifier
@@ -304,13 +268,13 @@ internal fun MapSearchSheet(
                             // plutôt que d'y rogner le champ. Le palier suit,
                             // puisqu'il se mesure quelques lignes plus haut.
                             Modifier
-                                .heightIn(min = AuleChrome.socle)
+                                .heightIn(min = io.aule.android.core.designsystem.foundation.AuleLayout.searchBar)
                                 .auleShadow(AuleElevation.FLOATING, shape)
                                 // **Toute la carte donne la mise au point au
                                 // champ.** Ce qui l'entoure est une marge, et
                                 // une marge qu'on touche sans rien obtenir est
                                 // une marge qui a l'air cassée. La carte
-                                // entière répond — poignée comprise.
+                                // entière répond.
                                 //
                                 // Par `pointerInput` et non `clickable` : ce
                                 // n'est pas un bouton. Un `clickable` poserait
@@ -324,7 +288,7 @@ internal fun MapSearchSheet(
                                     detectTapGestures { field.requestFocus() }
                                 }
                                 // **Et la carte tirée vers le haut la monte.**
-                                // C'est ce que promet la poignée, et le volet
+                                // Le volet
                                 // ne peut pas tenir cette promesse à sa place :
                                 // son glissement à lui couvrirait toute la
                                 // largeur de l'écran, y compris la ville autour
@@ -361,47 +325,6 @@ internal fun MapSearchSheet(
                 },
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // La poignée, et la bande qui la dégage du champ.
-                    //
-                    // Elle est **dans** la carte et non au-dessus du volet :
-                    // le volet, lui, s'efface au repos, et sa poignée à lui
-                    // serait tombée sur la ville, à huit points au-dessus d'une
-                    // carte flottante à laquelle rien ne la rattache.
-                    //
-                    // La bande garde sa place dans les deux états — hauteur
-                    // nulle une fois déployée, mais le même nœud — pour la
-                    // raison qui commande tout ce bloc : ce qui suit est le
-                    // champ, et un frère qui apparaît et disparaît le fait
-                    // remonter d'un cran dans l'arbre.
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(if (expanded) 0.dp else AuleSpacing.lg),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (!expanded) {
-                            // ⚠️ **La poignée de Material réserve vingt-deux
-                            // points au-dessus et autant en dessous** d'un
-                            // trait qui en fait quatre : quarante-huit points
-                            // pour un volet qui les a, et que la carte du socle
-                            // n'a pas. `wrapContentHeight` la laisse se mesurer
-                            // à sa taille pleine puis la centre dans la bande —
-                            // le trait tombe au milieu des seize points, ses
-                            // marges transparentes débordent sans rien couvrir,
-                            // et c'est bien le trait de Material qu'on voit,
-                            // pas une copie qui en dériverait.
-                            //
-                            // Muette pour TalkBack : la carte entière porte
-                            // déjà l'action, et un nœud « poignée » de plus au
-                            // balayage annoncerait une seconde commande là où
-                            // il n'y en a qu'une.
-                            BottomSheetDefaults.DragHandle(
-                                modifier = Modifier
-                                    .wrapContentHeight(unbounded = true)
-                                    .clearAndSetSemantics {},
-                            )
-                        }
-                    }
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -424,7 +347,7 @@ internal fun MapSearchSheet(
                                     // de place.
                                     Modifier
                                         .padding(horizontal = AuleSpacing.md)
-                                        .padding(bottom = AuleSpacing.lg)
+                                        .padding(vertical = AuleSpacing.xs)
                                 },
                             ),
                         horizontalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
@@ -437,7 +360,7 @@ internal fun MapSearchSheet(
                             // Le cran du titre de volet, dans les deux paliers :
                             // au repos, la question est le seul mot de l'écran,
                             // et le champ ne change pas de voix en montant.
-                            textStyle = MaterialTheme.typography.titleMedium,
+                            textStyle = MaterialTheme.typography.bodyLarge,
                             modifier = Modifier
                                 .weight(1f)
                                 .focusRequester(field)

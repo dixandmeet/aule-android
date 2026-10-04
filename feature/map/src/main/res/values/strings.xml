@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="auth_map_unavailable">Carte momentanément indisponible. La connexion reste accessible.</string>
     <string name="map_stops_failure">Arrêts indisponibles — %1$s</string>
     <string name="map_content_description">Carte du réseau</string>
     <string name="map_explore_hint">Explorez la carte au doigt, ou utilisez l\'action pour lister ce qui est autour de vous.</string>
@@ -657,4 +658,6 @@
 
     <!-- L'entrée de la messagerie dans le menu de la carte. -->
     <string name="fab_hub">Messages</string>
+    <string name="saved_place_saved">Adresse enregistrée</string>
+    <string name="saved_place_removed">Adresse supprimée</string>
 </resources>

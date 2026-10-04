@@ -54,7 +54,7 @@ import io.aule.android.core.designsystem.AuleCappedFontScale
 import io.aule.android.core.designsystem.AuleTheme
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.component.AuleConnectedButtonGroup
-import io.aule.android.core.designsystem.component.AuleEmptyState
+import io.aule.android.core.designsystem.states.AuleErrorState
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleLoadingState
 import io.aule.android.core.designsystem.component.LineBadge
@@ -666,21 +666,15 @@ private fun LineStopsFailureState(
     failure: LineStopsFailure,
     onRetry: () -> Unit,
 ) {
-    Column(
+    AuleErrorState(
+        title = stringResource(failure.titleRes()),
+        detail = stringResource(failure.detailRes()),
+        icon = AuleGlyph.ROUTE.asImageVector(),
+        centered = true,
         modifier = Modifier.auleEnter(index = 0),
-        verticalArrangement = Arrangement.spacedBy(AuleSpacing.sm),
-    ) {
-        AuleEmptyState(
-            title = stringResource(failure.titleRes()),
-            detail = stringResource(failure.detailRes()),
-            icon = AuleGlyph.ROUTE.asImageVector(),
-        )
-        if (failure == LineStopsFailure.NETWORK) {
-            TextButton(onClick = onRetry, modifier = Modifier.fillMaxWidth()) {
-                Text(stringResource(R.string.line_stops_retry))
-            }
-        }
-    }
+        retryLabel = if (failure == LineStopsFailure.NETWORK) stringResource(R.string.line_stops_retry) else null,
+        onRetry = if (failure == LineStopsFailure.NETWORK) onRetry else null,
+    )
 }
 
 private fun LineStopsFailure.titleRes(): Int = when (this) {

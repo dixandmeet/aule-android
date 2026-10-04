@@ -69,6 +69,7 @@ class MapController(
     private var mapView: MapView? = null
     private var map: MapLibreMap? = null
     private var style: Style? = null
+    private var gesturesEnabled = true
 
     private val frameClock = FrameClock(::onFrame)
 
@@ -219,6 +220,7 @@ class MapController(
             isLogoEnabled = false
             isAttributionEnabled = false
             isCompassEnabled = false
+            setAllGesturesEnabled(gesturesEnabled)
             // Rien du chrome MapLibre ne survit : le HUD tient seul le bas
             // de l'écran, et l'attribution n'est plus affichée.
         }
@@ -245,6 +247,12 @@ class MapController(
 
         installGestureListeners(map)
         loadStyle(ambiance)
+    }
+
+    /** Les décors de connexion gardent la même carte, sans gestes de navigation. */
+    fun setGesturesEnabled(enabled: Boolean) {
+        gesturesEnabled = enabled
+        map?.uiSettings?.setAllGesturesEnabled(enabled)
     }
 
     fun detach() {
@@ -322,6 +330,16 @@ class MapController(
     }
 
     /** L'ordre de ces appels n'est pas commutatif. */
+    /** Monte aussi les couches dont la ressource locale arrive après le style. */
+    fun registerLayer(layer: MapLayer) {
+        registry.register(layer)
+        val loaded = style ?: return
+        val attached = map ?: return
+        registry.mountPending(loaded, attached)
+        registry.broadcastAmbiance(_ambiance.value, loaded)
+        startFrameLoopIfNeeded()
+    }
+
     private fun onStyleLoaded(loaded: Style, ambiance: MapAmbiance) {
         val map = map ?: return
 

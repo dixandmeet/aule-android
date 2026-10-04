@@ -28,6 +28,8 @@ compileSdk = "37"
 androidxCore = "1.18.0"
 androidxActivity = "1.12.0"
 androidxLifecycle = "2.10.0"
+androidxTestExt = "1.3.0"
+androidxTestRunner = "1.7.0"
 
 # BiometricPrompt — le dialogue système d'empreinte ou de visage.
 #
@@ -126,6 +128,8 @@ androidx-compose-ui-tooling = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-compose-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
 androidx-compose-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-compose-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-test-ext-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxTestExt" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
 
 androidx-biometric = { group = "androidx.biometric", name = "biometric", version.ref = "androidxBiometric" }
 androidx-fragment = { group = "androidx.fragment", name = "fragment", version.ref = "androidxFragment" }

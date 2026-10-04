@@ -88,6 +88,24 @@ class MaterialGuardTest {
         )
     }
 
+    @Test
+    fun `les composants partages sont autorises mais leur duplication locale est refusee`() {
+        val shared = rules().first { it.title == "Un composant Aule partage ne se redefinit pas dans un ecran" }
+        val legacy = rules().first { it.title == "Une ancienne enveloppe sans contrat partage reste interdite" }
+        val file = File.createTempFile("aule-material-guard", ".kt")
+        try {
+            file.writeText("AuleCard()\nAuleIconButton()\nAulePrimaryButton()")
+            assertTrue(shared.offencesIn(file).isEmpty())
+            assertTrue(legacy.offencesIn(file).isEmpty())
+            file.writeText("private fun AuleCard() = Unit\nfun AulePrimaryButton() = Unit")
+            assertTrue(shared.offencesIn(file).size == 2)
+            file.writeText("AuleButton()\nAuleBusyIndicator()")
+            assertTrue(legacy.offencesIn(file).size == 2)
+        } finally {
+            file.delete()
+        }
+    }
+
     class Rule(
         val title: String,
         val remedy: String,
@@ -124,9 +142,14 @@ class MaterialGuardTest {
 
         val FOUNDATION_TEXT_FIELD = Regex("""\bBasicTextField\s*\(""")
 
-        /** Les enveloppes Aule qui ne font que redire un composant Material 3. */
+        /** Les anciennes enveloppes sans contrat partagé restent interdites. */
         val REDUNDANT_WRAPPER = Regex(
-            """\bAule(Button|Card|IconButton|TextField|BusyIndicator|SheetHandle)\s*\(""",
+            """\bAule(Button|TextField|BusyIndicator|SheetHandle)\s*\(""",
+        )
+
+        /** Les composants communs sont définis dans le socle, jamais dans une feature. */
+        val LOCAL_SHARED_COMPONENT = Regex(
+            """\bfun\s+Aule(PrimaryButton|TonalButton|OutlinedButton|TextButton|IconButton|Card|GlassCard|FAB|FormField|FavouriteToggle|SearchField|SearchBar|SheetHeader|SheetGrip|Notice|SnackbarHost|ErrorState|WaitDialog|Skeleton)\s*\(""",
         )
 
         /**
@@ -152,11 +175,16 @@ class MaterialGuardTest {
                 },
             ),
             Rule(
-                title = "Un composant standard est un composant Material 3",
-                remedy = "Button, Card, IconButton, OutlinedTextField, Snackbar, " +
-                    "CircularProgressIndicator existent déjà : servez-vous.",
+                title = "Une ancienne enveloppe sans contrat partage reste interdite",
+                remedy = "Utilisez Material 3 ou les composants communs de core:designsystem.",
                 debt = emptySet(),
                 offends = { REDUNDANT_WRAPPER.containsMatchIn(it) },
+            ),
+            Rule(
+                title = "Un composant Aule partage ne se redefinit pas dans un ecran",
+                remedy = "Importez le composant de core:designsystem ; gardez la logique métier dans la feature.",
+                debt = emptySet(),
+                offends = { LOCAL_SHARED_COMPONENT.containsMatchIn(it) },
             ),
             Rule(
                 title = "Une forme appartient au thème",

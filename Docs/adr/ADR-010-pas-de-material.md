@@ -1,6 +1,6 @@
 # ADR-010 — Adoption des composants Material 3 Standards
 
-**Statut** : révisée · **Date** : 17/08/2026
+**Statut** : révisée · **Date** : 03/10/2026
 
 ## La question
 
@@ -28,14 +28,45 @@ Le verre reste l'identité d'Aule, mais il se **demande** : c'est `AuleTokens.su
 
 Une décision de cette portée ne tient pas par la relecture : il suffit d'un écran pressé pour réintroduire un `BasicText`, une carte faite à la main ou un import Material 2, et l'application repart avec deux design systems en parallèle.
 
-`MaterialGuardTest` (`:core:designsystem`) balaie donc `app/` et `feature/` sur quatre règles : pas d'import Material 2, pas de texte écrit avec Foundation, pas d'enveloppe Aule redisant un composant Material 3, pas de forme écrite hors du thème.
+`MaterialGuardTest` (`:core:designsystem`) balaie `app/` et `feature/` : pas d'import Material 2, pas de texte ou de champ Foundation, pas d'ancienne enveloppe sans contrat partagé, pas de redéfinition locale des composants communs, pas de forme écrite hors du thème.
 
-Chaque règle porte une **dette** : la liste nominative des fichiers qui la violent encore, la migration se faisant écran par écran. Deux tests l'encadrent, et c'est leur combinaison qui fait le travail :
+Les composants de `core:designsystem/components` s'appuient sur Material 3 et ajoutent un contrat commun à Pro et Voyageur : dimensions par rôle, formes expressives, pression, haptique, hiérarchie des surfaces et état occupé accessible. Ils peuvent être utilisés par les features ; leur définition reste dans le socle. Les anciens `AuleButton`, `AuleTextField`, `AuleBusyIndicator` et `AuleSheetHandle` restent interdits dans les écrans Pro.
 
-- un fichier **hors dette** qui viole la règle fait échouer la garde — on ne régresse pas, et un écran neuf naît conforme ;
-- un fichier **en dette** qui ne viole plus la règle fait aussi échouer la garde — l'exemption doit être retirée le jour où elle devient inutile.
+Les règles gardent une dette nominative : une nouvelle violation fait échouer les tests, et une exemption devenue inutile doit être retirée. Les listes sont actuellement vides. Un test de la garde vérifie que l'appel aux composants communs est autorisé et qu'une redéfinition locale est refusée.
 
-Les quatre listes sont vides : la migration des écrans est terminée. Les enveloppes `AuleButton`, `AuleCard`, `AuleTextField`, `AuleIcon`, `AuleIconButton`, `AuleBusyIndicator` et `AuleSheetHandle` n'existent plus. Les gardes restent, à sec — un écran neuf qui réintroduit `BasicText` ou une de ces enveloppes échoue dès le test.
+### Recherche, feedback et états partagés
+
+`components.AuleSearchField` porte la saisie, l'effacement, la demande de focus et l'action clavier. Sa variante compacte conserve le plancher de 48 dp et un padding intérieur adapté ; la hauteur augmente avec la police. Pro garde la fermeture du clavier sur « Terminé », Voyageur son ouverture explicite depuis le parcours de recherche.
+
+`components.AuleNotice` porte les messages persistants, leur niveau sémantique, leurs actions et leur fermeture. L'API historique `AuleBanner` délègue à ce composant. `states` regroupe les chargements expressifs, états vides, erreurs récupérables et squelettes immobiles ; les anciennes API Pro de chargement et d'absence délèguent à ce même socle. Une erreur et une absence de résultat restent deux états distincts.
+
+Les confirmations temporaires passent par `AuleMessenger` et `AuleSnackbarHost`. Le scope de composition annule les messages à la fermeture de l'écran ; les callbacks ne s'exécutent que sur l'action du snackbar. Les tests JVM vérifient l'ordre et l'annulation, et les tests instrumentés du socle vérifient recherche, focus, grande police et actions d'état sur appareil.
+
+### Cartes, poignées et hauteur des volets
+
+`components.AuleCard` porte la hiérarchie des surfaces, le rayon de carte et la pression.
+Les cartouches Pro `SheetCard` délèguent au ton `High`. Une carte interactive conserve
+le rôle et le libellé d'action fournis par son parcours ; ses boutons enfants restent accessibles.
+
+`components.AuleSheetGrip` remplace les poignées locales des deux applications. Sa bande
+mesurée de 28 dp est publiée pour le calcul du contenu. `foundation.AuleSheetLayout` borne
+ce contenu sous la barre d'état, poignée comprise, et garde le palier distinct du cran déployé
+lorsque la fenêtre se réduit. Les compositions repliées, les gestes et les parcours restent dans
+chaque application ; la hauteur fixe de Voyageur et les mesures de contenu de Pro sont conservées.
+
+Les supports des volets cartographiques utilisent `surfaceContainerLowest` et la forme de
+volet du thème. Le socle Pro fermé conserve sa carte flottante et son fond transparent.
+`auleBottomSystemPadding` réserve l'union de la barre de navigation et des gestes système,
+puis consomme uniquement leur bord inférieur : un enfant ou le clavier n'ajoute pas une seconde
+réserve, et la bande haute des gestes système ne déplace pas le contenu du volet. Le chrome
+flottant réserve aussi la bande basse complète avant de se relever au-dessus du socle.
+Le palier Pro utilise la même mesure sûre que Voyageur, y compris sur One UI.
+
+### Les dimensions et le mouvement sont communs
+
+`foundation.AuleLayout` définit les rôles communs : action principale 56 dp, action compacte et cible tactile 48 dp, champ 60 dp, icône 24 dp. Les API historiques `AuleControl` et `AuleTouch` délèguent à ces valeurs. Le chrome cartographique conserve ses dimensions dédiées : un bouton de formulaire ne définit pas la taille d'un contrôle sur la carte.
+
+Le thème Pro et le thème Voyageur utilisent le même socle expressif. L'API historique `AuleSheetMotion` de Pro délègue au régime de volet de `foundation` ; elle ne porte aucun second réglage. Les parcours métier et leurs confirmations restent dans les features.
 
 ## Limites
 
