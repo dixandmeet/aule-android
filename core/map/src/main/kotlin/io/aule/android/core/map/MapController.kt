@@ -13,6 +13,7 @@ import io.aule.android.core.map.camera.BuildingEmphasis
 import io.aule.android.core.map.camera.CameraMode
 import io.aule.android.core.map.camera.CameraTarget
 import io.aule.android.core.map.camera.NavigationCamera
+import io.aule.android.core.map.camera.VehicleFramingOffsets
 import kotlin.math.abs
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -125,6 +126,21 @@ class MapController(
     private var owedPitch: Double? = null
 
     private var lastAppliedTarget: CameraTarget? = null
+
+    /**
+     * Ce que la main a réglé du cadrage d'un véhicule suivi — voir [VehicleFramingOffsets].
+     * Propre à **une** vue GPS : [setCameraMode] le remet à zéro.
+     */
+    private var vehicleFramingOffsets = VehicleFramingOffsets.ZERO
+
+    /**
+     * Jusqu'à quand la main garde la caméra d'un véhicule suivi, une fois ses doigts levés : le
+     * temps que l'inertie d'un pincement, ou l'animation d'un double-tap, se termine.
+     */
+    private var vehicleFramingHandoverUntil = 0L
+
+    /** La caméra a été tenue par la main : la première pose qui la reprend glisse au lieu de sauter. */
+    private var vehicleFramingNeedsGlide = false
 
     /**
      * La hauteur de volet avec laquelle le dernier cadrage a été écrit.
@@ -858,6 +874,9 @@ class MapController(
         if (mode == _cameraMode.value) return
         _cameraMode.value = mode
         lastAppliedTarget = null
+        vehicleFramingOffsets = VehicleFramingOffsets.ZERO
+        vehicleFramingHandoverUntil = 0L
+        vehicleFramingNeedsGlide = false
         forgetOwedPitch()
         forgetFrame()
         if (!mode.followsSomething) {
@@ -894,11 +913,35 @@ class MapController(
      * - **pas d'animation au suivi** — on anime seulement à l'entrée dans un
      *   mode, sinon deux animations se chevauchent et la carte flotte.
      */
-    fun applyCameraTarget(target: CameraTarget): Boolean {
+    fun applyCameraTarget(base: CameraTarget): Boolean {
         val map = map ?: return false
         if (isCameraCallInFlight) return false
 
-        val animated = lastAppliedTarget == null && _cameraMode.value.followsSomething
+        var target = base
+        var glide = false
+        if (_cameraMode.value == CameraMode.FOLLOW_VEHICLE) {
+            // ⚠️ **Tant que la main règle le cadrage, la caméra ne l'écrit pas.** Écrire sous un
+            // pincement, ou dans l'inertie qui le suit, l'annulerait net. On relit à la place ce
+            // que la main a fait, pour le rejouer ensuite sur chaque pose du véhicule.
+            if (isGestureActive || SystemClock.elapsedRealtime() < vehicleFramingHandoverUntil) {
+                val live = map.cameraPosition
+                vehicleFramingOffsets = VehicleFramingOffsets.reading(
+                    zoom = live.zoom,
+                    tilt = live.tilt,
+                    bearing = live.bearing,
+                    base = base,
+                )
+                vehicleFramingNeedsGlide = true
+                return false
+            }
+            // La reprise glisse : la main a pincé ailleurs que sur le véhicule, et la carte
+            // reviendrait d'un coup sur lui.
+            glide = vehicleFramingNeedsGlide
+            vehicleFramingNeedsGlide = false
+            target = vehicleFramingOffsets.applied(target = base, maxPitch = measuredMaxPitch)
+        }
+
+        val animated = glide || (lastAppliedTarget == null && _cameraMode.value.followsSomething)
         val last = lastAppliedTarget
         // Le volet a bougé : le cadrage se réécrit même si le sujet, lui, est
         // resté sur place. Sans animation — on suit un doigt qui fait glisser
@@ -1048,7 +1091,10 @@ class MapController(
 
     private fun installGestureListeners(map: MapLibreMap) {
         map.addOnMoveListener(object : MapLibreMap.OnMoveListener {
-            override fun onMoveBegin(detector: MoveGestureDetector) = beginGesture()
+            // ⚠️ MapLibre annonce un « déplacement » dès un doigt, **y compris** quand deux doigts
+            // pincent ou inclinent : seul un doigt seul fait glisser la carte.
+            override fun onMoveBegin(detector: MoveGestureDetector) =
+                beginGesture(dragsMap = detector.pointersCount < 2)
             override fun onMove(detector: MoveGestureDetector) = Unit
             override fun onMoveEnd(detector: MoveGestureDetector) {
                 endGesture()
@@ -1080,17 +1126,36 @@ class MapController(
         // geste, ce même appel annulerait l'animation en cours — l'inertie
         // du zoom, un double-tap, un `flyTo` — et le mouvement s'arrêterait
         // net à mi-course. On attend donc que la caméra se pose.
+        // Un double-tap n'ouvre aucun des gestes ci-dessus : le moteur joue seul son animation. Le motif
+        // du départ dit, lui, que la main en est l'auteur — et la vue GPS d'un véhicule lui laisse
+        // alors le temps de finir. Nos propres poses partent en `REASON_API_ANIMATION` ou
+        // `REASON_DEVELOPER_ANIMATION`, jamais en `REASON_API_GESTURE`.
+        map.addOnCameraMoveStartedListener { reason ->
+            if (reason == MapLibreMap.OnCameraMoveStartedListener.REASON_API_GESTURE &&
+                _cameraMode.value == CameraMode.FOLLOW_VEHICLE
+            ) {
+                vehicleFramingHandoverUntil = SystemClock.elapsedRealtime() + VEHICLE_FRAMING_HANDOVER_MS
+            }
+        }
         map.addOnCameraMoveListener { if (isGestureActive) applyPitchForZoom(animated = false) }
         map.addOnCameraIdleListener { applyPitchForZoom(animated = true) }
 
         map.addOnMapClickListener { latLng -> handleTap(map, latLng) }
     }
 
-    private fun beginGesture() {
+    /**
+     * @param dragsMap vrai pour un doigt qui **fait glisser** la carte ; faux pour pincer, tourner
+     * ou incliner. La vue GPS d'un véhicule ne se rend qu'au premier.
+     */
+    private fun beginGesture(dragsMap: Boolean = false) {
         // Un compteur, pas un booléen : pincer en tournant ouvre deux gestes,
         // et la fin du premier ne signifie pas que les doigts ont quitté
         // l'écran.
         activeGestureCount++
+        // ⚠️ **Régler le cadrage n'est pas lâcher le véhicule.** Zoom, cap et inclinaison sont
+        // retenus (voir [applyCameraTarget]) ; ni le mode ni `onUserTookControl` n'en sont touchés —
+        // ce que l'écran y défait, c'est la vue GPS.
+        if (!dragsMap && _cameraMode.value == CameraMode.FOLLOW_VEHICLE) return
         handleUserGesture()
     }
 
@@ -1112,6 +1177,9 @@ class MapController(
     private fun applyPitchForZoom(animated: Boolean) {
         val map = map ?: return
         if (isAdjustingPitch || isCameraCallInFlight) return
+        // Un véhicule suivi porte sa propre inclinaison (CameraProfile), et ce que la main y change
+        // est retenu par [vehicleFramingOffsets] : deux auteurs pour une même valeur, et la carte tremble.
+        if (_cameraMode.value == CameraMode.FOLLOW_VEHICLE) return
 
         val current = map.cameraPosition
         val decision = NavigationCamera.pitchForZoom(current.tilt, current.zoom, owedPitch)
@@ -1256,6 +1324,12 @@ class MapController(
     }
 
     companion object {
+        /**
+         * Le temps laissé à la main, après un pincement, une rotation ou un double-tap, pour que
+         * l'inertie du moteur se termine : la vue GPS d'un véhicule ne reprend sa caméra qu'ensuite.
+         */
+        const val VEHICLE_FRAMING_HANDOVER_MS = 800L
+
         /**
          * L'inclinaison que demande le produit, reprise du proto iOS.
          *
