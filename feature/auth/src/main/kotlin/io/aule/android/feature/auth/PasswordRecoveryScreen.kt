@@ -64,12 +64,11 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.AuleTypeface
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.component.AuleFormField
-import io.aule.android.core.designsystem.component.AuleNetworkBackdrop
+import androidx.compose.foundation.background
 import io.aule.android.core.designsystem.component.AuleBanner
-import io.aule.android.core.designsystem.component.AuleBrandSurface
+import io.aule.android.core.designsystem.components.AulePrimaryButton
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.asImageVector
@@ -482,10 +481,10 @@ private fun RecoveryScaffold(
     modifier: Modifier = Modifier,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.(imeVisible: Boolean) -> Unit,
 ) {
-    AuleTheme(night = true, typeface = AuleTypeface.BRAND) {
+    AuleTheme() {
         val imeVisible = WindowInsets.isImeVisible
-        AuleNetworkBackdrop(
-            modifier = modifier.fillMaxSize(),
+        Box(
+            modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface),
             contentAlignment = if (imeVisible) Alignment.TopCenter else Alignment.Center,
         ) {
             Box(
@@ -633,44 +632,13 @@ private fun RecoveryAction(
     onSubmit: () -> Unit,
     enabled: Boolean = true,
 ) {
-    val actionable = enabled && !submitting
-    AuleBrandSurface(
-        modifier = Modifier
-            .fillMaxWidth()
-            .semantics {
-                role = Role.Button
-                if (!actionable) disabled()
-            },
-        // Le cran des champs, et non celui des volets : depuis le passage à la
-        // charte du web, l'action et la boîte de saisie partagent un rayon —
-        // deux arrondis voisins sur un même écran se lisent comme une erreur.
-        shape = MaterialTheme.shapes.small,
-        onClick = if (actionable) onSubmit else null,
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .defaultMinSize(minHeight = AuleControl.height)
-                .padding(horizontal = AuleSpacing.lg),
-            horizontalArrangement = Arrangement.spacedBy(
-                AuleSpacing.md,
-                Alignment.CenterHorizontally,
-            ),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (submitting) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(AuleControl.icon),
-                    color = AuleTheme.tokens.onAccent.color,
-                    strokeWidth = AuleStroke.glyph,
-                )
-            }
-            Text(
-                text = if (submitting) busyLabel else label,
-                style = MaterialTheme.typography.titleMediumEmphasized,
-            )
-        }
-    }
+    AulePrimaryButton(
+        label = if (submitting) busyLabel else label,
+        onClick = onSubmit,
+        modifier = Modifier.fillMaxWidth(),
+        enabled = enabled,
+        busy = submitting,
+    )
 }
 
 /** La même borne que la carte de connexion : au-delà, les champs s'étirent en bandes. */

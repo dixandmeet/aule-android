@@ -20,9 +20,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleTheme
-import io.aule.android.core.designsystem.AuleTypeface
 import io.aule.android.core.designsystem.auleEnter
-import io.aule.android.core.designsystem.component.AuleNetworkBackdrop
+import androidx.compose.foundation.background
 import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleGlyph
 import io.aule.android.core.designsystem.component.asImageVector
@@ -66,9 +65,9 @@ fun AccessCheckScreen(modifier: Modifier = Modifier) {
     // La même porte d'entrée que la connexion : cet écran s'intercale entre
     // elle et la carte, et un fond qui change entre les deux se lit comme un
     // saut d'application.
-    AuleTheme(night = true, typeface = AuleTypeface.BRAND) {
+    AuleTheme() {
         val colors = MaterialTheme.colorScheme
-        AuleNetworkBackdrop(modifier = modifier.fillMaxSize(), quiet = true) {
+        Box(modifier = modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface)) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()

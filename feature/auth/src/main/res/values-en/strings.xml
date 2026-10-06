@@ -1,10 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="auth_welcome_tagline">Moving the network forward, together.</string>
+    <string name="auth_subtitle">Use a professional account authorised for your Aule Pro workspace.</string>
+    <string name="auth_verifying">Checking access…</string>
+    <string name="auth_granted">Welcome to your workspace</string>
+    <string name="auth_error_offline">You are offline. Check your Internet connection, then try again.</string>
+    <string name="auth_error_timeout">The server is taking too long to respond. Try again shortly.</string>
+    <string name="auth_error_unavailable">The service is temporarily unavailable. Try again shortly.</string>
+    <string name="auth_welcome_title">Your network.\nYour team.</string>
+    <string name="auth_welcome_body">Your workspace for action in the field.</string>
     <string name="auth_logo">Aule Pro logo</string>
     <string name="auth_title">Sign in</string>
     <string name="auth_brand">Aule Pro</string>
     <string name="auth_workspace">Workspace</string>
-    <string name="auth_no_account">No account yet?</string>
+    <string name="auth_no_account">No workspace yet?</string>
     <string name="auth_email_label">Work email address</string>
     <string name="auth_email_placeholder">first.last@operator.com</string>
     <string name="auth_required">required</string>
@@ -111,8 +120,16 @@
     <string name="profile_avatar_error_denied">Access denied — check your driver sign-in.</string>
     <string name="profile_avatar_error_unsupported">Unsupported image format (JPEG or PNG).</string>
     <string name="profile_avatar_error_send">Unable to upload the photo.</string>
-    <string name="auth_create_account">Create an account</string>
+    <string name="auth_create_account">Create a professional account</string>
     <string name="auth_error_user_already_exists">An account already exists for this address. Sign in.</string>
+    <string name="register_scene_title">Let’s configure</string>
+    <string name="register_scene_emphasis">your workspace.</string>
+    <string name="register_return_signup">Back to sign-up</string>
+    <string name="register_need_time">A few steps, two minutes</string>
+    <string name="register_need_identity">Your professional ID or employee number</string>
+    <string name="register_need_valid_email">Enter a valid email address.</string>
+    <string name="register_need_email">An email address, preferably provided by your employer</string>
+    <string name="register_traveler_link">Are you a passenger? Create a passenger account</string>
     <string name="register_welcome_title">Welcome to Aule Pro</string>
     <string name="register_welcome_subtitle">The professional workspace for drivers, ticket inspectors, response officers and supervisors.</string>
     <string name="register_start">Get started</string>
@@ -124,7 +141,7 @@
     <string name="register_create">Create my account</string>
     <string name="register_creating">Creating…</string>
     <string name="register_step">Step %1$d of %2$d</string>
-    <string name="register_saved">Progress saved automatically</string>
+    <string name="register_saved">Draft saved</string>
     <string name="register_profiles_title">What are your roles?</string>
     <string name="register_profiles_subtitle">Aule Pro sign-up is reserved for the network’s operational teams. Field roles can be combined: select as many as you need.</string>
     <string name="register_profile_conducteur">Driver</string>
@@ -248,4 +265,9 @@
 
     <string name="menu_hub">Messaging</string>
     <string name="menu_hub_desc">Write to your colleagues and read announcements</string>
+    <string name="auth_showcase_labels">Duty|Assignment|Punctuality|Handover|Field|Guidance|Missions</string>
+    <string name="auth_showcase_titles">Your duty starts here.|Vehicle and trip assigned.|Early and late, line by line.|Your handover prepares itself.|Report an incident in three fields.|Deadheading, guided metre by metre.|Daily missions, out in the field.</string>
+    <string name="auth_showcase_details">Three checks, one confirmation, and your actual start time travels with you.|Your vehicle, line and daily trip are ready when you open the app.|Vehicles, their directions and their real-time schedule deviation.|The next action card reminds you at the wheel, with a single button.|The control centre receives it while you stay at your post.|From the depot to the line terminus, the panel counts the distance left.|Teams, checkpoints and instructions, where your role permits.</string>
+    <string name="auth_showcase_pause">Pause the demonstration</string>
+    <string name="auth_showcase_resume">Resume the demonstration</string>
 </resources>

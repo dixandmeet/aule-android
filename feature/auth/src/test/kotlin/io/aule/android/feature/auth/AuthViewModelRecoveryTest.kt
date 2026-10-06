@@ -2,6 +2,7 @@ package io.aule.android.feature.auth
 
 import io.aule.android.core.common.log.NoopLogger
 import io.aule.android.core.model.AuthException
+import io.aule.android.core.model.NetworkFailureReason
 import io.aule.android.core.model.AuthFailureKind
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
@@ -202,7 +203,25 @@ class AuthViewModelRecoveryTest {
         assertEquals(1, auth.signOuts)
     }
 
+    @Test
+    fun `les motifs reseau sont conserves puis effaces a la correction`() = withMain {
+        for (reason in NetworkFailureReason.entries) {
+            val model = viewModel(FakeAuth(signInFailure = AuthException(AuthFailureKind.NETWORK, networkReason = reason)))
+            advanceUntilIdle()
+            model.signIn("agent@aule.fr", "test-password")
+            advanceUntilIdle()
+            assertEquals(AuthFailureKind.NETWORK, model.state.value.failure)
+            assertEquals(reason, model.state.value.failureNetworkReason)
+            assertFalse(model.state.value.isSignedIn)
+            assertFalse(model.state.value.isSubmitting)
+            model.clearFailure()
+            assertNull(model.state.value.failure)
+            assertNull(model.state.value.failureNetworkReason)
+        }
+    }
+
     private class FakeAuth(
+        private val signInFailure: AuthException? = null,
         private val pendingFlow: AuthPkceFlow? = null,
         private val exchanged: AuthSession? = null,
         private val staffRole: String? = null,
@@ -216,7 +235,10 @@ class AuthViewModelRecoveryTest {
 
         override fun currentSession() = current
         override suspend fun restore() = null
-        override suspend fun signIn(email: String, password: String) = error("non sollicité")
+        override suspend fun signIn(email: String, password: String): AuthSession {
+            signInFailure?.let { throw it }
+            error("non sollicité")
+        }
         override suspend fun signOut() {
             signOuts++
             current = null

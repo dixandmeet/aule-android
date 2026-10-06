@@ -7,6 +7,7 @@ import io.aule.android.core.common.log.LogDomain
 import io.aule.android.core.model.AgentAccess
 import io.aule.android.core.model.AuthException
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.NetworkFailureReason
 import io.aule.android.core.model.AuthPkceFlow
 import io.aule.android.core.model.AuthSession
 import io.aule.android.core.model.AvatarException
@@ -37,6 +38,7 @@ data class AuthUiState(
     val email: String? = null,
     val isSubmitting: Boolean = false,
     val failure: AuthFailureKind? = null,
+    val failureNetworkReason: NetworkFailureReason? = null,
     /** Vrai le temps de résoudre les habilitations, avant d'ouvrir la carte. */
     val isCheckingAccess: Boolean = false,
     val access: AgentAccess? = null,
@@ -243,7 +245,7 @@ class AuthViewModel(
         _state.value = current.copy(
             isAwaitingBiometricUnlock = true,
             canRetryBiometric = false,
-            failure = null,
+            failure = null, failureNetworkReason = null,
         )
     }
 
@@ -290,7 +292,7 @@ class AuthViewModel(
 
     fun signIn(email: String, password: String) {
         if (_state.value.isSubmitting) return
-        _state.value = _state.value.copy(isSubmitting = true, failure = null)
+        _state.value = _state.value.copy(isSubmitting = true, failure = null, failureNetworkReason = null)
         viewModelScope.launch {
             try {
                 val session = auth.signIn(email, password)
@@ -303,12 +305,15 @@ class AuthViewModel(
                     isLoadingProfile = true,
                 )
                 loadAccount(session)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (failure: AuthException) {
                 logger.info(LogDomain.AUTH, "Connexion refusée (${failure.kind}).${failure.detail()}")
                 _state.value = _state.value.copy(
                     isSubmitting = false,
                     isSignedIn = false,
                     failure = failure.kind,
+                    failureNetworkReason = failure.networkReason,
                 )
             } catch (failure: Throwable) {
                 logger.warn(LogDomain.AUTH, "Connexion en échec.", failure)
@@ -316,6 +321,7 @@ class AuthViewModel(
                     isSubmitting = false,
                     isSignedIn = false,
                     failure = AuthFailureKind.NETWORK,
+                    failureNetworkReason = null,
                 )
             }
         }
@@ -490,7 +496,7 @@ class AuthViewModel(
 
     fun clearFailure() {
         if (_state.value.failure == null) return
-        _state.value = _state.value.copy(failure = null)
+        _state.value = _state.value.copy(failure = null, failureNetworkReason = null)
     }
 
     /**
@@ -504,13 +510,13 @@ class AuthViewModel(
     fun sendPasswordRecovery(email: String) {
         if (_state.value.isSubmitting) return
         val trimmed = email.trim().lowercase()
-        _state.value = _state.value.copy(isSubmitting = true, failure = null)
+        _state.value = _state.value.copy(isSubmitting = true, failure = null, failureNetworkReason = null)
         viewModelScope.launch {
             try {
                 auth.sendPasswordRecovery(trimmed)
                 _state.value = _state.value.copy(
                     isSubmitting = false,
-                    failure = null,
+                    failure = null, failureNetworkReason = null,
                     recoverySentTo = trimmed,
                 )
             } catch (cancelled: CancellationException) {
@@ -522,7 +528,7 @@ class AuthViewModel(
                 logger.warn(LogDomain.AUTH, "Lien de récupération en échec.", failure)
                 _state.value = _state.value.copy(
                     isSubmitting = false,
-                    failure = AuthFailureKind.NETWORK,
+                    failure = AuthFailureKind.NETWORK, failureNetworkReason = null,
                 )
             }
         }
@@ -530,7 +536,7 @@ class AuthViewModel(
 
     /** Quitte l'écran « mot de passe oublié » et efface ce qu'il affichait. */
     fun clearRecovery() {
-        _state.value = _state.value.copy(recoverySentTo = null, failure = null)
+        _state.value = _state.value.copy(recoverySentTo = null, failure = null, failureNetworkReason = null)
     }
 
     /**
@@ -544,7 +550,7 @@ class AuthViewModel(
      */
     fun updatePassword(newPassword: String) {
         if (_state.value.isSubmitting) return
-        _state.value = _state.value.copy(isSubmitting = true, failure = null)
+        _state.value = _state.value.copy(isSubmitting = true, failure = null, failureNetworkReason = null)
         viewModelScope.launch {
             try {
                 auth.updatePassword(newPassword)
@@ -558,7 +564,7 @@ class AuthViewModel(
                 logger.warn(LogDomain.AUTH, "Changement de mot de passe en échec.", failure)
                 _state.value = _state.value.copy(
                     isSubmitting = false,
-                    failure = AuthFailureKind.NETWORK,
+                    failure = AuthFailureKind.NETWORK, failureNetworkReason = null,
                 )
                 return@launch
             }
@@ -610,7 +616,7 @@ class AuthViewModel(
         _state.value = _state.value.copy(
             isSubmitting = true,
             isCheckingAccess = true,
-            failure = null,
+            failure = null, failureNetworkReason = null,
         )
         viewModelScope.launch {
             val recovery = runCatching { auth.pendingAuthFlow() }.getOrNull() ==
@@ -644,7 +650,7 @@ class AuthViewModel(
                     isReady = true,
                     isSignedIn = false,
                     isCheckingAccess = false,
-                    failure = failure.kind,
+                    failure = failure.kind, failureNetworkReason = failure.networkReason,
                 )
             } catch (failure: Throwable) {
                 logger.warn(LogDomain.AUTH, "Confirmation en échec.", failure)
@@ -652,7 +658,7 @@ class AuthViewModel(
                     isReady = true,
                     isSignedIn = false,
                     isCheckingAccess = false,
-                    failure = AuthFailureKind.NETWORK,
+                    failure = AuthFailureKind.NETWORK, failureNetworkReason = null,
                 )
             }
         }

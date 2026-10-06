@@ -3,19 +3,25 @@ package io.aule.android.feature.auth
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import io.aule.android.core.model.AuthFailureKind
+import io.aule.android.core.model.NetworkFailureReason
 import io.aule.android.core.model.AvatarFailureKind
 import io.aule.android.core.security.BiometricFailureKind
 import io.aule.android.core.security.BiometricType
 
 @Composable
-fun AuthFailureKind.message(): String = when (this) {
+fun AuthFailureKind.message(networkReason: NetworkFailureReason? = null): String = when (this) {
     AuthFailureKind.INVALID_CREDENTIALS -> stringResource(R.string.auth_error_invalid_credentials)
     AuthFailureKind.EMAIL_NOT_CONFIRMED -> stringResource(R.string.auth_error_email_not_confirmed)
     AuthFailureKind.RATE_LIMITED -> stringResource(R.string.auth_error_rate_limited)
     AuthFailureKind.WEAK_PASSWORD -> stringResource(R.string.auth_error_weak_password)
     AuthFailureKind.INVALID_EMAIL -> stringResource(R.string.auth_error_invalid_email)
     AuthFailureKind.NOT_CONFIGURED -> stringResource(R.string.auth_error_not_configured)
-    AuthFailureKind.NETWORK -> stringResource(R.string.auth_error_network)
+    AuthFailureKind.NETWORK -> stringResource(when (networkReason) {
+        NetworkFailureReason.OFFLINE -> R.string.auth_error_offline
+        NetworkFailureReason.TIMEOUT -> R.string.auth_error_timeout
+        NetworkFailureReason.UNAVAILABLE -> R.string.auth_error_unavailable
+        null -> R.string.auth_error_network
+    })
     AuthFailureKind.NO_HABILITATION -> stringResource(R.string.auth_error_no_habilitation)
     AuthFailureKind.HABILITATION_UNVERIFIED -> stringResource(R.string.auth_error_habilitation_unverified)
     AuthFailureKind.USER_ALREADY_EXISTS -> stringResource(R.string.auth_error_user_already_exists)
