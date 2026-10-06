@@ -1,6 +1,7 @@
 package io.aule.android.core.designsystem
 
-import io.aule.android.core.designsystem.token.AulePalette
+import io.aule.android.core.designsystem.foundation.AuleVoyageurPalette
+import io.aule.android.core.designsystem.foundation.auleBridgeTokens
 import io.aule.android.core.designsystem.token.AuleTokens
 import kotlin.test.assertEquals
 import kotlin.test.assertNotEquals
@@ -14,7 +15,7 @@ class AuleColorSchemeTest {
 
     @Test
     fun `le jour reprend les jetons HUD`() {
-        val tokens = AuleTokens.day
+        val tokens = auleBridgeTokens(night = false)
         val scheme = auleLightColorScheme()
 
         assertEquals(tokens.accent.color, scheme.primary)
@@ -22,26 +23,26 @@ class AuleColorSchemeTest {
         assertEquals(tokens.surfaceSolid.color, scheme.surface)
         assertEquals(tokens.onSurface.color, scheme.onSurface)
         assertEquals(tokens.onSurfaceMuted.color, scheme.onSurfaceVariant)
-        assertEquals(tokens.hairline.color, scheme.outlineVariant)
+        assertEquals(if (scheme.surface == AuleVoyageurPalette.Surface.color) AuleVoyageurPalette.OutlineVariant.color else AuleVoyageurPalette.OnSurfaceVariant.color, scheme.outlineVariant)
         assertEquals(tokens.delay.container.color, scheme.tertiaryContainer)
         assertEquals(tokens.delay.onContainer.color, scheme.onTertiaryContainer)
     }
 
     @Test
     fun `la nuit pose l aplat HUD dans primaryContainer et l encre dans primary`() {
-        val tokens = AuleTokens.night
+        val tokens = auleBridgeTokens(night = true)
         val scheme = auleDarkColorScheme()
 
         assertEquals(tokens.accentOnSurface.color, scheme.primary)
-        assertEquals(tokens.surfaceSolid.color, scheme.onPrimary)
-        assertEquals(tokens.accent.color, scheme.primaryContainer)
-        assertEquals(tokens.onAccent.color, scheme.onPrimaryContainer)
+        assertEquals(tokens.onAccent.color, scheme.onPrimary)
+        assertEquals(AuleVoyageurPalette.PrimaryContainerDark.color, scheme.primaryContainer)
+        assertEquals(AuleVoyageurPalette.PrimaryContainer.color, scheme.onPrimaryContainer)
         assertEquals(tokens.surfaceSolid.color, scheme.surface)
         assertEquals(tokens.onSurface.color, scheme.onSurface)
         assertEquals(tokens.onSurfaceMuted.color, scheme.onSurfaceVariant)
-        assertEquals(tokens.hairline.color, scheme.outlineVariant)
+        assertEquals(if (scheme.surface == AuleVoyageurPalette.Surface.color) AuleVoyageurPalette.OutlineVariant.color else AuleVoyageurPalette.OnSurfaceVariant.color, scheme.outlineVariant)
         assertEquals(tokens.alert.color, scheme.error)
-        assertEquals(AulePalette.Red.T10.color, scheme.onError)
+        assertEquals(AuleVoyageurPalette.OnErrorDark.color, scheme.onError)
         assertEquals(tokens.delay.color.color, scheme.tertiary)
     }
 
@@ -135,7 +136,7 @@ class AuleColorSchemeTest {
     @Test
     fun `l erreur de jour reste le cran qui tient le texte`() {
         val scheme = auleLightColorScheme()
-        assertEquals(AulePalette.Red.T40.color, scheme.error)
-        assertEquals(AuleTokens.day.onAlert.color, scheme.onError)
+        assertEquals(AuleVoyageurPalette.Error.color, scheme.error)
+        assertEquals(AuleVoyageurPalette.OnError.color, scheme.onError)
     }
 }

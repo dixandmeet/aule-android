@@ -192,6 +192,18 @@ classement de la recherche d'arrêts, règles des adresses favorites
 (remplacement, fusion, pierres tombales), et décodage des **captures réelles**
 des points d'entrée du BFF. Pas les vues, pas le `MapController`.
 
+Les interactions du design system partagé ont aussi un banc instrumenté isolé
+(`core/designsystem/src/androidTest`) : recherche, focus, grande police, erreurs,
+états vides, actions de bandeau, actions de carte, bande de poignée et consommation
+unique des insets (barre système, enfants et clavier). À exécuter sur le S21 :
+
+```bash
+ANDROID_SERIAL=R3CRA0WV55H ./gradlew :core:designsystem:connectedDebugAndroidTest
+```
+
+Le paquet de test `io.aule.android.core.designsystem.alignment.test` est distinct
+des applications et ne nécessite aucun compte professionnel.
+
 Une garde à part balaie `app/` et `feature/` : aucune mesure chiffrée à la
 main, aucune ombre posée hors du design system, aucun caractère en guise
 d'icône. Elle échoue sur la première réapparition, comme celle du HUD web —

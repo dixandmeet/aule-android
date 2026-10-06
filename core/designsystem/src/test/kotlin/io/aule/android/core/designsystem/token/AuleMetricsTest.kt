@@ -1,5 +1,6 @@
 package io.aule.android.core.designsystem.token
 
+import io.aule.android.core.designsystem.foundation.AuleLayout
 import kotlin.test.assertEquals
 import kotlin.test.assertTrue
 import org.junit.jupiter.api.Test
@@ -53,6 +54,17 @@ class ElevationScaleTest {
 }
 
 class ControlMetricsTest {
+
+    @Test
+    fun `les controles historiques suivent les roles du socle partage`() {
+        assertEquals(AuleLayout.button, AuleControl.height)
+        assertEquals(AuleLayout.field, AuleControl.field)
+        assertEquals(AuleLayout.icon, AuleControl.icon)
+        assertEquals(AuleLayout.touch, AuleTouch.minimum)
+        assertTrue(AuleLayout.button > AuleLayout.buttonCompact)
+        assertTrue(AuleLayout.buttonCompact >= AuleLayout.touch)
+    }
+
 
     /**
      * Le plancher tactile est un plancher : un contrôle plus petit est
