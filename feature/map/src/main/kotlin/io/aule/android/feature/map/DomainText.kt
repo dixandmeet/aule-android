@@ -3,6 +3,7 @@ package io.aule.android.feature.map
 import androidx.annotation.StringRes
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.res.stringResource
 import io.aule.android.core.model.DeparturesOutcome
 import io.aule.android.core.model.ManeuverKind
@@ -17,7 +18,6 @@ import io.aule.android.core.model.Wait
 import io.aule.android.core.model.isTramTrainLine
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import java.util.Locale
 
 /**
  * Tout ce que l'application dit à l'usager sur son domaine.
@@ -58,7 +58,7 @@ internal fun rememberPassageClock(): DateTimeFormatter {
  */
 @Composable
 internal fun rememberDayFormatter(): DateTimeFormatter {
-    val locale = Locale.getDefault()
+    val locale = LocalLocale.current.platformLocale
     return remember(locale) {
         DateTimeFormatter.ofPattern("EEE d MMMM", locale)
     }

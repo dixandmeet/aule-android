@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.mandatorySystemGestures
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -412,54 +414,18 @@ internal fun RecenterButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val view = LocalView.current
     val active = mode.followsSomething
     val label = stringResource(
         if (active) R.string.map_orient else R.string.map_recenter,
     )
-    val colors = MaterialTheme.colorScheme
-    val tokens = AuleTheme.tokens
-    val shape = FloatingActionButtonDefaults.smallShape
-    val fill = if (active) tokens.accent.color else colors.surface
-    val glyph = if (active) tokens.onAccent.color else colors.onSurface
-    val edge = if (active) tokens.accent.color else colors.outlineVariant
-
-    SmallFloatingActionButton(
-        onClick = {
-            view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-            onClick()
-        },
-        // L'ombre du composant est éteinte au profit de celle du design system :
-        // quand le bouton suit le véhicule, elle prend la teinte de la marque et
-        // le bouton cesse d'être posé sur la carte pour se mettre à y flotter.
-        // Les deux ombres cumulées donneraient un halo deux fois trop lourd.
-        //
-        // Le contour, lui, n'est pas une décoration : sur du verre, c'est lui
-        // qui tient le bord du bouton au-dessus d'une tuile claire, là où
-        // l'aplat opaque se suffisait à lui-même.
-        modifier = modifier
-            .size(AuleChrome.button)
-            .auleShadow(
-                level = AuleElevation.FLOATING,
-                shape = shape,
-                tint = if (active) AuleShadowTint.ACCENT else AuleShadowTint.NEUTRAL,
-            )
-            .border(AuleStroke.hairline, edge, shape),
-        shape = shape,
-        elevation = FloatingActionButtonDefaults.elevation(
-            defaultElevation = 0.dp,
-            pressedElevation = 0.dp,
-            focusedElevation = 0.dp,
-            hoveredElevation = 0.dp,
-        ),
-        containerColor = fill.copy(alpha = AuleAlpha.GLASS),
-        contentColor = glyph,
-    ) {
-        Icon(
-            imageVector = AuleGlyph.HEADING.asImageVector(filled = active),
-            contentDescription = label,
-        )
-    }
+    io.aule.android.core.designsystem.mapui.AuleMapControl(
+        contentDescription = label,
+        onClick = onClick,
+        modifier = modifier,
+        icon = AuleGlyph.HEADING.asImageVector(filled = active),
+        emphasis = io.aule.android.core.designsystem.mapui.AuleMapControlEmphasis.Primary,
+        large = true,
+    )
 }
 
 /**
@@ -497,7 +463,7 @@ internal fun MapActionChrome(
             // eux-mêmes la barre système, là où la barre de navigation s'en
             // chargeait pour eux.
             .windowInsetsPadding(
-                WindowInsets.safeDrawing.only(
+                WindowInsets.safeDrawing.union(WindowInsets.mandatorySystemGestures).only(
                     WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom,
                 ),
             )

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="auth_map_unavailable">Map temporarily unavailable. You can still sign in.</string>
     <string name="map_stops_failure">Stops unavailable — %1$s</string>
     <string name="map_content_description">Network map</string>
     <string name="map_explore_hint">Explore the map with your finger, or use the action to list what is around you.</string>
@@ -650,4 +651,6 @@
     <string name="speed_limit_a11y">Speed limit: %1$d kilometres per hour</string>
 
     <string name="fab_hub">Messages</string>
+    <string name="saved_place_saved">Address saved</string>
+    <string name="saved_place_removed">Address removed</string>
 </resources>

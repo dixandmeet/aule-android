@@ -16,7 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
-import androidx.compose.foundation.layout.navigationBarsPadding
+import io.aule.android.core.designsystem.foundation.auleBottomSystemPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.size
@@ -29,17 +29,14 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.NearMe
 import androidx.compose.material.icons.outlined.Schedule
 import androidx.compose.material.icons.outlined.TaskAlt
-import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -68,10 +65,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.aule.android.core.designsystem.AuleShadowTint
 import io.aule.android.core.designsystem.AuleTheme
+import io.aule.android.core.designsystem.components.AulePrimaryButton
+import io.aule.android.core.designsystem.components.AuleTonalButton
 import io.aule.android.core.designsystem.auleEnter
 import io.aule.android.core.designsystem.auleShadow
 import io.aule.android.core.designsystem.bleedHorizontal
 import io.aule.android.core.designsystem.component.AuleAmbientBackground
+import io.aule.android.core.designsystem.component.AuleFormField
 import io.aule.android.core.designsystem.component.AuleBanner
 import io.aule.android.core.designsystem.component.AuleBrandSurface
 import io.aule.android.core.designsystem.component.AuleEmptyState
@@ -82,7 +82,6 @@ import io.aule.android.core.designsystem.component.AuleTone
 import io.aule.android.core.designsystem.component.LineBadge
 import io.aule.android.core.designsystem.component.RealtimeDot
 import io.aule.android.core.designsystem.component.asImageVector
-import io.aule.android.core.designsystem.component.auleAccentButtonColors
 import io.aule.android.core.designsystem.component.delayInk
 import io.aule.android.core.designsystem.component.realtimeInk
 import io.aule.android.core.designsystem.token.AuleAlpha
@@ -347,7 +346,7 @@ private fun TrackingPane(
     AuleGlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            .auleBottomSystemPadding()
             .imePadding(),
         shape = MaterialTheme.shapes.extraLarge,
         elevation = AuleElevation.LIFTED,
@@ -402,7 +401,7 @@ private fun LiveStopPane(
     AuleGlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            .auleBottomSystemPadding()
             .imePadding(),
         shape = MaterialTheme.shapes.extraLarge,
         elevation = AuleElevation.LIFTED,
@@ -495,7 +494,7 @@ private fun AlertsPane(
     AuleGlassSurface(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            .auleBottomSystemPadding()
             .imePadding(),
         shape = MaterialTheme.shapes.extraLarge,
         elevation = AuleElevation.LIFTED,
@@ -1296,26 +1295,19 @@ private fun VehicleStep(
         color = colors.onSurfaceVariant,
         modifier = Modifier.auleEnter(index = 1),
     )
-    OutlinedTextField(
+    AuleFormField(
         value = state.query,
         onValueChange = onQuery,
         modifier = Modifier
             .fillMaxWidth()
             .auleEnter(index = 2)
             .defaultMinSize(minHeight = AuleControl.field),
-        label = { Text(stringResource(R.string.handover_vehicle_field)) },
+        label = stringResource(R.string.handover_vehicle_field),
         keyboardOptions = KeyboardOptions(
             keyboardType = KeyboardType.Text,
             imeAction = ImeAction.Search,
         ),
         keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-        singleLine = true,
-        // Le cran médian de l'échelle — 22 dp — et non plus le plus petit. À
-        // 10 dp, le champ avait des coins de menu contextuel sous un bouton en
-        // gélule : deux objets dessinés par deux mains différentes, à trois
-        // centimètres d'écart. C'est aussi le cran des champs de la prise de
-        // service, l'assistant jumeau de celui-ci.
-        shape = MaterialTheme.shapes.medium,
     )
     HandoverPrimaryAction(
         label = stringResource(R.string.handover_search),
@@ -2120,30 +2112,7 @@ private fun ReliefHero(
     }
 }
 
-/**
- * L'action principale d'une étape.
- *
- * Le même bouton revenait sept fois dans ce fichier, avec sept fois les mêmes
- * quatre lignes de roue de chargement — et sept occasions de diverger d'un
- * pixel ou d'une couleur. Il est ici une fois.
- *
- * [tonal] n'est pas un goût mais une hiérarchie : l'aplat de marque désigne
- * l'action qu'on **peut** faire maintenant, le tonal celle qu'on peut faire
- * quand même. Le bouton de confirmation passe de l'un à l'autre à l'arrivée du
- * véhicule, et c'est ce basculement qui dit au conducteur que le moment est
- * venu — bien avant qu'il ait lu l'intitulé.
- *
- * Le libellé prend `labelLarge` appuyé : même boîte, plus de présence. Un
- * bouton de 52 dp de haut portant un texte au poids d'un paragraphe, c'est le
- * genre de détail qui fait dire d'une application qu'elle est fade.
- *
- * La roue suit l'**aplat réel** du bouton, et c'est ce qui manquait. Aux sept
- * endroits d'où elle vient, un bouton occupé est aussi un bouton éteint — on
- * ne relance pas une prise de service en cours — et Material remplace alors son
- * aplat par un gris à douze pour cent. La roue, elle, restait à l'encre de
- * l'accent : du blanc sur du blanc cassé. Le conducteur appuyait, le bouton
- * pâlissait, et plus rien ne tournait dedans.
- */
+/** Le rôle reste métier ; la présentation et l'état occupé sont ceux du socle commun. */
 @Composable
 private fun HandoverPrimaryAction(
     label: String,
@@ -2153,39 +2122,23 @@ private fun HandoverPrimaryAction(
     busy: Boolean = false,
     tonal: Boolean = false,
 ) {
-    val colors = MaterialTheme.colorScheme
-    val shaped = modifier
-        .fillMaxWidth()
-        .defaultMinSize(minHeight = AuleControl.height)
-    val body: @Composable () -> Unit = {
-        if (busy) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(AuleControl.icon),
-                color = when {
-                    !enabled -> colors.onSurface.copy(alpha = AuleAlpha.DISABLED)
-                    tonal -> colors.onSecondaryContainer
-                    else -> AuleTheme.tokens.onAccent.color
-                },
-                strokeWidth = AuleStroke.glyph,
-            )
-        } else {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelLargeEmphasized,
-            )
-        }
-    }
     if (tonal) {
-        FilledTonalButton(onClick = onClick, modifier = shaped, enabled = enabled) { body() }
-    } else {
-        Button(
+        AuleTonalButton(
+            label = label,
             onClick = onClick,
-            modifier = shaped,
+            modifier = modifier.fillMaxWidth(),
             enabled = enabled,
-            colors = auleAccentButtonColors(),
-        ) {
-            body()
-        }
+            busy = busy,
+            compact = false,
+        )
+    } else {
+        AulePrimaryButton(
+            label = label,
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            enabled = enabled,
+            busy = busy,
+        )
     }
 }
 

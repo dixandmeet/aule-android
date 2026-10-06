@@ -14,7 +14,7 @@ import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import io.aule.android.core.designsystem.foundation.auleBottomSystemPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -488,7 +488,7 @@ internal fun RouteStartBar(
     ) {
         Column(
             modifier = Modifier
-                .navigationBarsPadding()
+                .auleBottomSystemPadding()
                 .drawBehind {
                     // Le filet d'arête : il dit que la barre est **posée sur**
                     // la liste, et non qu'elle en est le dernier élément. Sans
