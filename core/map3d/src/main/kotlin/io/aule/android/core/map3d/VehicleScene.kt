@@ -131,6 +131,7 @@ class VehicleScene private constructor(private val handle: Long) {
         /** L'ordre dans lequel les maillages sont installés. */
         const val MESH_BUS = 0
         const val MESH_TRAM = 1
+        const val MESH_TER = 2
 
         /**
          * La teinte de carrosserie d'un maillage, en plein jour.
@@ -144,6 +145,7 @@ class VehicleScene private constructor(private val handle: Long) {
          */
         fun bodyColor(mesh: Int): Int = when (mesh) {
             MESH_TRAM -> VehicleMeshCatalog.TRAM.bodyColor
+            MESH_TER -> VehicleMeshCatalog.TER.bodyColor
             else -> VehicleMeshCatalog.BUS.bodyColor
         }
 

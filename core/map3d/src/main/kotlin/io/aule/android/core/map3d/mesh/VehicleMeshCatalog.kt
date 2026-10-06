@@ -114,5 +114,30 @@ internal object VehicleMeshCatalog {
         materialParts = mapOf("Black" to MeshPart.BODY),
     )
 
-    val ALL = listOf(BUS, TRAM)
+    /**
+     * Le TER : une rame articulée de trois caisses, **fabriquée par `tool/build_ter_glb.py`**.
+     *
+     * Le pack n'a pas de train régional. Jusqu'ici le TER recopiait `TRAM` — le modèle d'un tram
+     * de 7 m bruts, tiré à 42 m puis élargi : un tram étiré sur six fois sa longueur, au toit
+     * plat, sans pantographe ni bogies à leur place. Ce fichier est tenu à ses cotes réelles, la
+     * mise aux normes n'y déforme donc rien.
+     *
+     * Une rame a une cabine à chaque bout : le sens est sans conséquence visible, le nez est tenu
+     * en +Z comme celui du tram. Les matériaux — `Outside`, `Top`, `Windows`, `Lights`, `Wheels` —
+     * se classent par leur nom, sans déclaration. ⚠️ Ne jamais en ajouter un nommé `Black`,
+     * `Bottom` ni `Detail` : le web range `Black` en vitrage, chaque moteur classe `Bottom`
+     * autrement, et `Detail` est ici du bas de caisse, que les épreuves veulent quasi absent.
+     *
+     * La teinte est celle du tram (la lisibilité prime sur la fidélité de flotte), un ton plus
+     * profond que le bus.
+     */
+    val TER = Model(
+        asset = "ter.glb",
+        dimensions = MeshDimensions(widthMeters = 2.93, heightMeters = 4.18, lengthMeters = 42.0),
+        forwardIsPositiveZ = true,
+        bodyColor = 0x2F9D80,
+    )
+
+    /** ⚠️ L'ordre est celui des index `VehicleScene.MESH_*` : bus, tram, TER. */
+    val ALL = listOf(BUS, TRAM, TER)
 }

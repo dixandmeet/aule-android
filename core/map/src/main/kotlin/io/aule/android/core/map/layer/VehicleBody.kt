@@ -67,7 +67,7 @@ internal object VehicleBody {
         TransportMode.BUS -> Gauge(lengthMeters = 11.0, widthMeters = 2.55, heightMeters = 3.2)
         TransportMode.TRAM -> Gauge(lengthMeters = 28.0, widthMeters = 2.65, heightMeters = 3.35)
         TransportMode.BOAT -> Gauge(lengthMeters = 19.0, widthMeters = 6.0, heightMeters = 3.6)
-        TransportMode.TER -> Gauge(lengthMeters = 42.0, widthMeters = 2.9, heightMeters = 4.0)
+        TransportMode.TER -> Gauge(lengthMeters = 42.0, widthMeters = 2.93, heightMeters = 4.18)
     }
 
     /**

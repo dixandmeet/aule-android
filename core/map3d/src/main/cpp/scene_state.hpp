@@ -12,8 +12,8 @@ namespace aule {
 /// Le plafond d'instances, aligné sur le `MAX_BODIES` de `VehiclesLayer`.
 constexpr uint32_t kMaxPoses = 48;
 
-/// Deux modèles : le bus et le tram. Le navibus garde son volume extrudé.
-constexpr uint32_t kMeshCount = 2;
+/// Trois modèles : le bus, le tram et le TER. Le navibus garde son volume extrudé.
+constexpr uint32_t kMeshCount = 3;
 
 /// Dix flottants par sommet — contrat avec `MeshStandardizer` :
 /// `x y z  nx ny nz  r g b  pièce`.
@@ -244,7 +244,7 @@ private:
     static constexpr unsigned kDirty = 0x4;
 
     std::vector<float> meshes_[kMeshCount];
-    float halfExtent_[kMeshCount][2] = {{0.f, 0.f}, {0.f, 0.f}};
+    float halfExtent_[kMeshCount][2] = {{0.f, 0.f}, {0.f, 0.f}, {0.f, 0.f}};
     std::atomic<bool> meshesChanged_{false};
 
     /// Écrite par le thread principal seul ; copiée dans chaque trame publiée.

@@ -699,7 +699,7 @@ class VehiclesLayer(
     private fun meshIndex(mode: TransportMode): Int? = when (mode) {
         TransportMode.BUS -> MESH_BUS
         TransportMode.TRAM -> MESH_TRAM
-        TransportMode.TER -> MESH_TRAM
+        TransportMode.TER -> MESH_TER
         TransportMode.BOAT -> null
     }
 
@@ -1452,6 +1452,7 @@ class VehiclesLayer(
         /** L'ordre des maillages installés dans la scène native. */
         const val MESH_BUS = VehicleScene.MESH_BUS
         const val MESH_TRAM = VehicleScene.MESH_TRAM
+        const val MESH_TER = VehicleScene.MESH_TER
 
         const val MAX_BODIES = 48
 

@@ -65,6 +65,58 @@ class MeshStandardizerTest {
     }
 
     /**
+     * **Le TER a son propre modèle**, et il est déjà à ses cotes.
+     *
+     * Il recopiait le tram — 7 m bruts, tirés à 42 m — et la mise aux normes le déformait de
+     * tous les côtés. Le fichier fabriqué par `tool/build_ter_glb.py` est tenu à ses mesures
+     * réelles : le facteur d'échelle doit rester voisin de 1, sinon le modèle a été retouché
+     * sans que le catalogue suive.
+     */
+    @Test
+    fun `le TER est mis a ses cotes reelles sans etre etire`() {
+        val model = VehicleMeshCatalog.TER
+        val mesh = load(model)
+        val (minX, maxX) = extent(mesh, 0)
+        val (minY, maxY) = extent(mesh, 1)
+        val (minZ, maxZ) = extent(mesh, 2)
+
+        assertEquals(2.93, (maxX - minX).toDouble(), 1e-3, "largeur")
+        assertEquals(42.0, (maxY - minY).toDouble(), 1e-3, "longueur")
+        assertEquals(4.18, (maxZ - minZ).toDouble(), 1e-3, "hauteur")
+
+        val raw = GlbReader.read(
+            File("src/main/assets/${VehicleMeshCatalog.ASSET_DIR}/${model.asset}").readBytes(),
+        )
+        val xs = raw.flatMap { p -> p.positions.indices.filter { it % 3 == 0 }.map { p.positions[it] } }
+        val ys = raw.flatMap { p -> p.positions.indices.filter { it % 3 == 1 }.map { p.positions[it] } }
+        val zs = raw.flatMap { p -> p.positions.indices.filter { it % 3 == 2 }.map { p.positions[it] } }
+        assertEquals(2.93, (xs.max() - xs.min()).toDouble(), 0.02, "largeur brute : fichier déjà à ses cotes")
+        assertEquals(4.18, (ys.max() - ys.min()).toDouble(), 0.02, "hauteur brute")
+        assertEquals(42.0, (zs.max() - zs.min()).toDouble(), 0.02, "longueur brute")
+    }
+
+    /** Les roues, bogies et pantographe du TER sont du châssis ; les vitres sont du verre. */
+    @Test
+    fun `les pieces du TER se classent par leur nom`() {
+        val primitives = GlbReader.read(
+            File("src/main/assets/${VehicleMeshCatalog.ASSET_DIR}/${VehicleMeshCatalog.TER.asset}").readBytes(),
+        )
+        val byMaterial = primitives.associateBy { it.materialName }
+        assertEquals(
+            setOf("Outside", "Top", "Windows", "Lights", "Wheels"),
+            byMaterial.keys,
+            "les cinq matériaux nommés que les trois moteurs savent classer",
+        )
+        assertEquals(MeshPart.CHASSIS, MeshPalette.part("Wheels", ""))
+        assertEquals(MeshPart.GLASS, MeshPalette.part("Windows", ""))
+        assertEquals(MeshPart.LIGHTS, MeshPalette.part("Lights", ""))
+        assertEquals(MeshPart.BODY, MeshPalette.part("Outside", ""))
+        assertEquals(MeshPart.BODY, MeshPalette.part("Top", ""))
+        // Ni « Black » (le web le range en vitrage), ni « Bottom », ni « Detail » (Android : bas de caisse).
+        assertTrue("Black" !in byMaterial && "Bottom" !in byMaterial && "Detail" !in byMaterial)
+    }
+
+    /**
      * Le modèle est centré en plan et **posé** sur la chaussée, pas dedans.
      *
      * Le décollement n'est pas une coquetterie : à zéro, la semelle et la

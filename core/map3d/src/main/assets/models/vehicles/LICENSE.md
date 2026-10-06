@@ -11,3 +11,9 @@ The `bus.glb`, `tram.glb`, and `car.glb` files are converted from the
 The source pack permits personal and commercial use. The OBJ models were
 converted to binary glTF for this application; geometry was not otherwise
 redistributed from another source.
+
+## ter.glb
+
+`ter.glb` is **not** from the Quaternius pack (which has no regional train). It is an
+original model generated procedurally by `tool/build_ter_glb.py` (an articulated
+three-car regional unit, 42 m), owned by the project, and rebuilt by running that script.

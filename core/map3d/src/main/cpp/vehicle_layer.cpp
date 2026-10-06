@@ -485,7 +485,7 @@ public:
         if (program_ == 0 || shadowProgram_ == 0) return;
         if (state_->consumeMeshesChanged()) uploadMeshes();
         if (!state_->hasAllMeshes()) return;
-        if (buffers_[0] == 0 || buffers_[1] == 0) return;
+        if (!hasAllBuffers()) return;
         state_->setStatus(SceneStatus::Ready);
 
         const Frame* frame = state_->acquire();
@@ -593,19 +593,22 @@ public:
         LOGI("contextLost — objets GL oubliés, maillages conservés");
         program_ = 0;
         shadowProgram_ = 0;
-        buffers_[0] = 0;
-        buffers_[1] = 0;
+        clearBufferNames();
         quadBuffer_ = 0;
         state_->setStatus(SceneStatus::NeedsInit);
     }
 
     void deinitialize() override {
         // Peut être appelée sans `initialize` préalable : la spécification le dit.
-        if (buffers_[0] != 0 || buffers_[1] != 0) glDeleteBuffers(2, buffers_);
+        for (uint32_t i = 0; i < aule::kMeshCount; ++i) {
+            if (buffers_[i] != 0) {
+                glDeleteBuffers(1, &buffers_[i]);
+                buffers_[i] = 0;
+            }
+        }
         if (quadBuffer_ != 0) glDeleteBuffers(1, &quadBuffer_);
         releasePrograms();
-        buffers_[0] = 0;
-        buffers_[1] = 0;
+        clearBufferNames();
         quadBuffer_ = 0;
         state_->setStatus(SceneStatus::NeedsInit);
     }
@@ -618,9 +621,21 @@ private:
         shadowProgram_ = 0;
     }
 
+    /// Un tampon par maillage, tous créés : le rendu n'a pas le droit d'en dessiner un sans.
+    bool hasAllBuffers() const {
+        for (uint32_t i = 0; i < aule::kMeshCount; ++i) {
+            if (buffers_[i] == 0) return false;
+        }
+        return true;
+    }
+
+    void clearBufferNames() {
+        for (uint32_t i = 0; i < aule::kMeshCount; ++i) buffers_[i] = 0;
+    }
+
     void uploadMeshes() {
         if (!state_->hasAllMeshes()) return;
-        if (buffers_[0] == 0) glGenBuffers(2, buffers_);
+        if (buffers_[0] == 0) glGenBuffers(static_cast<GLsizei>(aule::kMeshCount), buffers_);
         for (uint32_t i = 0; i < aule::kMeshCount; ++i) {
             const std::vector<float>& mesh = state_->mesh(i);
             vertexCount_[i] = static_cast<GLsizei>(mesh.size() / aule::kFloatsPerVertex);
@@ -631,7 +646,7 @@ private:
                          GL_STATIC_DRAW);
         }
         glBindBuffer(GL_ARRAY_BUFFER, 0);
-        LOGI("maillages téléversés — %d et %d sommets", vertexCount_[0], vertexCount_[1]);
+        LOGI("maillages téléversés — %d, %d et %d sommets", vertexCount_[0], vertexCount_[1], vertexCount_[2]);
     }
 
     /**
@@ -883,9 +898,9 @@ private:
 
     GLuint program_ = 0;
     GLuint shadowProgram_ = 0;
-    GLuint buffers_[aule::kMeshCount] = {0, 0};
+    GLuint buffers_[aule::kMeshCount] = {0, 0, 0};
     GLuint quadBuffer_ = 0;
-    GLsizei vertexCount_[aule::kMeshCount] = {0, 0};
+    GLsizei vertexCount_[aule::kMeshCount] = {0, 0, 0};
 
     GLint viewProjectionUniform_ = -1;
     GLint modelUniform_ = -1;
