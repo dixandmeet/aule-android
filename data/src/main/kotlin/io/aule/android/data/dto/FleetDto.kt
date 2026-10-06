@@ -7,7 +7,9 @@ import io.aule.android.core.model.FleetSnapshot
 import io.aule.android.core.model.TransportMode
 import io.aule.android.core.model.TransportVehicle
 import io.aule.android.core.model.VehicleCrowding
+import io.aule.android.core.model.VehicleETAQuality
 import io.aule.android.core.model.VehicleFeed
+import io.aule.android.core.model.VehicleStopArrival
 import io.aule.android.core.network.InstantIso8601Serializer
 import java.time.Instant
 import kotlinx.serialization.Serializable
@@ -61,6 +63,12 @@ internal data class VehicleDto(
     val destination: String? = null,
     val nextStop: String? = null,
     val etaSeconds: Double? = null,
+    val etaQuality: String? = null,
+    val courseId: String? = null,
+    val tripMatch: String? = null,
+    @Serializable(with = InstantIso8601Serializer::class)
+    val arrivalComputedAt: Instant? = null,
+    val upcomingStops: List<StopArrivalDto> = emptyList(),
     val twinId: String? = null,
     val occupancy: Double? = null,
     val crowding: VehicleCrowdingDto? = null,
@@ -99,9 +107,39 @@ internal data class VehicleDto(
             nextStop = nextStop,
             etaSeconds = etaSeconds,
             twinId = twinId,
+            etaQuality = when (etaQuality) {
+                "realtime" -> VehicleETAQuality.REALTIME
+                "estimated" -> VehicleETAQuality.ESTIMATED
+                "scheduled" -> VehicleETAQuality.SCHEDULED
+                else -> if (VehicleFeed.fromApiValue(mode) == VehicleFeed.SCHEDULED && etaSeconds != null)
+                    VehicleETAQuality.SCHEDULED else VehicleETAQuality.UNAVAILABLE
+            },
             crowding = crowding?.toDomain(),
             lineKey = normalizeTransitLineKey(lineKey)?.takeIf { ':' in it },
+            courseId = courseId,
+            hasExactCourse = tripMatch == "exact",
+            arrivalComputedAt = arrivalComputedAt,
+            upcomingStops = arrivalComputedAt?.let { date ->
+                upcomingStops.take(20).mapNotNull { it.toDomain(date) }
+            }.orEmpty(),
         )
+    }
+}
+
+@Serializable
+internal data class StopArrivalDto(
+    val stopId: String? = null, val name: String? = null, val sequence: Int? = null,
+    val lat: Double? = null, val lng: Double? = null,
+    val etaSeconds: Double? = null, val uncertaintySeconds: Double? = null,
+) {
+    fun toDomain(computedAt: Instant): VehicleStopArrival? {
+        val id = stopId?.takeIf { it.isNotBlank() } ?: return null
+        val label = name?.takeIf { it.isNotBlank() } ?: return null
+        val rank = sequence?.takeIf { it >= 0 } ?: return null
+        val point = Coordinate(lat ?: return null, lng ?: return null).takeIf { it.isValid } ?: return null
+        val eta = etaSeconds?.takeIf { it.isFinite() && it >= 0 && it <= 86400 } ?: return null
+        val uncertainty = uncertaintySeconds?.takeIf { it.isFinite() && it >= 0 } ?: return null
+        return VehicleStopArrival(id, label, rank, point, computedAt.plusMillis((eta * 1000).toLong()), uncertainty)
     }
 }
 

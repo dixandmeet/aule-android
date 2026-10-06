@@ -25,6 +25,7 @@ import okhttp3.Response
 data class RawHttpResponse(
     val code: Int,
     val body: String,
+    val retryAfter: String? = null,
 )
 
 data class RawHttpBytes(
@@ -250,7 +251,7 @@ class AuleHttpClient(
             throw ApiException.Transport(failure)
         }
         response.use {
-            return RawHttpResponse(code = it.code, body = it.body.string())
+            return RawHttpResponse(code = it.code, body = it.body.string(), retryAfter = it.header("Retry-After"))
         }
     }
 
@@ -285,15 +286,15 @@ class AuleHttpClient(
         // un portail Wi-Fi, un relais local) `string()` lit la socket, et Android lève
         // `NetworkOnMainThreadException` : flotte et itinéraires « indisponibles », partout.
         // Relevé le 29/09/2026 derrière un relais HTTP/1.1.
-        val (status, body) = withContext(Dispatchers.IO) {
-            response.use { it.code to it.body.string() }
+        val (status, body, retryAfter) = withContext(Dispatchers.IO) {
+            response.use { Triple(it.code, it.body.string(), it.header("Retry-After")) }
         }
         when (status) {
             in 200..299 -> return body
             404 -> throw ApiException.NotFound(serverMessage(body))
-            502, 503, 504 -> throw ApiException.UpstreamUnavailable(status)
-            in 400..499 -> throw ApiException.BadRequest(status, serverMessage(body))
-            else -> throw ApiException.Server(status)
+            502, 503, 504 -> throw ApiException.UpstreamUnavailable(status, retryAfter)
+            in 400..499 -> throw ApiException.BadRequest(status, serverMessage(body), retryAfter)
+            else -> throw ApiException.Server(status, retryAfter)
         }
     }
 

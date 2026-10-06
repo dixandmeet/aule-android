@@ -31,6 +31,25 @@ class TransportVehicleTest {
     )
 
     @Test
+    fun `la date de mesure gouverne la fraicheur sans rajeunissement au sondage`() {
+        val now = Instant.parse("2026-10-03T18:00:00Z")
+        assertTrue(vehicle(updatedAt = now.minusSeconds(60)).hasCurrentPosition(now))
+        assertFalse(vehicle(updatedAt = now.minusSeconds(61)).hasCurrentPosition(now))
+        assertFalse(vehicle(updatedAt = now.plusSeconds(6)).hasCurrentPosition(now))
+        assertFalse(vehicle().hasCurrentPosition(now))
+        assertFalse(vehicle(updatedAt = now, feed = VehicleFeed.SCHEDULED).hasCurrentPosition(now))
+        assertTrue(vehicle(updatedAt = now.minusSeconds(90)).hasCurrentPosition(now, 120))
+    }
+
+    @Test
+    fun `une mesure GPS ne prouve pas une ETA temps reel`() {
+        val bus = vehicle().copy(nextStop = "Commerce", etaSeconds = 30.0)
+        assertFalse(bus.hasRealtimeETA)
+        assertFalse(bus.copy(etaQuality = VehicleETAQuality.SCHEDULED).hasRealtimeETA)
+        assertTrue(bus.copy(etaQuality = VehicleETAQuality.REALTIME).hasRealtimeETA)
+    }
+
+    @Test
     fun `les paliers de remplissage suivent les seuils annonces`() {
         assertEquals(VehicleLoad.QUIET, vehicle(occupancy = 0.0).load)
         assertEquals(VehicleLoad.QUIET, vehicle(occupancy = 0.34).load)

@@ -16,6 +16,7 @@ package io.aule.android.core.network
 sealed class ApiException(
     message: String,
     cause: Throwable? = null,
+    val retryAfter: String? = null,
 ) : Exception(message, cause) {
 
     /** 404 — la ressource existe, elle n'a simplement rien à dire maintenant. */
@@ -23,15 +24,15 @@ sealed class ApiException(
         ApiException(serverMessage ?: "Aucune donnée pour cette demande.")
 
     /** 502/503/504 — un fournisseur en amont est muet. */
-    class UpstreamUnavailable(val status: Int) :
-        ApiException("Le service de transport ne répond pas (HTTP $status).")
+    class UpstreamUnavailable(val status: Int, retryAfter: String? = null) :
+        ApiException("Le service de transport ne répond pas (HTTP $status).", retryAfter = retryAfter)
 
     /** 4xx autre que 404 — la requête est fautive. Un défaut du client, pas un incident réseau. */
-    class BadRequest(val status: Int, val serverMessage: String? = null) :
-        ApiException(serverMessage ?: "Requête invalide (HTTP $status).")
+    class BadRequest(val status: Int, val serverMessage: String? = null, retryAfter: String? = null) :
+        ApiException(serverMessage ?: "Requête invalide (HTTP $status).", retryAfter = retryAfter)
 
-    class Server(val status: Int) :
-        ApiException("Le serveur a répondu $status.")
+    class Server(val status: Int, retryAfter: String? = null) :
+        ApiException("Le serveur a répondu $status.", retryAfter = retryAfter)
 
     class Transport(cause: Throwable) :
         ApiException("Connexion impossible : ${cause.message}", cause)

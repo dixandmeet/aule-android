@@ -77,6 +77,45 @@ class BffRepositoryTest {
     // ------------------------------------------------------------------ flotte
 
     @Test
+    fun `les dessertes exactes utilisent la date de calcul pas la mesure GPS`() = runTest {
+        respond("""{"vehicles":[{"id":"bus","type":"bus","mode":"live","lat":47.2,"lng":-1.5,
+            "routeId":"C6","etaQuality":"estimated","courseId":"course","tripMatch":"exact",
+            "recordedAt":"2026-10-03T17:59:40Z","arrivalComputedAt":"2026-10-03T18:00:00Z",
+            "upcomingStops":[{"stopId":"FOCH","name":"Foch","sequence":2,"lat":47.22,"lng":-1.55,"etaSeconds":300,"uncertaintySeconds":60},
+            {"stopId":"invalid","lat":91,"lng":0,"etaSeconds":300}]}]}""")
+        val vehicle = AuleVehicleRepository(endpoints, client, clock)
+            .vehicles(Coordinate.NANTES, radiusMeters = 1000.0, limit = 10).vehicles.first()
+        assertTrue(vehicle.hasExactCourse)
+        assertEquals("course", vehicle.courseId)
+        assertEquals(1, vehicle.upcomingStops.size)
+        assertEquals(Instant.parse("2026-10-03T18:05:00Z"), vehicle.upcomingStops.first().expectedAt)
+    }
+
+    @Test
+    fun `une ETA horaire sur un GPS conserve sa qualite distincte`() = runTest {
+        respond("""{"vehicles":[{"id":"bus","type":"bus","mode":"live","lat":47.2,"lng":-1.5,
+            "routeId":"C6","nextStop":"Commerce","etaSeconds":30,"etaQuality":"scheduled"}],
+            "degraded":"scheduled"}""")
+        val snapshot = AuleVehicleRepository(endpoints, client, clock)
+            .vehicles(Coordinate.NANTES, radiusMeters = 1000.0, limit = 10)
+        val vehicle = assertNotNull(snapshot.vehicles.firstOrNull())
+        assertEquals(io.aule.android.core.model.VehicleETAQuality.SCHEDULED, vehicle.etaQuality)
+        assertTrue(vehicle.isLive)
+        assertEquals(false, vehicle.hasRealtimeETA)
+        assertEquals("scheduled", snapshot.degraded)
+    }
+
+    @Test
+    fun `un ancien BFF ne transforme pas une ETA sur GPS en temps reel`() = runTest {
+        respond("""{"vehicles":[{"id":"bus","type":"bus","mode":"live","lat":47.2,"lng":-1.5,
+            "routeId":"C6","nextStop":"Commerce","etaSeconds":30}]}""")
+        val vehicle = AuleVehicleRepository(endpoints, client, clock)
+            .vehicles(Coordinate.NANTES, radiusMeters = 1000.0, limit = 10).vehicles.first()
+        assertEquals(io.aule.android.core.model.VehicleETAQuality.UNAVAILABLE, vehicle.etaQuality)
+        assertEquals(false, vehicle.hasRealtimeETA)
+    }
+
+    @Test
     fun `une reponse reelle de la flotte se decode entierement`() = runTest {
         respond(fixture("vehicles.json"))
         val repository = AuleVehicleRepository(endpoints, client, clock)

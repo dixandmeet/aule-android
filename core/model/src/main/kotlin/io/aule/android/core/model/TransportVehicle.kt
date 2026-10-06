@@ -32,6 +32,14 @@ enum class VehicleFeed {
  * l'interpolation possible. Un véhicule qui ne connaîtrait que sa position
  * sauterait d'un point au suivant toutes les quinze secondes.
  */
+enum class VehicleETAQuality { REALTIME, ESTIMATED, SCHEDULED, UNAVAILABLE }
+
+/** Desserte exacte fournie par le serveur ; l'heure reste une prévision. */
+data class VehicleStopArrival(
+    val stopId: String, val name: String, val sequence: Int,
+    val coordinate: Coordinate, val expectedAt: Instant, val uncertaintySeconds: Double,
+)
+
 data class TransportVehicle(
     val id: String,
     val mode: TransportMode,
@@ -106,8 +114,20 @@ data class TransportVehicle(
      * l'envoie pas (la production rend encore le `route_id` brut).
      */
     val lineKey: String? = null,
+    val etaQuality: VehicleETAQuality = VehicleETAQuality.UNAVAILABLE,
+    val courseId: String? = null,
+    val hasExactCourse: Boolean = false,
+    val arrivalComputedAt: Instant? = null,
+    val upcomingStops: List<VehicleStopArrival> = emptyList(),
 ) {
     val isLive: Boolean get() = feed == VehicleFeed.LIVE
+    val hasRealtimeETA: Boolean get() = etaQuality == VehicleETAQuality.REALTIME && etaSeconds != null
+
+    fun hasCurrentPosition(at: Instant, maxAgeSeconds: Long = 60): Boolean {
+        val measuredAt = updatedAt ?: return false
+        val age = Duration.between(measuredAt, at).toMillis()
+        return isLive && age >= -5_000 && age <= maxAgeSeconds * 1_000
+    }
 
     /**
      * Ce qui désigne **la course**, par-dessus l'instantané.
